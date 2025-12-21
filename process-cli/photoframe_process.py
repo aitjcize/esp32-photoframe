@@ -186,14 +186,14 @@ def apply_brightness_fstop(image, fstop):
     brightened = np.clip(brightened, 0, 255)
     return brightened.astype(np.uint8)
 
-def process_image(input_path, output_bmp, output_thumb, brightness_fstop=0.0, contrast=1.2,
+def process_image(input_path, output_bmp, output_thumb, brightness_fstop=0.0, contrast=1.1,
                  use_measured_palette=True, render_measured_palette=False):
     """
     Process image using ESP32 pipeline with measured color palette.
     
     Args:
         brightness_fstop: Brightness adjustment in f-stops (default: 0.0)
-        contrast: Contrast multiplier (default: 1.2)
+        contrast: Contrast multiplier (default: 1.1)
         use_measured_palette: Use measured colors for dithering (default: True)
         render_measured_palette: Render BMP with measured colors for preview (default: False)
     """
@@ -277,7 +277,7 @@ Examples:
     parser.add_argument('input', help='Input JPEG image')
     parser.add_argument('-o', '--output-dir', default='.', help='Output directory (default: current directory)')
     parser.add_argument('-b', '--brightness', type=float, default=0.0, help='Brightness f-stop (default: 0.0)')
-    parser.add_argument('-c', '--contrast', type=float, default=1.2, help='Contrast multiplier (default: 1.2)')
+    parser.add_argument('-c', '--contrast', type=float, default=1.1, help='Contrast multiplier (default: 1.1)')
     parser.add_argument('--no-measured-palette', dest='measured_palette', action='store_false', default=True,
                        help='Use theoretical color palette instead of measured (default: measured palette)')
     parser.add_argument('--render-measured', action='store_true',

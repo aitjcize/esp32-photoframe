@@ -32,7 +32,7 @@ Our firmware uses a **measured color palette** for superior image rendering comp
 
 - ✅ **Accurate Color Matching**: Uses actual measured e-paper colors (e.g., white is really RGB 179,182,171 not 255,255,255)
 - ✅ **Better Dithering**: Floyd-Steinberg algorithm with measured palette produces more natural color transitions
-- ✅ **Optimized Contrast**: Default 1.2× contrast with neutral brightness preserves image tonality
+- ✅ **Optimized Contrast**: Default 1.1× contrast with neutral brightness preserves image tonality
 - ✅ **No Over-Saturation**: Avoids the washed-out appearance of theoretical palette matching
 
 The measured palette accounts for the fact that e-paper displays show darker, more muted colors than pure RGB values. By dithering with these actual colors, the firmware makes better decisions about which palette color to use for each pixel, resulting in images that look significantly better on the physical display.
@@ -236,7 +236,7 @@ Edit `main/config.h` to customize:
 #define DISPLAY_WIDTH               800    // E-paper width
 #define DISPLAY_HEIGHT              480    // E-paper height
 #define DEFAULT_BRIGHTNESS_FSTOP    0.0    // Default brightness adjustment in f-stops
-#define DEFAULT_CONTRAST            1.2    // Default contrast multiplier (1.0 = no change)
+#define DEFAULT_CONTRAST            1.1    // Default contrast multiplier (1.0 = no change)
 ```
 
 ## Image Format

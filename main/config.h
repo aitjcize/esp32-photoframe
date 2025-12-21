@@ -21,8 +21,9 @@
 
 #define AUTO_SLEEP_TIMEOUT_SEC 120
 #define IMAGE_ROTATE_INTERVAL_SEC 3600
-#define DEFAULT_BRIGHTNESS_FSTOP 0.0  // Default brightness adjustment in f-stops
-#define DEFAULT_CONTRAST 1.2          // Default contrast multiplier (1.0 = no change)
+#define DEFAULT_BRIGHTNESS_FSTOP \
+    0.0  // Default brightness adjustment in f-stops (neutral with measured palette)
+#define DEFAULT_CONTRAST 1.1  // Default contrast multiplier (1.0 = no change)
 
 #define NVS_NAMESPACE "photoframe"
 #define NVS_WIFI_SSID_KEY "wifi_ssid"
