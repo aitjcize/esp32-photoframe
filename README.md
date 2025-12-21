@@ -39,74 +39,26 @@ Our firmware uses a **measured color palette** for superior image rendering comp
 
 - ✅ **Accurate Color Matching**: Uses actual measured e-paper colors
 - ✅ **Better Dithering**: Floyd-Steinberg algorithm with measured palette produces more natural color transitions
-- ✅ **Optimized Contrast**: Default 1.1× contrast with neutral brightness preserves image tonality
 - ✅ **No Over-Saturation**: Avoids the washed-out appearance of theoretical palette matching
 
 The measured palette accounts for the fact that e-paper displays show darker, more muted colors than pure RGB values. By dithering with these actual colors, the firmware makes better decisions about which palette color to use for each pixel, resulting in images that look significantly better on the physical display.
 
 📖 **[Read the technical deep-dive on measured color palettes →](docs/MEASURED_PALETTE.md)**
 
-## Why This Firmware?
+## Power Management
 
-This custom firmware is **better than the stock firmware** because it offers:
-
-- ✅ **Modern Web Interface**: Real-time image preview with S-curve tone mapping
-- **🎨 [Try Our Demo](https://aitjcize.github.io/esp32-photoframe/)**: Test the enhanced image processing algorithm in your browser before flashing!
-- **RESTful API**: Complete HTTP API for image management and device control
-- **Web Interface**: Modern, responsive web UI for easy management
-- **Smart Image Processing**: Automatic JPEG processing with rotation and BMP conversion before upload
-- ✅ **S-Curve Tone Mapping**: Professional tone mapping with adjustable shadow/highlight control
-- ✅ **Real-Time Preview**: See exactly how images will look on e-paper before uploading
-- ✅ **JPEG Thumbnails**: Fast-loading gallery with original orientation preserved
-- ✅ **Intelligent Power Management**: Auto-sleep with HTTP activity detection
-
-## Features
-
-### Image Management
-- **Drag & Drop Upload**: Simply drag JPEG files into the browser
-- **Real-Time Preview**: See processed image with measured palette simulation before upload
-- **S-Curve Tone Mapping**: Adjustable strength, shadow boost, highlight compression, and midpoint
-- **Saturation Control**: Fine-tune color vibrancy (0.5-2.0x)
-- **Color Matching Methods**: Choose between Simple RGB or LAB color space for dithering
-- **Smart Resizing**: Client-side scaling to exact display dimensions (800×480 or 480×800)
-- **Portrait Detection**: Automatically rotates portrait images for landscape display
-- **Thumbnail Gallery**: Fast-loading JPEG thumbnails in original orientation
-- **Floyd-Steinberg Dithering**: Professional 7-color palette conversion with measured color palette
-
-### Web Interface
-- **Responsive Design**: Works on desktop and mobile browsers
-- **Live Preview Canvas**: Real-time rendering with measured palette simulation
-- **S-Curve Visualization**: Interactive graph showing tone mapping curve
-- **Parameter Controls**: Sliders for all processing parameters with live updates
-- **Standalone Mode**: Works offline for testing (serve with any HTTP server)
-
-### Power Management
-- **Smart Auto-Sleep**: 2-minute timeout with HTTP activity detection
-- **Boot Button Wake**: Press to wake and access web interface
-- **Sleep Timer Reset**: Any web interaction keeps device awake
+- **Smart Auto-Sleep**: Device sleeps after 2 minutes of inactivity to preserve battery
+- **HTTP Activity Detection**: Any web interaction automatically resets the sleep timer
+- **Boot Button Wake**: Press the boot button to wake the device and access the web interface
 
 ## Hardware
 
-**Device**: Waveshare ESP32-S3-PhotoPainter
-
-**Specifications**:
-- **MCU**: ESP32-S3-WROOM-1-N16R8 (16MB Flash, 8MB PSRAM)
-- **Display**: 7.3" ACeP 7-Color E-Paper (800×480 pixels)
-- **Colors**: Black, White, Red, Yellow, Blue, Green, Orange
-- **Storage**: MicroSD card slot (supports up to 32GB, FAT32)
-- **Power**: AXP2101 PMU, rechargeable battery support
-- **Connectivity**: WiFi 802.11 b/g/n (2.4GHz), WPA3-SAE
+This firmware is designed for the **[Waveshare ESP32-S3-PhotoPainter](https://www.waveshare.com/wiki/ESP32-S3-PhotoPainter)**.
 
 **Requirements**:
 - MicroSD card (formatted as FAT32)
 - WiFi network (2.4GHz)
 - USB-C cable for programming
-
-## Software Requirements
-
-- ESP-IDF v5.0 or later
-- Python 3.7+ (for build tools)
-- ESP Component Manager (comes with ESP-IDF)
 
 ## Installation
 
@@ -140,44 +92,9 @@ Download the latest prebuilt firmware from the [GitHub Releases](https://github.
 
 Replace `/dev/ttyUSB0` with your serial port (e.g., `/dev/cu.usbserial-*` on macOS, `COM3` on Windows).
 
-### Option 3: Build from Source
+---
 
-#### 1. Set up ESP-IDF
-
-```bash
-# Source the ESP-IDF environment
-cd <path to esp-idf>
-. ./export.sh
-```
-
-#### 2. Configure the Project
-
-```bash
-cd <path to photoframe-api>
-
-# Set target to ESP32-S3
-idf.py set-target esp32s3
-
-# Configure project (optional - defaults should work)
-idf.py menuconfig
-```
-
-#### 3. Build and Flash
-
-The project uses ESP Component Manager to automatically download the `esp_jpeg` component during the first build.
-
-```bash
-# Build the project (will download esp_jpeg on first build)
-idf.py build
-
-# Flash to device (replace PORT with your serial port, e.g., /dev/cu.usbserial-*)
-idf.py -p PORT flash
-
-# Monitor output
-idf.py -p PORT monitor
-```
-
-**Note:** On the first build, ESP-IDF will automatically download the `esp_jpeg` component from the component registry. This requires an internet connection.
+**For developers:** See **[DEV.md](docs/DEV.md)** for build-from-source instructions and configuration options.
 
 ## Initial Setup
 
@@ -236,62 +153,6 @@ Key endpoints:
 - `GET /api/config` - Get/set configuration (rotation, brightness, contrast)
 - `GET /api/battery` - Get battery status
 
-### Power Management
-
-- **Auto Sleep**: Device enters deep sleep after 2 minutes of inactivity
-- **HTTP Activity Detection**: Sleep timer resets on any web interface interaction
-- **Wake Up**: Press the boot button (GPIO 0) to wake the device
-- **Manual Sleep**: Press the power button (GPIO 5) to immediately enter sleep mode
-- **Watchdog Protection**: Prevents crashes during long display operations (40s timeout)
-
-## Configuration Options
-
-Edit `main/config.h` to customize:
-
-```c
-#define AUTO_SLEEP_TIMEOUT_SEC      120    // Auto-sleep timeout (2 minutes)
-#define IMAGE_ROTATE_INTERVAL_SEC   3600   // Default rotation interval (1 hour)
-#define DISPLAY_WIDTH               800    // E-paper width
-#define DISPLAY_HEIGHT              480    // E-paper height
-```
-
-## Image Format
-
-### Supported Input
-- **Upload**: JPG/JPEG files (any size, automatically resized to fit display)
-- **Direct**: Pre-converted BMP files (800x480, 24-bit RGB)
-
-### Processing Pipeline
-
-**Client-Side (Browser)**:
-1. **Image Loading**: Load JPEG into canvas
-2. **Processing Mode Selection**:
-   - **Enhanced** (default): S-curve tone mapping + saturation adjustment + measured palette dithering
-     - Saturation: HSL-based adjustment (default: 1.2x)
-     - S-Curve: Professional tone mapping (strength: 0.9, shadow: 0.0, highlight: 1.7, midpoint: 0.5)
-     - Dithering: Measured palette for accurate error diffusion
-   - **Stock**: Simple Floyd-Steinberg dithering with theoretical palette (Waveshare original algorithm)
-3. **Real-Time Preview**: Display with measured palette simulation
-6. **Cover Mode Scaling**: Scale to fill exact display dimensions
-   - Landscape: 800×480 pixels
-   - Portrait: 480×800 pixels
-7. **JPEG Compression**: Compress processed image to 0.9 quality
-8. **Upload**: Send to server
-
-**Server-Side (ESP32)**:
-1. **JPEG Decoding**: Hardware-accelerated esp_jpeg decoder
-2. **Portrait Rotation**: Rotate 90° clockwise if portrait (for display)
-3. **Resize**: Scale to 800×480 if needed
-4. **BMP Output**: Save as 800×480 BMP with theoretical palette for display
-5. **Thumbnail**: Keep original JPEG (480×800 or 800×480) for gallery
-
-**Note**: All image processing (tone mapping, saturation, dithering) now happens in the browser before upload. The ESP32 only handles rotation and BMP conversion.
-
-### Output Format
-- **Display**: BMP, 800x480 pixels, 7-color palette
-- **Colors**: Black, White, Yellow, Red, Blue, Green
-- **Dithering**: Floyd-Steinberg algorithm for best quality
-
 ## Troubleshooting
 
 ### WiFi Provisioning Issues
@@ -319,11 +180,6 @@ Edit `main/config.h` to customize:
 - Monitor serial output for specific error messages
 - If upload succeeds but conversion fails, check SD card space
 
-### Display Not Updating
-- Check e-paper connections
-- Verify image file exists on SD card
-- Check serial monitor for error messages
-
 ## Offline Image Processing
 
 Use the Node.js CLI tool to process images offline with the same pipeline as the webapp:
@@ -346,11 +202,6 @@ node cli.js input.jpg --render-measured -o preview/
 - `photo.bmp` - Processed image for e-paper display (theoretical palette)
 - `photo.jpg` - Thumbnail for web interface
 
-**Key Features:**
-- Shares the same `image-processor.js` code with the webapp
-- Identical S-curve tone mapping, saturation, and dithering algorithms
-- `--render-measured` option to preview actual e-paper appearance
-
 See **[process-cli/README.md](process-cli/README.md)** for detailed usage.
 
 ## License
@@ -362,11 +213,3 @@ This project is based on the ESP32-S3-PhotoPainter sample code. Please refer to 
 - Original PhotoPainter sample: Waveshare ESP32-S3-PhotoPainter
 - E-paper drivers: Waveshare
 - ESP-IDF: Espressif Systems
-
-## Support
-
-For issues and questions:
-1. Check the troubleshooting section
-2. Review serial monitor output for error messages
-3. Verify hardware connections
-4. Ensure ESP-IDF version compatibility

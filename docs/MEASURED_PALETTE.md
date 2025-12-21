@@ -166,28 +166,6 @@ If we wrote measured colors to the BMP, the firmware wouldn't recognize them. So
 2. Write theoretical palette to **BMP for firmware compatibility**
 3. Get **best of both worlds**: smart algorithm + compatible output
 
-## Reduced Contrast Requirement
-
-An additional benefit of the measured palette is that **less contrast enhancement is needed**.
-
-### Why?
-
-With theoretical palette:
-- Algorithm underestimates how dark colors will appear
-- Images look washed out
-- Heavy contrast boost (1.3-1.5×) needed to compensate
-
-With measured palette:
-- Algorithm accurately predicts display output
-- Natural tonal distribution is preserved
-- Minimal contrast boost (1.1×) produces excellent results
-
-**Default settings:**
-- **Brightness**: 0.0 f-stop (neutral)
-- **Contrast**: 1.1× (subtle enhancement)
-
-These gentle adjustments preserve image tonality while the measured palette ensures accurate color reproduction.
-
 ## S-Curve Tone Mapping: Addressing E-Paper's Limited Dynamic Range
 
 While the measured palette solves the color accuracy problem, e-paper displays face another fundamental challenge: **limited dynamic range**.
@@ -291,7 +269,7 @@ Our firmware uses these carefully tuned defaults:
 - **Midpoint**: 0.5 (balanced shadow/highlight split)
 - **Saturation**: 1.2 (slightly more vibrant to compensate for muted e-paper colors)
 
-These parameters are adjustable in real-time through the web interface, allowing fine-tuning for different image types.
+These parameters are adjustable through the web interface, allowing fine-tuning for different image types.
 
 ### Impact on Image Quality
 
@@ -374,7 +352,7 @@ The measured palette approach delivers:
 
 - ✅ **30-70% more accurate color matching** (based on measured RGB differences)
 - ✅ **Better dithering patterns** through correct error diffusion
-- ✅ **Natural tonality** with minimal contrast adjustment (1.1× vs 1.3-1.5×)
+- ✅ **Natural tonality** preserved through accurate color prediction
 - ✅ **No washed-out appearance** from palette mismatch
 - ✅ **Preserved detail** in shadows and highlights
 
