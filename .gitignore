@@ -6,3 +6,4 @@ sdkconfig.old
 dependencies.lock
 managed_components/
 .cache
+node_modules

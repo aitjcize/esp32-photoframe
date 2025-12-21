@@ -478,12 +478,14 @@ UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
 	
     UDOUBLE Image_Byte = bmpInfoHeader.biWidth * bmpInfoHeader.biHeight * 3;
 
-    UBYTE *Image = (UBYTE *)heap_caps_malloc(Image_Byte * sizeof(uint8_t), MALLOC_CAP_SPIRAM);    
     int readbyte = bmpInfoHeader.biBitCount;
     if(readbyte != 24){
         ESP_LOGE(TAG,"Bmp image is not 24 bitmap!");
-        return 0;
+        fclose(fp);
+        return 1;
     }
+    
+    UBYTE *Image = (UBYTE *)heap_caps_malloc(Image_Byte * sizeof(uint8_t), MALLOC_CAP_SPIRAM);
     UWORD x, y;
     UBYTE Rdata[3];
     fseek(fp, bmpFileHeader.bOffset, SEEK_SET);

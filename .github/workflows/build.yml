@@ -125,6 +125,12 @@ jobs:
         # Copy merged firmware to docs for GitHub Pages hosting
         cp firmware/photoframe-firmware-merged.bin docs/
         
+        # Copy image-processor.js for demo page
+        cp process-cli/image-processor.js docs/
+        
+        # Copy sample image for demo page
+        cp .img/sample.jpg docs/
+        
         # Get version from tag or use 'latest'
         if [[ "${{ github.ref }}" == refs/tags/* ]]; then
           VERSION="${GITHUB_REF#refs/tags/}"

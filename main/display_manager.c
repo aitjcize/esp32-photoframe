@@ -25,8 +25,6 @@ static int rotate_interval = IMAGE_ROTATE_INTERVAL_SEC;
 static bool auto_rotate_enabled = false;
 static char current_image[64] = {0};
 static int auto_rotate_index = 0;
-static float brightness_fstop = DEFAULT_BRIGHTNESS_FSTOP;
-static float contrast = DEFAULT_CONTRAST;
 
 static uint8_t *epd_image_buffer = NULL;
 static uint32_t image_buffer_size;
@@ -73,20 +71,6 @@ esp_err_t display_manager_init(void)
         if (nvs_get_i32(nvs_handle, NVS_AUTO_ROTATE_INDEX_KEY, &stored_index) == ESP_OK) {
             auto_rotate_index = stored_index;
             ESP_LOGI(TAG, "Loaded auto-rotate index from NVS: %d", auto_rotate_index);
-        }
-
-        // Load brightness f-stop setting
-        int32_t stored_fstop_int = (int32_t) (DEFAULT_BRIGHTNESS_FSTOP * 100);
-        if (nvs_get_i32(nvs_handle, NVS_BRIGHTNESS_FSTOP_KEY, &stored_fstop_int) == ESP_OK) {
-            brightness_fstop = stored_fstop_int / 100.0f;
-            ESP_LOGI(TAG, "Loaded brightness f-stop from NVS: %.2f", brightness_fstop);
-        }
-
-        // Load contrast setting
-        int32_t stored_contrast_int = (int32_t) (DEFAULT_CONTRAST * 100);
-        if (nvs_get_i32(nvs_handle, NVS_CONTRAST_KEY, &stored_contrast_int) == ESP_OK) {
-            contrast = stored_contrast_int / 100.0f;
-            ESP_LOGI(TAG, "Loaded contrast from NVS: %.2f", contrast);
         }
 
         nvs_close(nvs_handle);
@@ -299,46 +283,4 @@ void display_manager_handle_timer_wakeup(void)
     free(image_list);
 
     ESP_LOGI(TAG, "Auto-rotate complete, next index: %d", auto_rotate_index);
-}
-
-void display_manager_set_brightness_fstop(float fstop)
-{
-    brightness_fstop = fstop;
-
-    nvs_handle_t nvs_handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-        // Store as integer (multiply by 100 to preserve 2 decimal places)
-        int32_t fstop_int = (int32_t) (fstop * 100);
-        nvs_set_i32(nvs_handle, NVS_BRIGHTNESS_FSTOP_KEY, fstop_int);
-        nvs_commit(nvs_handle);
-        nvs_close(nvs_handle);
-    }
-
-    ESP_LOGI(TAG, "Brightness f-stop set to %.2f", fstop);
-}
-
-float display_manager_get_brightness_fstop(void)
-{
-    return brightness_fstop;
-}
-
-void display_manager_set_contrast(float new_contrast)
-{
-    contrast = new_contrast;
-
-    nvs_handle_t nvs_handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-        // Store as integer (multiply by 100 to preserve 2 decimal places)
-        int32_t contrast_int = (int32_t) (new_contrast * 100);
-        nvs_set_i32(nvs_handle, NVS_CONTRAST_KEY, contrast_int);
-        nvs_commit(nvs_handle);
-        nvs_close(nvs_handle);
-    }
-
-    ESP_LOGI(TAG, "Contrast set to %.2f", new_contrast);
-}
-
-float display_manager_get_contrast(void)
-{
-    return contrast;
 }

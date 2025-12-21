@@ -10,27 +10,34 @@ A modern, feature-rich firmware for the **Waveshare ESP32-S3-PhotoPainter** that
 
 Our firmware uses a **measured color palette** for superior image rendering compared to the stock firmware. The images below show simulated results of what you'll see on the actual e-paper display:
 
+> **⚠️ Note**: The stock algorithm may look acceptable on computer displays, but when flashed onto the actual e-paper device, the colors appear washed out and the image quality is significantly degraded. This is because the stock algorithm uses theoretical RGB values that don't match the physical characteristics of the e-paper display. Our enhanced algorithm with measured palette produces images that look much better on the actual device.
+
+**🎨 [Try the Interactive Demo](https://aitjcize.github.io/esp32-photoframe/)** - Drag the slider to compare algorithms in real-time with your own images!
+
 <table>
 <tr>
 <td align="center"><b>Original Image</b></td>
-<td align="center"><b>Stock Algorithm</b></td>
-<td align="center"><b>Our Algorithm</b></td>
+<td align="center"><b>Stock Algorithm<br/>(on computer)</b></td>
+<td align="center"><b>Stock Algorithm<br/>(on device)</b></td>
+<td align="center"><b>Our Algorithm<br/>(on device)</b></td>
 </tr>
 <tr>
-<td><a href="https://github.com/aitjcize/esp32-photoframe/raw/refs/heads/main/.img/sample.jpg"><img src=".img/sample.jpg" width="250"/></a></td>
-<td><a href="https://github.com/aitjcize/esp32-photoframe/raw/refs/heads/main/.img/stock_algorithm.bmp"><img src=".img/stock_algorithm.bmp" width="250"/></a></td>
-<td><a href="https://github.com/aitjcize/esp32-photoframe/raw/refs/heads/main/.img/our_algorithm.bmp"><img src=".img/our_algorithm.bmp" width="250"/></a></td>
+<td><a href="https://github.com/aitjcize/esp32-photoframe/raw/refs/heads/main/.img/sample.jpg"><img src=".img/sample.jpg" width="200"/></a></td>
+<td><a href="https://github.com/aitjcize/esp32-photoframe/raw/refs/heads/main/.img/stock_algorithm_on_computer.bmp"><img src=".img/stock_algorithm_on_computer.bmp" width="200"/></a></td>
+<td><a href="https://github.com/aitjcize/esp32-photoframe/raw/refs/heads/main/.img/stock_algorithm.bmp"><img src=".img/stock_algorithm.bmp" width="200"/></a></td>
+<td><a href="https://github.com/aitjcize/esp32-photoframe/raw/refs/heads/main/.img/our_algorithm.bmp"><img src=".img/our_algorithm.bmp" width="200"/></a></td>
 </tr>
 <tr>
 <td align="center">Source JPEG</td>
-<td align="center">Theoretical palette<br/>(washed out colors)</td>
+<td align="center">Theoretical palette<br/>(looks OK on screen)</td>
+<td align="center">Theoretical palette<br/>(washed out on device)</td>
 <td align="center">Measured palette<br/>(accurate colors)</td>
 </tr>
 </table>
 
 **Why Our Algorithm is Better:**
 
-- ✅ **Accurate Color Matching**: Uses actual measured e-paper colors (e.g., white is really RGB 179,182,171 not 255,255,255)
+- ✅ **Accurate Color Matching**: Uses actual measured e-paper colors
 - ✅ **Better Dithering**: Floyd-Steinberg algorithm with measured palette produces more natural color transitions
 - ✅ **Optimized Contrast**: Default 1.1× contrast with neutral brightness preserves image tonality
 - ✅ **No Over-Saturation**: Avoids the washed-out appearance of theoretical palette matching
@@ -43,26 +50,35 @@ The measured palette accounts for the fact that e-paper displays show darker, mo
 
 This custom firmware is **better than the stock firmware** because it offers:
 
-- ✅ **Modern Web Interface**: Drag-and-drop image uploads, thumbnail previews, real-time status
-- ✅ **RESTful API**: Complete programmatic control for automation and integration
-- ✅ **Smart Image Processing**: Automatic portrait rotation, cover-mode scaling, brightness adjustment
+- ✅ **Modern Web Interface**: Real-time image preview with S-curve tone mapping
+- **🎨 [Try Our Demo](https://aitjcize.github.io/esp32-photoframe/)**: Test the enhanced image processing algorithm in your browser before flashing!
+- **RESTful API**: Complete HTTP API for image management and device control
+- **Web Interface**: Modern, responsive web UI for easy management
+- **Smart Image Processing**: Automatic JPEG processing with rotation and BMP conversion before upload
+- ✅ **S-Curve Tone Mapping**: Professional tone mapping with adjustable shadow/highlight control
+- ✅ **Real-Time Preview**: See exactly how images will look on e-paper before uploading
 - ✅ **JPEG Thumbnails**: Fast-loading gallery with original orientation preserved
 - ✅ **Intelligent Power Management**: Auto-sleep with HTTP activity detection
-- ✅ **No Manual Conversion**: Upload JPEGs directly - automatic dithering and conversion
 
 ## Features
 
 ### Image Management
 - **Drag & Drop Upload**: Simply drag JPEG files into the browser
+- **Real-Time Preview**: See processed image with measured palette simulation before upload
+- **S-Curve Tone Mapping**: Adjustable strength, shadow boost, highlight compression, and midpoint
+- **Saturation Control**: Fine-tune color vibrancy (0.5-2.0x)
+- **Color Matching Methods**: Choose between Simple RGB or LAB color space for dithering
 - **Smart Resizing**: Client-side scaling to exact display dimensions (800×480 or 480×800)
 - **Portrait Detection**: Automatically rotates portrait images for landscape display
 - **Thumbnail Gallery**: Fast-loading JPEG thumbnails in original orientation
-- **Adjustable Brightness & Contrast**: Customizable settings for optimal image appearance
 - **Floyd-Steinberg Dithering**: Professional 7-color palette conversion with measured color palette
 
 ### Web Interface
 - **Responsive Design**: Works on desktop and mobile browsers
-- **Image Preview**: Thumbnails show actual orientation before display
+- **Live Preview Canvas**: Real-time rendering with measured palette simulation
+- **S-Curve Visualization**: Interactive graph showing tone mapping curve
+- **Parameter Controls**: Sliders for all processing parameters with live updates
+- **Standalone Mode**: Works offline for testing (serve with any HTTP server)
 
 ### Power Management
 - **Smart Auto-Sleep**: 2-minute timeout with HTTP activity detection
@@ -237,8 +253,6 @@ Edit `main/config.h` to customize:
 #define IMAGE_ROTATE_INTERVAL_SEC   3600   // Default rotation interval (1 hour)
 #define DISPLAY_WIDTH               800    // E-paper width
 #define DISPLAY_HEIGHT              480    // E-paper height
-#define DEFAULT_BRIGHTNESS_FSTOP    0.0    // Default brightness adjustment in f-stops
-#define DEFAULT_CONTRAST            1.1    // Default contrast multiplier (1.0 = no change)
 ```
 
 ## Image Format
@@ -250,21 +264,28 @@ Edit `main/config.h` to customize:
 ### Processing Pipeline
 
 **Client-Side (Browser)**:
-1. **Orientation Detection**: Determine if image is portrait or landscape
-2. **Cover Mode Scaling**: Scale to fill exact display dimensions
+1. **Image Loading**: Load JPEG into canvas
+2. **Processing Mode Selection**:
+   - **Enhanced** (default): S-curve tone mapping + saturation adjustment + measured palette dithering
+     - Saturation: HSL-based adjustment (default: 1.2x)
+     - S-Curve: Professional tone mapping (strength: 0.9, shadow: 0.0, highlight: 1.7, midpoint: 0.5)
+     - Dithering: Measured palette for accurate error diffusion
+   - **Stock**: Simple Floyd-Steinberg dithering with theoretical palette (Waveshare original algorithm)
+3. **Real-Time Preview**: Display with measured palette simulation
+6. **Cover Mode Scaling**: Scale to fill exact display dimensions
    - Landscape: 800×480 pixels
    - Portrait: 480×800 pixels
-3. **JPEG Compression**: Compress to 0.9 quality
-4. **Upload**: Send to server
+7. **JPEG Compression**: Compress processed image to 0.9 quality
+8. **Upload**: Send to server
 
 **Server-Side (ESP32)**:
 1. **JPEG Decoding**: Hardware-accelerated esp_jpeg decoder
 2. **Portrait Rotation**: Rotate 90° clockwise if portrait (for display)
-3. **Contrast Adjustment**: Apply configurable contrast (default 1.3x, pivots around 128)
-4. **Brightness Adjustment**: Apply configurable f-stop adjustment (default +0.3 f-stops)
-5. **Floyd-Steinberg Dithering**: Convert to 7-color palette
-6. **BMP Output**: Save 800×480 BMP for display
-7. **Thumbnail**: Keep original JPEG (480×800 or 800×480) for gallery
+3. **Resize**: Scale to 800×480 if needed
+4. **BMP Output**: Save as 800×480 BMP with theoretical palette for display
+5. **Thumbnail**: Keep original JPEG (480×800 or 800×480) for gallery
+
+**Note**: All image processing (tone mapping, saturation, dithering) now happens in the browser before upload. The ESP32 only handles rotation and BMP conversion.
 
 ### Output Format
 - **Display**: BMP, 800x480 pixels, 7-color palette
@@ -305,22 +326,30 @@ Edit `main/config.h` to customize:
 
 ## Offline Image Processing
 
-Use the Python CLI tool to process images offline with the same pipeline as the ESP32:
+Use the Node.js CLI tool to process images offline with the same pipeline as the webapp:
 
 ```bash
 cd process-cli
-pip install -r requirements.txt
+npm install
 
-# Process image with default settings (0.3 f-stop, 1.3 contrast)
-./photoframe_process.py input.jpg -o /path/to/sdcard/images/
+# Process image with default settings
+node cli.js input.jpg -o /path/to/sdcard/images/
 
-# Custom brightness and contrast
-./photoframe_process.py input.jpg -b 0.5 -c 1.5 -o output/
+# Custom S-curve and saturation
+node cli.js input.jpg --scurve-strength 0.8 --saturation 1.5 -o output/
+
+# Preview mode (render with measured palette)
+node cli.js input.jpg --render-measured -o preview/
 ```
 
 **Output:**
-- `photo.bmp` - Processed image for e-paper display
+- `photo.bmp` - Processed image for e-paper display (theoretical palette)
 - `photo.jpg` - Thumbnail for web interface
+
+**Key Features:**
+- Shares the same `image-processor.js` code with the webapp
+- Identical S-curve tone mapping, saturation, and dithering algorithms
+- `--render-measured` option to preview actual e-paper appearance
 
 See **[process-cli/README.md](process-cli/README.md)** for detailed usage.
 

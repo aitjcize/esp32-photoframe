@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 PhotoFrame Web Flasher</title>
+    <title>ESP32 PhotoFrame - Flash & Demo</title>
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
     <style>
         * {
@@ -16,15 +16,12 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             padding: 20px;
         }
 
         .container {
-            max-width: 800px;
-            width: 100%;
+            max-width: 1400px;
+            margin: 0 auto;
             background: white;
             border-radius: 16px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
@@ -57,8 +54,41 @@
             height: 64px;
         }
 
-        .content {
+        .nav-tabs {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .nav-tab {
+            flex: 1;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #666;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+
+        .nav-tab:hover {
+            background: #e9ecef;
+        }
+
+        .nav-tab.active {
+            color: #667eea;
+            background: white;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
             padding: 40px;
+        }
+
+        .tab-content.active {
+            display: block;
         }
 
         .section {
@@ -154,6 +184,266 @@
             font-size: 0.9rem;
         }
 
+        .info-banner {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 20px;
+            border-radius: 4px;
+            margin-bottom: 30px;
+        }
+
+        .info-banner h3 {
+            color: #1976d2;
+            margin-bottom: 10px;
+        }
+
+        .info-banner p {
+            color: #0d47a1;
+            line-height: 1.6;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 12px;
+            padding: 60px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f8f9fa;
+        }
+
+        .upload-area:hover {
+            background: #e9ecef;
+            border-color: #764ba2;
+        }
+
+        .upload-area.drag-over {
+            background: #e3f2fd;
+            border-color: #2196f3;
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+
+        .preview-section {
+            margin-top: 30px;
+        }
+
+        .comparison-container {
+            position: relative;
+        }
+
+        .comparison-wrapper {
+            position: relative;
+            display: inline-block;
+            user-select: none;
+        }
+
+        .canvas-container {
+            position: relative;
+            display: inline-block;
+        }
+
+        #stockCanvas, #enhancedCanvas {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        #stockCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            clip-path: inset(0 70% 0 0);
+        }
+
+        .slider-container {
+            position: absolute;
+            top: 0;
+            left: 30%;
+            width: 3px;
+            height: 100%;
+            background: linear-gradient(180deg, rgba(102, 126, 234, 0.8) 0%, rgba(118, 75, 162, 0.8) 100%);
+            cursor: ew-resize;
+            z-index: 10;
+            box-shadow: 0 0 8px rgba(102, 126, 234, 0.5);
+            transition: box-shadow 0.2s ease;
+        }
+
+        .slider-container:hover {
+            box-shadow: 0 0 12px rgba(102, 126, 234, 0.8);
+        }
+
+        .slider-handle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: white;
+            border: 3px solid white;
+            transition: all 0.2s ease;
+        }
+
+        .slider-handle:hover {
+            transform: translate(-50%, -50%) scale(1.1);
+            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.6);
+        }
+
+        .comparison-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .comparison-labels span {
+            font-weight: 500;
+        }
+
+        .curve-canvas-wrapper {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            flex-shrink: 0;
+            width: 300px;
+        }
+
+        #curveCanvas {
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            background: white;
+        }
+
+        .preview-label {
+            margin-top: 10px;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        canvas {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 0.85rem;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #e0e0e0;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: #764ba2;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            border: none;
+            transition: background 0.3s ease;
+        }
+
+        input[type="range"]::-moz-range-thumb:hover {
+            background: #764ba2;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
         .footer {
             background: #f8f9fa;
             padding: 20px;
@@ -179,6 +469,26 @@
         .loading {
             color: #999;
         }
+
+        @media (max-width: 768px) {
+            .nav-tabs {
+                flex-direction: column;
+            }
+
+            .comparison-container {
+                flex-direction: column;
+            }
+            
+            .curve-canvas-wrapper {
+                width: 100%;
+                max-width: 300px;
+                margin: 0 auto;
+            }
+            
+            .controls-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -195,10 +505,135 @@
                 </svg>
                 ESP32 PhotoFrame
             </h1>
-            <p>Flash firmware directly from your browser</p>
+            <p>Try the demo, then flash the firmware to your device</p>
         </div>
 
-        <div class="content">
+        <div class="nav-tabs">
+            <div class="nav-tab active" data-tab="demo">🎨 Interactive Demo</div>
+            <div class="nav-tab" data-tab="flash">⚡ Flash Firmware</div>
+        </div>
+
+        <!-- Demo Tab -->
+        <div id="demo-tab" class="tab-content active">
+            <div class="info-banner">
+                <h3>✨ Interactive Comparison</h3>
+                <p>
+                    Drag the slider to compare our enhanced algorithm (right) with the stock Waveshare algorithm (left).
+                    Our algorithm features S-curve tone mapping, saturation adjustment, and measured palette dithering
+                    for superior e-paper display quality.
+                </p>
+            </div>
+
+            <div id="uploadArea">
+                <div class="upload-area" id="dropZone">
+                    <div class="upload-icon">📸</div>
+                    <h3>Drop an image here or click to upload</h3>
+                    <p style="color: #666; margin-top: 10px;">Supports JPEG and PNG files • Or try the sample image below</p>
+                    <input type="file" id="fileInput" accept="image/jpeg,image/png" style="display: none;">
+                </div>
+                <div id="fileName" style="margin-top: 10px; text-align: center; color: #666;"></div>
+            </div>
+
+            <div id="previewSection" class="preview-section">
+                <p style="text-align: center; max-width: 900px; margin: 0 auto 30px; color: #555; line-height: 1.6;">
+                    The stock algorithm uses theoretical RGB values that may look acceptable on computer displays, but when flashed onto the actual e-paper device, the colors appear washed out and image quality is significantly degraded. Our enhanced algorithm uses measured palette dithering for superior e-paper display quality.
+                </p>
+                <div style="display: flex; gap: 30px; justify-content: center; align-items: flex-start; flex-wrap: wrap; margin-bottom: 20px;">
+                    <div class="comparison-container" style="flex: 0 0 auto; padding: 0; background: transparent;">
+                        <h3 style="text-align: center; margin-bottom: 15px; color: #333;">
+                            Drag the slider to compare
+                        </h3>
+                        <div class="comparison-wrapper" id="comparisonWrapper">
+                            <div class="canvas-container">
+                                <canvas id="enhancedCanvas"></canvas>
+                                <canvas id="stockCanvas"></canvas>
+                                <div class="slider-container" id="sliderContainer">
+                                    <div class="slider-handle">⟷</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="comparison-labels">
+                            <span>← Stock (Waveshare)</span>
+                            <span>Enhanced (Ours) →</span>
+                        </div>
+                    </div>
+
+                    <div class="curve-canvas-wrapper" id="curveWrapper" style="flex: 0 0 auto;">
+                        <canvas id="curveCanvas" width="300" height="300"></canvas>
+                        <div class="preview-label">S-Curve Tone Mapping</div>
+                        
+                        <div class="form-group" style="margin-top: 20px; text-align: left;">
+                            <label>Preview Rendering Palette:</label>
+                            <div style="margin-top: 8px;">
+                                <label style="display: block; margin-bottom: 5px;">
+                                    <input type="radio" name="renderPalette" value="measured" checked style="margin-right: 5px;">
+                                    Measured (simulates device)
+                                </label>
+                                <label style="display: block;">
+                                    <input type="radio" name="renderPalette" value="theoretical" style="margin-right: 5px;">
+                                    Theoretical (pure RGB)
+                                </label>
+                            </div>
+                            <small>Toggle to see how theoretical palette looks on screen vs device</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="controls-grid" id="controlsGrid">
+                    <div class="form-group">
+                        <label for="scurveStrength">S-Curve Strength: <span id="strengthValue">0.9</span></label>
+                        <input type="range" id="scurveStrength" min="0" max="1" step="0.1" value="0.9">
+                        <small>Overall tone mapping strength (0=linear, 1=strong)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="scurveShadow">Shadow Boost: <span id="shadowValue">0.0</span></label>
+                        <input type="range" id="scurveShadow" min="0" max="1" step="0.1" value="0.0">
+                        <small>Brighten shadow areas (higher=brighter)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="scurveHighlight">Highlight Compress: <span id="highlightValue">1.7</span></label>
+                        <input type="range" id="scurveHighlight" min="0.5" max="5" step="0.1" value="1.7">
+                        <small>Protect highlights from over-exposure (higher=more protection)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="scurveMidpoint">Midpoint: <span id="midpointValue">0.5</span></label>
+                        <input type="range" id="scurveMidpoint" min="0.3" max="0.7" step="0.05" value="0.5">
+                        <small>Where to split shadows/highlights</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="saturation">Saturation: <span id="saturationValue">1.2</span></label>
+                        <input type="range" id="saturation" min="0.5" max="2" step="0.1" value="1.2">
+                        <small>Color vibrancy (1.0=normal, >1.0=more vibrant)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Color Matching Method:</label>
+                        <div style="margin-top: 8px;">
+                            <label style="display: block; margin-bottom: 5px;">
+                                <input type="radio" name="colorMethod" value="rgb" checked style="margin-right: 5px;">
+                                Simple RGB (default)
+                            </label>
+                            <label style="display: block;">
+                                <input type="radio" name="colorMethod" value="lab" style="margin-right: 5px;">
+                                LAB Color Space (better for grayscale)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button type="button" id="resetParams" class="btn btn-secondary">Reset to Defaults</button>
+                    <button type="button" id="newImage" class="btn btn-primary">Upload New Image</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Flash Tab -->
+        <div id="flash-tab" class="tab-content">
             <div class="section">
                 <h2>About</h2>
                 <p>
@@ -271,14 +706,26 @@
         </div>
     </div>
 
-    <script>
-        // Fetch the latest release info from GitHub API to display version
+    <script type="module">
+        // Tab switching
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabName = tab.dataset.tab;
+                
+                document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                tab.classList.add('active');
+                document.getElementById(`${tabName}-tab`).classList.add('active');
+            });
+        });
+
+        // Fetch the latest release info from GitHub API
         async function getLatestRelease() {
             try {
                 const response = await fetch('https://api.github.com/repos/aitjcize/esp32-photoframe/releases/latest');
                 const data = await response.json();
                 
-                // Update version info
                 const versionInfo = document.getElementById('version-info');
                 versionInfo.textContent = `Latest Version: ${data.tag_name} (${new Date(data.published_at).toLocaleDateString()})`;
                 versionInfo.classList.remove('loading');
@@ -290,8 +737,364 @@
             }
         }
         
-        // Load latest release on page load
         getLatestRelease();
+
+        // Demo functionality
+        import { processImage } from './image-processor.js';
+
+        let currentImageFile = null;
+        let originalImageData = null;
+        let sliderPosition = 0.3;
+        let isDragging = false;
+
+        const enhancedParams = {
+            strength: 0.9,
+            shadowBoost: 0.0,
+            highlightCompress: 1.7,
+            midpoint: 0.5,
+            saturation: 1.2,
+            colorMethod: 'rgb',
+            renderMeasured: true,
+            processingMode: 'enhanced'
+        };
+
+        const stockParams = {
+            processingMode: 'stock',
+            renderMeasured: true
+        };
+
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        const uploadArea = document.getElementById('uploadArea');
+        const previewSection = document.getElementById('previewSection');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('fileName').textContent = `Selected: ${file.name}`;
+            currentImageFile = file;
+            uploadArea.style.display = 'none';
+            previewSection.style.display = 'block';
+
+            await loadImagePreview(file);
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('drag-over');
+
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.match('image.*')) {
+                document.getElementById('fileName').textContent = `Selected: ${file.name}`;
+                currentImageFile = file;
+                uploadArea.style.display = 'none';
+                previewSection.style.display = 'block';
+
+                await loadImagePreview(file);
+            }
+        });
+
+        const sliderContainer = document.getElementById('sliderContainer');
+        const comparisonWrapper = document.getElementById('comparisonWrapper');
+        const enhancedCanvas = document.getElementById('enhancedCanvas');
+
+        function updateSliderPosition(clientX) {
+            const rect = comparisonWrapper.getBoundingClientRect();
+            const x = clientX - rect.left;
+            sliderPosition = Math.max(0, Math.min(1, x / rect.width));
+            
+            sliderContainer.style.left = `${sliderPosition * 100}%`;
+            // Clip from right: show stock on left side (clip right portion)
+            const stockCanvas = document.getElementById('stockCanvas');
+            stockCanvas.style.clipPath = `inset(0 ${(1 - sliderPosition) * 100}% 0 0)`;
+        }
+
+        sliderContainer.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                updateSliderPosition(e.clientX);
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        sliderContainer.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            e.preventDefault();
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            if (isDragging && e.touches.length > 0) {
+                updateSliderPosition(e.touches[0].clientX);
+            }
+        });
+
+        document.addEventListener('touchend', () => {
+            isDragging = false;
+        });
+
+        function loadImage(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function loadImagePreview(file) {
+            const stockCanvas = document.getElementById('stockCanvas');
+            const enhancedCanvas = document.getElementById('enhancedCanvas');
+
+            try {
+                const img = await loadImage(file);
+                const isPortrait = img.height > img.width;
+
+                const width = isPortrait ? 480 : 800;
+                const height = isPortrait ? 800 : 480;
+
+                stockCanvas.width = width;
+                stockCanvas.height = height;
+                enhancedCanvas.width = width;
+                enhancedCanvas.height = height;
+
+                const ctx = stockCanvas.getContext('2d', { willReadFrequently: true });
+                const scaleX = width / img.width;
+                const scaleY = height / img.height;
+                const scale = Math.max(scaleX, scaleY);
+
+                const scaledWidth = img.width * scale;
+                const scaledHeight = img.height * scale;
+                const offsetX = (width - scaledWidth) / 2;
+                const offsetY = (height - scaledHeight) / 2;
+
+                ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+
+                originalImageData = ctx.getImageData(0, 0, width, height);
+
+                updatePreviews();
+            } catch (error) {
+                console.error('Error loading preview:', error);
+                alert('Error loading image preview');
+            }
+        }
+
+        function drawCurveVisualization() {
+            const canvas = document.getElementById('curveCanvas');
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            const padding = 40;
+
+            ctx.clearRect(0, 0, width, height);
+
+            ctx.strokeStyle = '#ccc';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(padding, height - padding);
+            ctx.lineTo(width - padding, height - padding);
+            ctx.lineTo(width - padding, padding);
+            ctx.stroke();
+
+            ctx.strokeStyle = '#e0e0e0';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(padding, height - padding);
+            ctx.lineTo(width - padding, padding);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            const { strength, shadowBoost, highlightCompress, midpoint } = enhancedParams;
+            ctx.strokeStyle = '#667eea';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+
+            const graphWidth = width - 2 * padding;
+            const graphHeight = height - 2 * padding;
+
+            for (let i = 0; i <= graphWidth; i++) {
+                const normalized = i / graphWidth;
+                let result;
+
+                if (normalized <= midpoint) {
+                    const shadowVal = normalized / midpoint;
+                    result = Math.pow(shadowVal, 1.0 - strength * shadowBoost) * midpoint;
+                } else {
+                    const highlightVal = (normalized - midpoint) / (1.0 - midpoint);
+                    result = midpoint + Math.pow(highlightVal, 1.0 + strength * highlightCompress) * (1.0 - midpoint);
+                }
+
+                const x = padding + i;
+                const y = height - padding - (result * graphHeight);
+
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+
+            ctx.stroke();
+
+            ctx.strokeStyle = '#ff6b6b';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([3, 3]);
+            const midX = padding + midpoint * graphWidth;
+            ctx.beginPath();
+            ctx.moveTo(midX, height - padding);
+            ctx.lineTo(midX, padding);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function updatePreviews() {
+            if (!originalImageData) return;
+
+            drawCurveVisualization();
+
+            const enhancedCanvas = document.getElementById('enhancedCanvas');
+            const enhancedCtx = enhancedCanvas.getContext('2d', { willReadFrequently: true });
+            const enhancedData = enhancedCtx.createImageData(originalImageData.width, originalImageData.height);
+            enhancedData.data.set(originalImageData.data);
+            processImage(enhancedData, enhancedParams);
+            enhancedCtx.putImageData(enhancedData, 0, 0);
+
+            const stockCanvas = document.getElementById('stockCanvas');
+            const stockCtx = stockCanvas.getContext('2d', { willReadFrequently: true });
+            const stockData = stockCtx.createImageData(originalImageData.width, originalImageData.height);
+            stockData.data.set(originalImageData.data);
+            processImage(stockData, stockParams);
+            stockCtx.putImageData(stockData, 0, 0);
+
+            // Set initial slider position to 30%
+            sliderContainer.style.left = `${sliderPosition * 100}%`;
+            stockCanvas.style.clipPath = `inset(0 ${(1 - sliderPosition) * 100}% 0 0)`;
+        }
+
+        document.getElementById('scurveStrength').addEventListener('input', (e) => {
+            enhancedParams.strength = parseFloat(e.target.value);
+            document.getElementById('strengthValue').textContent = e.target.value;
+            updatePreviews();
+        });
+
+        document.getElementById('scurveShadow').addEventListener('input', (e) => {
+            enhancedParams.shadowBoost = parseFloat(e.target.value);
+            document.getElementById('shadowValue').textContent = e.target.value;
+            updatePreviews();
+        });
+
+        document.getElementById('scurveHighlight').addEventListener('input', (e) => {
+            enhancedParams.highlightCompress = parseFloat(e.target.value);
+            document.getElementById('highlightValue').textContent = e.target.value;
+            updatePreviews();
+        });
+
+        document.getElementById('scurveMidpoint').addEventListener('input', (e) => {
+            enhancedParams.midpoint = parseFloat(e.target.value);
+            document.getElementById('midpointValue').textContent = e.target.value;
+            updatePreviews();
+        });
+
+        document.getElementById('saturation').addEventListener('input', (e) => {
+            enhancedParams.saturation = parseFloat(e.target.value);
+            document.getElementById('saturationValue').textContent = e.target.value;
+            updatePreviews();
+        });
+
+        document.querySelectorAll('input[name="colorMethod"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                enhancedParams.colorMethod = e.target.value;
+                updatePreviews();
+            });
+        });
+
+        document.querySelectorAll('input[name="renderPalette"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const useMeasured = e.target.value === 'measured';
+                enhancedParams.renderMeasured = useMeasured;
+                stockParams.renderMeasured = useMeasured;
+                updatePreviews();
+            });
+        });
+
+        document.getElementById('resetParams').addEventListener('click', () => {
+            enhancedParams.strength = 0.9;
+            enhancedParams.shadowBoost = 0.0;
+            enhancedParams.highlightCompress = 1.7;
+            enhancedParams.midpoint = 0.5;
+            enhancedParams.saturation = 1.2;
+            enhancedParams.colorMethod = 'rgb';
+
+            document.getElementById('scurveStrength').value = 0.9;
+            document.getElementById('strengthValue').textContent = '0.9';
+            document.getElementById('scurveShadow').value = 0.0;
+            document.getElementById('shadowValue').textContent = '0.0';
+            document.getElementById('scurveHighlight').value = 1.7;
+            document.getElementById('highlightValue').textContent = '1.7';
+            document.getElementById('scurveMidpoint').value = 0.5;
+            document.getElementById('midpointValue').textContent = '0.5';
+            document.getElementById('saturation').value = 1.2;
+            document.getElementById('saturationValue').textContent = '1.2';
+            document.querySelector('input[name="colorMethod"][value="rgb"]').checked = true;
+
+            updatePreviews();
+        });
+
+        document.getElementById('newImage').addEventListener('click', () => {
+            currentImageFile = null;
+            originalImageData = null;
+            fileInput.value = '';
+            document.getElementById('fileName').textContent = '';
+            uploadArea.style.display = 'block';
+            previewSection.style.display = 'none';
+        });
+
+        async function loadSampleImage() {
+            try {
+                const response = await fetch('sample.jpg');
+                const blob = await response.blob();
+                const file = new File([blob], 'sample.jpg', { type: 'image/jpeg' });
+                
+                currentImageFile = file;
+                uploadArea.style.display = 'none';
+                previewSection.style.display = 'block';
+                document.getElementById('fileName').textContent = 'Sample Image';
+                
+                await loadImagePreview(file);
+            } catch (error) {
+                console.error('Error loading sample image:', error);
+            }
+        }
+
+        loadSampleImage();
     </script>
 </body>
 </html>

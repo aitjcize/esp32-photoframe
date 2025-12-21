@@ -16,10 +16,4 @@ void display_manager_set_auto_rotate(bool enabled);
 bool display_manager_get_auto_rotate(void);
 void display_manager_handle_timer_wakeup(void);
 
-void display_manager_set_brightness_fstop(float fstop);
-float display_manager_get_brightness_fstop(void);
-
-void display_manager_set_contrast(float contrast);
-float display_manager_get_contrast(void);
-
 #endif

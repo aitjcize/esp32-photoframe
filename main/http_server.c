@@ -32,6 +32,8 @@ extern const uint8_t style_css_start[] asm("_binary_style_css_start");
 extern const uint8_t style_css_end[] asm("_binary_style_css_end");
 extern const uint8_t app_js_start[] asm("_binary_app_js_start");
 extern const uint8_t app_js_end[] asm("_binary_app_js_end");
+extern const uint8_t image_processor_js_start[] asm("_binary_image_processor_js_start");
+extern const uint8_t image_processor_js_end[] asm("_binary_image_processor_js_end");
 extern const uint8_t favicon_svg_start[] asm("_binary_favicon_svg_start");
 extern const uint8_t favicon_svg_end[] asm("_binary_favicon_svg_end");
 
@@ -56,6 +58,14 @@ static esp_err_t app_js_handler(httpd_req_t *req)
     const size_t app_js_size = (app_js_end - app_js_start);
     httpd_resp_set_type(req, "application/javascript");
     httpd_resp_send(req, (const char *) app_js_start, app_js_size);
+    return ESP_OK;
+}
+
+static esp_err_t image_processor_js_handler(httpd_req_t *req)
+{
+    const size_t image_processor_js_size = (image_processor_js_end - image_processor_js_start);
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_send(req, (const char *) image_processor_js_start, image_processor_js_size);
     return ESP_OK;
 }
 
@@ -178,6 +188,7 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
 
     char filename[64] = {0};
     char current_field[64] = {0};
+    char processing_mode[16] = "enhanced";  // Default to enhanced mode
     bool header_parsed = false;
     int file_count = 0;
 
@@ -271,6 +282,20 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
                 int header_len = data_start - buf;
                 header_parsed = true;
 
+                // If this is the processingMode field, capture its value
+                if (strcmp(current_field, "processingMode") == 0) {
+                    // Find the end of the value (next boundary or CRLF)
+                    char *value_end = strstr(data_start, "\r\n");
+                    if (value_end && value_end < buf + buf_len) {
+                        int value_len = value_end - data_start;
+                        if (value_len > 0 && value_len < sizeof(processing_mode)) {
+                            strncpy(processing_mode, data_start, value_len);
+                            processing_mode[value_len] = '\0';
+                            ESP_LOGI(TAG, "Processing mode: %s", processing_mode);
+                        }
+                    }
+                }
+
                 // Move remaining data to start of buffer
                 buf_len -= header_len;
                 memmove(buf, data_start, buf_len);
@@ -355,7 +380,11 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
                  esp_get_free_heap_size(), heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 
         // Convert full-size to BMP for display
-        esp_err_t ret = image_processor_convert_jpg_to_bmp(temp_fullsize_path, final_bmp_path);
+        // Use stock mode if processing_mode is "stock", otherwise use enhanced mode
+        bool use_stock_mode = (strcmp(processing_mode, "stock") == 0);
+        ESP_LOGI(TAG, "Using %s mode for image processing", use_stock_mode ? "stock" : "enhanced");
+        esp_err_t ret =
+            image_processor_convert_jpg_to_bmp(temp_fullsize_path, final_bmp_path, use_stock_mode);
 
         // Log memory after conversion
         ESP_LOGI(TAG, "After conversion - Free heap: %lu bytes, Largest block: %lu bytes",
@@ -648,14 +677,10 @@ static esp_err_t config_handler(httpd_req_t *req)
     if (req->method == HTTP_GET) {
         int rotate_interval = display_manager_get_rotate_interval();
         bool auto_rotate = display_manager_get_auto_rotate();
-        float brightness_fstop = display_manager_get_brightness_fstop();
-        float contrast = display_manager_get_contrast();
 
         cJSON *root = cJSON_CreateObject();
         cJSON_AddNumberToObject(root, "rotate_interval", rotate_interval);
         cJSON_AddBoolToObject(root, "auto_rotate", auto_rotate);
-        cJSON_AddNumberToObject(root, "brightness_fstop", brightness_fstop);
-        cJSON_AddNumberToObject(root, "contrast", contrast);
 
         char *json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");
@@ -688,16 +713,6 @@ static esp_err_t config_handler(httpd_req_t *req)
         cJSON *auto_rotate_obj = cJSON_GetObjectItem(root, "auto_rotate");
         if (auto_rotate_obj && cJSON_IsBool(auto_rotate_obj)) {
             display_manager_set_auto_rotate(cJSON_IsTrue(auto_rotate_obj));
-        }
-
-        cJSON *brightness_fstop_obj = cJSON_GetObjectItem(root, "brightness_fstop");
-        if (brightness_fstop_obj && cJSON_IsNumber(brightness_fstop_obj)) {
-            display_manager_set_brightness_fstop((float) brightness_fstop_obj->valuedouble);
-        }
-
-        cJSON *contrast_obj = cJSON_GetObjectItem(root, "contrast");
-        if (contrast_obj && cJSON_IsNumber(contrast_obj)) {
-            display_manager_set_contrast((float) contrast_obj->valuedouble);
         }
 
         cJSON_Delete(root);
@@ -777,6 +792,12 @@ esp_err_t http_server_init(void)
         httpd_uri_t app_js_uri = {
             .uri = "/app.js", .method = HTTP_GET, .handler = app_js_handler, .user_ctx = NULL};
         httpd_register_uri_handler(server, &app_js_uri);
+
+        httpd_uri_t image_processor_js_uri = {.uri = "/image-processor.js",
+                                              .method = HTTP_GET,
+                                              .handler = image_processor_js_handler,
+                                              .user_ctx = NULL};
+        httpd_register_uri_handler(server, &image_processor_js_uri);
 
         httpd_uri_t favicon_uri = {.uri = "/favicon.svg",
                                    .method = HTTP_GET,

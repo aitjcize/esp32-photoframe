@@ -188,6 +188,123 @@ With measured palette:
 
 These gentle adjustments preserve image tonality while the measured palette ensures accurate color reproduction.
 
+## S-Curve Tone Mapping: Addressing E-Paper's Limited Dynamic Range
+
+While the measured palette solves the color accuracy problem, e-paper displays face another fundamental challenge: **limited dynamic range**.
+
+### The Dynamic Range Problem
+
+E-paper displays have a much narrower dynamic range compared to modern displays:
+
+| Display Type | Dynamic Range | Darkest Black | Brightest White |
+|--------------|---------------|---------------|-----------------|
+| Modern LCD/OLED | 1000:1 to 1,000,000:1 | True black (0,0,0) | Bright white (255,255,255) |
+| **E-Paper (Measured)** | **~90:1** | Near-black (2,2,2) | **Light gray (179,182,171)** |
+
+**Key Issue**: The "white" on e-paper is actually a light gray (RGB 179,182,171), giving only **70% of the brightness range** compared to theoretical values.
+
+### Why This Matters
+
+When you display a photo with full tonal range on e-paper:
+- **Highlights get crushed**: Bright areas (RGB 200-255) all map to the same "white" (179,182,171)
+- **Shadows get crushed**: Dark areas (RGB 0-50) all map to near-black (2,2,2)
+- **Midtones are compressed**: The usable range is squeezed into a narrow band
+- **Loss of detail**: Subtle gradients and textures disappear
+
+### S-Curve Tone Mapping Solution
+
+Our firmware uses **S-curve tone mapping** to redistribute the tonal range before dithering:
+
+```
+Input Brightness (0-255)
+        ↓
+   S-Curve Mapping
+   - Expand shadows (make dark areas more visible)
+   - Preserve midtones (keep natural appearance)
+   - Compress highlights (prevent clipping to white)
+        ↓
+Output Brightness (optimized for e-paper's 70% range)
+        ↓
+   Floyd-Steinberg Dithering (with measured palette)
+        ↓
+   E-Paper Display
+```
+
+### How S-Curve Works
+
+The S-curve applies a non-linear transformation that:
+
+1. **Shadow Boost**: Lifts dark tones to make them more visible
+   - Prevents detail loss in shadows
+   - Adjustable parameter (default: 0.0 for neutral)
+
+2. **Midpoint Control**: Sets where shadows end and highlights begin
+   - Default: 0.5 (balanced)
+   - Adjustable to shift tonal emphasis
+
+3. **Highlight Compress**: Compresses bright tones to fit e-paper's limited range
+   - Prevents all highlights from becoming the same gray
+   - Default: 1.7 (moderate protection)
+   - Higher values = more highlight detail preserved
+
+4. **Overall Strength**: Controls how aggressive the curve is
+   - Default: 0.9 (strong tone mapping)
+   - 0.0 = linear (no mapping), 1.0 = maximum effect
+
+### Visual Example
+
+**Without S-Curve (Linear Mapping):**
+```
+Original:  [0...50...100...150...200...255]
+                ↓ Simple dithering ↓
+E-Paper:   [2...2...50...100...179...179]
+           └─ Lost detail ─┘      └─ Lost detail ─┘
+```
+
+**With S-Curve Tone Mapping:**
+```
+Original:  [0...50...100...150...200...255]
+                ↓ S-curve mapping ↓
+Remapped:  [10...60...120...160...175...179]
+                ↓ Dithering ↓
+E-Paper:   [10...60...120...160...175...179]
+           └─ Visible detail ─┘  └─ Preserved gradients ─┘
+```
+
+### Why S-Curve + Measured Palette Work Together
+
+The combination is powerful:
+
+1. **S-Curve** redistributes tones to fit e-paper's limited range
+2. **Measured Palette** ensures accurate color matching within that range
+3. **Floyd-Steinberg Dithering** creates smooth gradients using the optimized tones
+
+Without S-curve, even perfect color matching can't overcome the dynamic range limitation. Without measured palette, even perfect tone mapping produces inaccurate colors.
+
+### Default Parameters (Optimized for E-Paper)
+
+Our firmware uses these carefully tuned defaults:
+
+- **S-Curve Strength**: 0.9 (strong tone mapping)
+- **Shadow Boost**: 0.0 (neutral, preserves natural shadows)
+- **Highlight Compress**: 1.7 (moderate highlight protection)
+- **Midpoint**: 0.5 (balanced shadow/highlight split)
+- **Saturation**: 1.2 (slightly more vibrant to compensate for muted e-paper colors)
+
+These parameters are adjustable in real-time through the web interface, allowing fine-tuning for different image types.
+
+### Impact on Image Quality
+
+The S-curve tone mapping provides:
+
+- ✅ **Preserved highlight detail** instead of clipping to gray
+- ✅ **Visible shadow detail** instead of crushing to black
+- ✅ **Natural midtone transitions** that look photographic
+- ✅ **Better use of e-paper's limited dynamic range**
+- ✅ **Professional-looking results** that rival commercial e-paper products
+
+Combined with the measured palette, this is why our firmware produces dramatically better images than the stock firmware's simple linear mapping approach.
+
 ## How We Measured the Colors
 
 The measured palette values in this firmware were obtained using a simple but effective photographic method:
@@ -234,7 +351,9 @@ If you want to measure your own e-paper's colors for even better accuracy:
 2. **Take photos**: Photograph each color block with good, consistent lighting
 3. **Sample RGB values**: Use an image editor (Photoshop, GIMP, etc.) to pick colors from the center of each block
 4. **Average samples**: Take 5-10 samples per color and average the RGB values
-5. **Update the palette**: Modify `palette_measured` in `main/image_processor.c`
+5. **Update the palette**: Modify `PALETTE_MEASURED` in both:
+   - `process-cli/image-processor.js` (for CLI and web preview)
+   - `main/image_processor.c` (for firmware)
 6. **Rebuild firmware**: Flash the updated firmware to your device
 
 ### Method 2: Colorimeter (Most Accurate)
@@ -242,7 +361,9 @@ If you want to measure your own e-paper's colors for even better accuracy:
 1. **Display pure colors**: Use the firmware to display solid blocks of each color
 2. **Use a colorimeter**: Measure each color patch with a calibrated device (e.g., X-Rite ColorMunki, Datacolor SpyderX)
 3. **Record RGB values**: Note the measured RGB values for each color
-4. **Update the palette**: Modify `palette_measured` in `main/image_processor.c`
+4. **Update the palette**: Modify `PALETTE_MEASURED` in both:
+   - `process-cli/image-processor.js` (for CLI and web preview)
+   - `main/image_processor.c` (for firmware)
 5. **Rebuild firmware**: Flash the updated firmware to your device
 
 Different e-paper panels may have slight variations in color reproduction due to manufacturing tolerances, so measuring your specific panel can provide even better results.

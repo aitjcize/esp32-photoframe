@@ -1,0 +1,20 @@
+{
+  "name": "photoframe-cli",
+  "version": "1.0.0",
+  "description": "ESP32 PhotoFrame image processing CLI",
+  "main": "cli.js",
+  "type": "module",
+  "bin": {
+    "photoframe-process": "./cli.js"
+  },
+  "scripts": {
+    "test": "node cli.js --help"
+  },
+  "dependencies": {
+    "canvas": "^2.11.2",
+    "commander": "^11.1.0"
+  },
+  "keywords": ["esp32", "photoframe", "image-processing"],
+  "author": "",
+  "license": "MIT"
+}

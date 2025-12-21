@@ -1,3 +1,5 @@
+import { processImage } from './image-processor.js';
+
 const API_BASE = '';
 
 let currentImages = [];
@@ -6,6 +8,10 @@ let selectedImage = null;
 async function loadBatteryStatus() {
     try {
         const response = await fetch(`${API_BASE}/api/battery`);
+        if (!response.ok || response.headers.get('content-type')?.includes('text/html')) {
+            // Running in standalone mode without ESP32 backend
+            return;
+        }
         const data = await response.json();
         
         const batteryDiv = document.getElementById('batteryStatus');
@@ -38,19 +44,24 @@ async function loadBatteryStatus() {
             </span>
         `;
     } catch (error) {
-        console.error('Error loading battery status:', error);
+        // Silently fail if API not available (standalone mode)
+        console.log('Battery API not available (standalone mode)');
     }
 }
 
 async function loadImages() {
     try {
         const response = await fetch(`${API_BASE}/api/images`);
+        if (!response.ok || response.headers.get('content-type')?.includes('text/html')) {
+            // Running in standalone mode without ESP32 backend
+            console.log('Images API not available (standalone mode)');
+            return;
+        }
         const data = await response.json();
         currentImages = data.images || [];
         displayImages();
     } catch (error) {
-        console.error('Error loading images:', error);
-        document.getElementById('imageList').innerHTML = '<p class="loading">Error loading images</p>';
+        console.log('Failed to load images (firmware may be busy):', error);
     }
 }
 
@@ -198,14 +209,41 @@ async function selectImage(filename, element) {
     }
 }
 
-document.getElementById('fileInput').addEventListener('change', (e) => {
-    const fileName = e.target.files[0]?.name || '';
-    document.getElementById('fileName').textContent = fileName ? `Selected: ${fileName}` : '';
+// Global state for image processing
+let currentImageFile = null;
+let currentImageCanvas = null;
+let originalImageData = null; // Store original unprocessed image data
+let currentParams = {
+    strength: 0.9,
+    shadowBoost: 0.0,
+    highlightCompress: 1.7,
+    midpoint: 0.5,
+    saturation: 1.2,
+    colorMethod: 'rgb',  // 'rgb' or 'lab'
+    renderMeasured: true,  // true = measured (darker) colors matching e-paper display
+    processingMode: 'enhanced'  // 'stock' (Waveshare original) or 'enhanced' (our algorithm with S-curve)
+};
+
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
     
-    // Automatically submit the form when a file is selected
-    if (e.target.files[0]) {
-        document.getElementById('uploadForm').dispatchEvent(new Event('submit'));
-    }
+    const fileName = file.name;
+    document.getElementById('fileName').textContent = `Selected: ${fileName}`;
+    
+    // Store the file and show preview
+    currentImageFile = file;
+    
+    // Hide upload area, show preview area
+    document.getElementById('uploadArea').style.display = 'none';
+    document.getElementById('previewArea').style.display = 'block';
+    
+    // Ensure controls and buttons are visible (in case they were hidden from previous upload)
+    document.querySelector('.button-group').style.display = 'flex';
+    document.querySelector('.controls-grid').style.display = 'grid';
+    document.getElementById('uploadProgress').style.display = 'none';
+    
+    await loadImagePreview(file);
 });
 
 // Drag and drop support
@@ -223,7 +261,7 @@ uploadArea.addEventListener('dragleave', (e) => {
     uploadArea.classList.remove('drag-over');
 });
 
-uploadArea.addEventListener('drop', (e) => {
+uploadArea.addEventListener('drop', async (e) => {
     e.preventDefault();
     e.stopPropagation();
     uploadArea.classList.remove('drag-over');
@@ -237,8 +275,9 @@ uploadArea.addEventListener('drop', (e) => {
             fileInput.files = files;
             document.getElementById('fileName').textContent = `Selected: ${file.name}`;
             
-            // Automatically submit the form after drag and drop
-            document.getElementById('uploadForm').dispatchEvent(new Event('submit'));
+            // Store the file and show preview
+            currentImageFile = file;
+            await loadImagePreview(file);
         } else {
             alert('Please drop a JPG/JPEG image file');
         }
@@ -294,33 +333,387 @@ async function resizeImage(file, maxWidth, maxHeight, quality) {
     });
 }
 
-document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const fileInput = document.getElementById('fileInput');
+async function loadImagePreview(file) {
+    const canvas = document.getElementById('previewCanvas');
     const statusDiv = document.getElementById('uploadStatus');
     
-    if (!fileInput.files[0]) {
-        statusDiv.className = 'status-error';
-        statusDiv.textContent = 'Please select a file';
-        return;
-    }
-    
-    statusDiv.textContent = 'Resizing and uploading...';
+    // Clear any previous status
+    statusDiv.textContent = '';
     statusDiv.className = '';
     
     try {
-        // Create full-size image (800x480 or 480x800) for processing
-        const fullSizeBlob = await resizeImage(fileInput.files[0], 800, 480, 0.90);
+        // Load image and resize to display size
+        const img = await loadImage(file);
         
-        // Create thumbnail (200x120 or 120x200) for gallery
-        const thumbnailBlob = await resizeImage(fileInput.files[0], 200, 120, 0.85);
+        // Determine if portrait or landscape
+        const isPortrait = img.height > img.width;
+        
+        // Set canvas to display dimensions (800x480 or 480x800)
+        if (isPortrait) {
+            canvas.width = 480;
+            canvas.height = 800;
+        } else {
+            canvas.width = 800;
+            canvas.height = 480;
+        }
+        
+        // Draw image with cover mode (fill and crop)
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const scaleX = canvas.width / img.width;
+        const scaleY = canvas.height / img.height;
+        const scale = Math.max(scaleX, scaleY);
+        
+        const scaledWidth = img.width * scale;
+        const scaledHeight = img.height * scale;
+        const offsetX = (canvas.width - scaledWidth) / 2;
+        const offsetY = (canvas.height - scaledHeight) / 2;
+        
+        ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+        
+        // Store canvas and original image data
+        currentImageCanvas = canvas;
+        originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        
+        // Apply initial processing
+        updatePreview();
+    } catch (error) {
+        console.error('Error loading preview:', error);
+        statusDiv.className = 'status-error';
+        statusDiv.textContent = 'Error loading image preview';
+    }
+}
+
+function loadImage(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function drawCurveVisualization() {
+    const canvas = document.getElementById('curveCanvas');
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 40;
+    const graphWidth = width - 2 * padding;
+    const graphHeight = height - 2 * padding;
+    
+    // Clear canvas
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, width, height);
+    
+    // Draw axes
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, height - padding);
+    ctx.lineTo(width - padding, height - padding);
+    ctx.stroke();
+    
+    // Draw axis labels
+    ctx.fillStyle = '#333';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Input', width / 2, height - 10);
+    ctx.save();
+    ctx.translate(15, height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('Output', 0, 0);
+    ctx.restore();
+    
+    // Draw grid lines
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+        const x = padding + (graphWidth * i / 4);
+        const y = padding + (graphHeight * i / 4);
+        
+        // Vertical grid lines
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+        
+        // Horizontal grid lines
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+    }
+    
+    // Draw linear reference (y=x)
+    ctx.strokeStyle = '#ccc';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(padding, height - padding);
+    ctx.lineTo(width - padding, padding);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Draw S-curve
+    ctx.strokeStyle = '#667eea';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    
+    const { strength, shadowBoost, highlightCompress, midpoint } = currentParams;
+    
+    for (let i = 0; i <= graphWidth; i++) {
+        const normalized = i / graphWidth;
+        let result;
+        
+        if (normalized <= midpoint) {
+            // Shadow region
+            const shadowVal = normalized / midpoint;
+            result = Math.pow(shadowVal, 1.0 - strength * shadowBoost) * midpoint;
+        } else {
+            // Highlight region
+            const highlightVal = (normalized - midpoint) / (1.0 - midpoint);
+            result = midpoint + Math.pow(highlightVal, 1.0 + strength * highlightCompress) * (1.0 - midpoint);
+        }
+        
+        const x = padding + i;
+        const y = height - padding - (result * graphHeight);
+        
+        if (i === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    }
+    
+    ctx.stroke();
+    
+    // Draw midpoint indicator
+    ctx.strokeStyle = '#ff6b6b';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 3]);
+    const midX = padding + midpoint * graphWidth;
+    ctx.beginPath();
+    ctx.moveTo(midX, padding);
+    ctx.lineTo(midX, height - padding);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    // Midpoint label
+    ctx.fillStyle = '#ff6b6b';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('midpoint', midX, padding - 5);
+}
+
+function updatePreview() {
+if (!currentImageCanvas || !originalImageData) return;
+    
+// Update curve visualization
+drawCurveVisualization();
+    
+// Create a copy of the original image data
+const tempCanvas = document.createElement('canvas');
+tempCanvas.width = originalImageData.width;
+tempCanvas.height = originalImageData.height;
+const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+    
+// Copy original image data
+const imageDataCopy = tempCtx.createImageData(originalImageData.width, originalImageData.height);
+imageDataCopy.data.set(originalImageData.data);
+    
+// Apply image processing to the ImageData copy
+processImage(imageDataCopy, currentParams);
+    
+// Put processed data back to temp canvas
+tempCtx.putImageData(imageDataCopy, 0, 0);
+    
+// Draw processed image to preview canvas
+const previewCanvas = document.getElementById('previewCanvas');
+const ctx = previewCanvas.getContext('2d');
+ctx.drawImage(tempCanvas, 0, 0);
+}
+
+// Parameter change handlers
+document.getElementById('scurveStrength').addEventListener('input', (e) => {
+    currentParams.strength = parseFloat(e.target.value);
+    document.getElementById('strengthValue').textContent = e.target.value;
+    updatePreview();
+});
+
+document.getElementById('scurveShadow').addEventListener('input', (e) => {
+    currentParams.shadowBoost = parseFloat(e.target.value);
+    document.getElementById('shadowValue').textContent = e.target.value;
+    updatePreview();
+});
+
+document.getElementById('scurveHighlight').addEventListener('input', (e) => {
+    currentParams.highlightCompress = parseFloat(e.target.value);
+    document.getElementById('highlightValue').textContent = e.target.value;
+    updatePreview();
+});
+
+document.getElementById('scurveMidpoint').addEventListener('input', (e) => {
+    currentParams.midpoint = parseFloat(e.target.value);
+    document.getElementById('midpointValue').textContent = e.target.value;
+    updatePreview();
+});
+
+document.getElementById('saturation').addEventListener('input', (e) => {
+    currentParams.saturation = parseFloat(e.target.value);
+    document.getElementById('saturationValue').textContent = e.target.value;
+    updatePreview();
+});
+
+// Color matching method radio buttons
+document.querySelectorAll('input[name="colorMethod"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+        currentParams.colorMethod = e.target.value;
+        updatePreview();
+    });
+});
+
+// Processing mode radio buttons
+document.querySelectorAll('input[name="processingMode"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+        currentParams.processingMode = e.target.value;
+        
+        // Show/hide S-curve controls and canvas based on mode
+        const controlsGrid = document.querySelector('.controls-grid');
+        const curveCanvasWrapper = document.querySelector('.curve-canvas-wrapper');
+        if (e.target.value === 'stock') {
+            controlsGrid.style.display = 'none';
+            curveCanvasWrapper.style.display = 'none';
+        } else {
+            controlsGrid.style.display = 'grid';
+            curveCanvasWrapper.style.display = 'block';
+        }
+        
+        updatePreview();
+    });
+});
+
+// Discard image and return to upload
+document.getElementById('discardImage').addEventListener('click', () => {
+    currentImageFile = null;
+    currentImageCanvas = null;
+    originalImageData = null;
+    document.getElementById('fileInput').value = '';
+    document.getElementById('fileName').textContent = '';
+    // Section is already visible, just showing upload area
+    document.getElementById('uploadArea').style.display = 'block';
+    document.getElementById('previewArea').style.display = 'none';
+    document.getElementById('uploadStatus').textContent = '';
+    document.getElementById('uploadStatus').className = '';
+});
+
+// Reset to defaults
+document.getElementById('resetParams').addEventListener('click', () => {
+    currentParams = {
+        strength: 0.9,
+        shadowBoost: 0.0,
+        highlightCompress: 1.7,
+        midpoint: 0.5,
+        saturation: 1.2,
+        colorMethod: 'rgb',
+        renderMeasured: true,
+        processingMode: 'enhanced'
+    };
+    
+    document.getElementById('scurveStrength').value = 0.9;
+    document.getElementById('strengthValue').textContent = '0.9';
+    document.getElementById('scurveShadow').value = 0.0;
+    document.getElementById('shadowValue').textContent = '0.0';
+    document.getElementById('scurveHighlight').value = 1.7;
+    document.getElementById('highlightValue').textContent = '1.7';
+    document.getElementById('scurveMidpoint').value = 0.5;
+    document.getElementById('midpointValue').textContent = '0.5';
+    document.getElementById('saturation').value = 1.2;
+    document.getElementById('saturationValue').textContent = '1.2';
+    document.querySelector('input[name="colorMethod"][value="rgb"]').checked = true;
+    document.querySelector('input[name="processingMode"][value="enhanced"]').checked = true;
+    document.querySelector('.controls-grid').style.display = 'grid';
+    document.querySelector('.curve-canvas-wrapper').style.display = 'block';
+    
+    updatePreview();
+});
+
+// Upload processed image
+document.getElementById('uploadProcessed').addEventListener('click', async () => {
+    if (!currentImageFile || !currentImageCanvas) {
+        alert('No image loaded');
+        return;
+    }
+    
+    const statusDiv = document.getElementById('uploadStatus');
+    const uploadProgress = document.getElementById('uploadProgress');
+    const buttonGroup = document.querySelector('.button-group');
+    const controlsGrid = document.querySelector('.controls-grid');
+    
+    // Hide buttons and controls, show progress
+    buttonGroup.style.display = 'none';
+    controlsGrid.style.display = 'none';
+    uploadProgress.style.display = 'block';
+    statusDiv.textContent = '';
+    statusDiv.className = '';
+    
+    // Wait for UI to update
+    await new Promise(resolve => setTimeout(resolve, 0));
+    
+    let uploadSucceeded = false;
+    
+    try {
+        let imageBlob;
+        
+        if (currentParams.processingMode === 'stock') {
+            // Stock mode: send raw scaled/cropped image (no processing)
+            imageBlob = await resizeImage(currentImageFile, 800, 480, 0.90);
+        } else {
+            // Enhanced mode: apply S-curve and saturation, but NO dithering
+            // Create a temporary canvas for processing
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = originalImageData.width;
+            tempCanvas.height = originalImageData.height;
+            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+            
+            // Copy original image data
+            const imageDataCopy = tempCtx.createImageData(originalImageData.width, originalImageData.height);
+            imageDataCopy.data.set(originalImageData.data);
+            
+            // Apply S-curve and saturation (imported from image-processor.js)
+            if (currentParams.saturation !== 1.0) {
+                applySaturation(imageDataCopy, currentParams.saturation);
+            }
+            
+            applyScurveTonemap(
+                imageDataCopy,
+                currentParams.strength,
+                currentParams.shadowBoost,
+                currentParams.highlightCompress,
+                currentParams.midpoint
+            );
+            
+            // Put processed data to canvas (NO dithering)
+            tempCtx.putImageData(imageDataCopy, 0, 0);
+            
+            // Convert to blob
+            imageBlob = await new Promise(resolve => {
+                tempCanvas.toBlob(resolve, 'image/jpeg', 0.90);
+            });
+        }
+        
+        // Create thumbnail (200x120 or 120x200) from original
+        const thumbnailBlob = await resizeImage(currentImageFile, 200, 120, 0.85);
         
         const formData = new FormData();
-        formData.append('image', fullSizeBlob, fileInput.files[0].name);
-        formData.append('thumbnail', thumbnailBlob, 'thumb_' + fileInput.files[0].name);
-        
-        statusDiv.textContent = 'Uploading and converting...';
+        formData.append('image', imageBlob, currentImageFile.name);
+        formData.append('thumbnail', thumbnailBlob, 'thumb_' + currentImageFile.name);
+        formData.append('processingMode', currentParams.processingMode);
         
         const response = await fetch(`${API_BASE}/api/upload`, {
             method: 'POST',
@@ -330,12 +723,21 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
         const data = await response.json();
         
         if (data.status === 'success') {
+            uploadSucceeded = true;
             statusDiv.className = 'status-success';
-            statusDiv.textContent = `Successfully uploaded and converted: ${data.filename}`;
-            fileInput.value = '';
-            document.getElementById('fileName').textContent = '';
+            statusDiv.textContent = `Successfully uploaded: ${data.filename}`;
             
-            // Refresh image gallery immediately
+            // Reset state and show upload area again
+            currentImageFile = null;
+            currentImageCanvas = null;
+            originalImageData = null;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('fileName').textContent = '';
+            document.getElementById('uploadArea').style.display = 'block';
+            document.getElementById('previewArea').style.display = 'none';
+            uploadProgress.style.display = 'none';
+            
+            // Refresh image gallery
             loadImages();
         } else {
             statusDiv.className = 'status-error';
@@ -345,20 +747,31 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
         console.error('Error uploading:', error);
         statusDiv.className = 'status-error';
         statusDiv.textContent = 'Error uploading file';
+    } finally {
+        // Only show controls if upload failed (still on preview)
+        if (!uploadSucceeded) {
+            buttonGroup.style.display = 'flex';
+            controlsGrid.style.display = 'grid';
+            uploadProgress.style.display = 'none';
+        }
     }
 });
 
 async function loadConfig() {
     try {
         const response = await fetch(`${API_BASE}/api/config`);
+        if (!response.ok || response.headers.get('content-type')?.includes('text/html')) {
+            // Running in standalone mode without ESP32 backend
+            console.log('Config API not available (standalone mode)');
+            return;
+        }
         const data = await response.json();
         
         document.getElementById('autoRotate').checked = data.auto_rotate || false;
         document.getElementById('rotateInterval').value = data.rotate_interval || 3600;
-        document.getElementById('brightnessFstop').value = (data.brightness_fstop !== undefined ? data.brightness_fstop : 0.3).toFixed(2);
-        document.getElementById('contrast').value = (data.contrast !== undefined ? data.contrast : 1.2).toFixed(2);
     } catch (error) {
-        console.error('Error loading config:', error);
+        // Silently fail if API not available (standalone mode)
+        console.log('Config API not available (standalone mode)');
     }
 }
 
@@ -368,8 +781,6 @@ document.getElementById('configForm').addEventListener('submit', async (e) => {
     const statusDiv = document.getElementById('configStatus');
     const autoRotate = document.getElementById('autoRotate').checked;
     const rotateInterval = parseInt(document.getElementById('rotateInterval').value);
-    const brightnessFstop = parseFloat(document.getElementById('brightnessFstop').value);
-    const contrast = parseFloat(document.getElementById('contrast').value);
     
     try {
         const response = await fetch(`${API_BASE}/api/config`, {
@@ -379,9 +790,7 @@ document.getElementById('configForm').addEventListener('submit', async (e) => {
             },
             body: JSON.stringify({
                 auto_rotate: autoRotate,
-                rotate_interval: rotateInterval,
-                brightness_fstop: brightnessFstop,
-                contrast: contrast
+                rotate_interval: rotateInterval
             })
         });
         

@@ -28,9 +28,11 @@
             </div>
         </section>
 
-        <section class="card">
-            <h2>Upload New Image</h2>
-            <form id="uploadForm">
+        <section class="card" id="imageProcessingSection">
+            <h2>Image Processing</h2>
+            
+            <!-- Upload Area -->
+            <div id="uploadArea">
                 <div class="upload-area">
                     <input type="file" id="fileInput" accept=".jpg,.jpeg" required>
                     <label for="fileInput">
@@ -38,8 +40,96 @@
                     </label>
                     <div id="fileName"></div>
                 </div>
-                <div id="uploadStatus"></div>
-            </form>
+            </div>
+            
+            <!-- Preview and Controls Area -->
+            <div id="previewArea" style="display: none;">
+            <div class="preview-container">
+                <div class="preview-canvas-wrapper">
+                    <canvas id="previewCanvas"></canvas>
+                    <div class="preview-label">Preview (Measured Palette Simulation)</div>
+                </div>
+                <div class="curve-canvas-wrapper">
+                    <canvas id="curveCanvas" width="300" height="300"></canvas>
+                    <div class="preview-label">S-Curve Tone Mapping</div>
+                </div>
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label>Processing Algorithm:</label>
+                <div style="margin-top: 8px;">
+                    <label style="display: block; margin-bottom: 5px;">
+                        <input type="radio" name="processingMode" value="enhanced" checked style="margin-right: 5px;">
+                        Enhanced (Our Algorithm with S-Curve)
+                    </label>
+                    <label style="display: block;">
+                        <input type="radio" name="processingMode" value="stock" style="margin-right: 5px;">
+                        Stock (Waveshare Original)
+                    </label>
+                </div>
+                <small>Stock mode uses simple dithering without tone mapping</small>
+            </div>
+            
+            <div class="controls-grid">
+                <div class="form-group">
+                    <label for="scurveStrength">S-Curve Strength: <span id="strengthValue">0.9</span></label>
+                    <input type="range" id="scurveStrength" min="0" max="1" step="0.1" value="0.9">
+                    <small>Overall tone mapping strength (0=linear, 1=strong)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="scurveShadow">Shadow Boost: <span id="shadowValue">0.0</span></label>
+                    <input type="range" id="scurveShadow" min="0" max="1" step="0.1" value="0.0">
+                    <small>Brighten shadow areas (higher=brighter)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="scurveHighlight">Highlight Compress: <span id="highlightValue">1.7</span></label>
+                    <input type="range" id="scurveHighlight" min="0.5" max="5" step="0.1" value="1.7">
+                    <small>Protect highlights from over-exposure (higher=more protection)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="scurveMidpoint">Midpoint: <span id="midpointValue">0.5</span></label>
+                    <input type="range" id="scurveMidpoint" min="0.3" max="0.7" step="0.05" value="0.5">
+                    <small>Where to split shadows/highlights</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="saturation">Saturation: <span id="saturationValue">1.2</span></label>
+                    <input type="range" id="saturation" min="0.5" max="2" step="0.1" value="1.2">
+                    <small>Color vibrancy (1.0=normal, >1.0=more vibrant)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Color Matching Method:</label>
+                    <div style="margin-top: 8px;">
+                        <label style="display: block; margin-bottom: 5px;">
+                            <input type="radio" name="colorMethod" value="rgb" checked style="margin-right: 5px;">
+                            Simple RGB (default)
+                        </label>
+                        <label style="display: block;">
+                            <input type="radio" name="colorMethod" value="lab" style="margin-right: 5px;">
+                            LAB Color Space (better for grayscale)
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="button-group">
+                <button type="button" id="discardImage" class="btn btn-secondary">Discard</button>
+                <button type="button" id="resetParams" class="btn btn-secondary">Reset to Defaults</button>
+                <button type="button" id="uploadProcessed" class="btn btn-primary">Upload to Device</button>
+            </div>
+            
+            <div id="uploadProgress" style="display: none; margin-top: 15px; text-align: center;">
+                <div style="font-size: 1.1rem; color: #667eea; margin-bottom: 10px;">⏳ Uploading...</div>
+                <div style="font-size: 0.9rem; color: #666;">Please wait, do not close this page</div>
+            </div>
+            </div>
+            
+            <!-- Status Messages -->
+            <div id="uploadStatus" style="margin-top: 15px;"></div>
         </section>
 
         <section class="card">
@@ -55,16 +145,6 @@
                     <label for="rotateInterval">Rotation Interval (seconds):</label>
                     <input type="number" id="rotateInterval" min="10" max="86400" value="3600">
                 </div>
-                <div class="form-group">
-                    <label for="brightnessFstop">Brightness Adjustment (f-stops):</label>
-                    <input type="number" id="brightnessFstop" min="-2" max="2" step="0.1" value="0.3">
-                    <small>Adjust brightness for e-paper display (-2 to +2 f-stops)</small>
-                </div>
-                <div class="form-group">
-                    <label for="contrast">Contrast:</label>
-                    <input type="number" id="contrast" min="0.5" max="2.0" step="0.1" value="1.2">
-                    <small>Adjust contrast for e-paper display (1.0 = normal, >1.0 = more contrast)</small>
-                </div>
                 <button type="submit" class="btn btn-primary">Save Settings</button>
                 <div id="configStatus"></div>
             </form>
@@ -75,6 +155,7 @@
         </footer>
     </div>
 
-    <script src="app.js"></script>
+    <script type="module" src="image-processor.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>

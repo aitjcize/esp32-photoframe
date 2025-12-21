@@ -7,7 +7,6 @@
 #include <string.h>
 
 #include "config.h"
-#include "display_manager.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "jpeg_decoder.h"
@@ -34,12 +33,12 @@ static const rgb_t palette[7] = {
 // Measured palette - actual displayed colors from e-paper (used for dithering)
 static const rgb_t palette_measured[7] = {
     {2, 2, 2},        // Black (measured)
-    {185, 185, 185},  // White (measured - much darker than theoretical!)
-    {195, 184, 0},    // Yellow (measured)
-    {117, 5, 0},      // Red (measured - much darker)
+    {190, 190, 190},  // White (measured - much darker than theoretical!)
+    {205, 202, 0},    // Yellow (measured)
+    {135, 19, 0},     // Red (measured - much darker)
     {0, 0, 0},        // Reserved
-    {0, 47, 107},     // Blue (measured - much darker)
-    {35, 70, 40}      // Green (measured - much darker)
+    {5, 64, 158},     // Blue (measured - much darker)
+    {39, 102, 60}     // Green (measured - much darker)
 };
 
 static int find_closest_color(uint8_t r, uint8_t g, uint8_t b, const rgb_t *pal)
@@ -65,7 +64,8 @@ static int find_closest_color(uint8_t r, uint8_t g, uint8_t b, const rgb_t *pal)
     return closest;
 }
 
-static void apply_floyd_steinberg_dither(uint8_t *image, int width, int height)
+static void apply_floyd_steinberg_dither(uint8_t *image, int width, int height,
+                                         const rgb_t *dither_palette)
 {
     int *errors = (int *) heap_caps_calloc(width * height * 3, sizeof(int), MALLOC_CAP_SPIRAM);
     if (!errors) {
@@ -85,18 +85,18 @@ static void apply_floyd_steinberg_dither(uint8_t *image, int width, int height)
             old_g = (old_g < 0) ? 0 : (old_g > 255) ? 255 : old_g;
             old_b = (old_b < 0) ? 0 : (old_b > 255) ? 255 : old_b;
 
-            // Find closest color using measured palette (accurate color matching)
-            int color_idx = find_closest_color(old_r, old_g, old_b, palette_measured);
+            // Find closest color using specified dither palette
+            int color_idx = find_closest_color(old_r, old_g, old_b, dither_palette);
 
             // Output using theoretical palette (for BMP/firmware compatibility)
             image[idx] = palette[color_idx].r;
             image[idx + 1] = palette[color_idx].g;
             image[idx + 2] = palette[color_idx].b;
 
-            // Calculate error using measured palette (for accurate error diffusion)
-            int err_r = old_r - palette_measured[color_idx].r;
-            int err_g = old_g - palette_measured[color_idx].g;
-            int err_b = old_b - palette_measured[color_idx].b;
+            // Calculate error using specified dither palette (for error diffusion)
+            int err_r = old_r - dither_palette[color_idx].r;
+            int err_g = old_g - dither_palette[color_idx].g;
+            int err_b = old_b - dither_palette[color_idx].b;
 
             if (x + 1 < width) {
                 int next_idx = idx + 3;
@@ -267,9 +267,11 @@ static esp_err_t write_bmp_file(const char *filename, uint8_t *rgb_data, int wid
     return ESP_OK;
 }
 
-esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *bmp_path)
+esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *bmp_path,
+                                             bool use_stock_mode)
 {
-    ESP_LOGI(TAG, "Converting %s to %s", jpg_path, bmp_path);
+    ESP_LOGI(TAG, "Converting %s to %s (mode: %s)", jpg_path, bmp_path,
+             use_stock_mode ? "stock" : "enhanced");
 
     FILE *fp = fopen(jpg_path, "rb");
     if (!fp) {
@@ -400,35 +402,13 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
         }
     }
 
-    // Apply contrast adjustment for e-paper display
-    float contrast_val = display_manager_get_contrast();
-    ESP_LOGI(TAG, "Applying contrast adjustment: %.2f", contrast_val);
-    size_t pixel_count = final_width * final_height * 3;
-
-    // Contrast formula: output = ((input - 128) * contrast) + 128
-    // This pivots around middle gray (128) to preserve overall brightness
-    for (size_t i = 0; i < pixel_count; i++) {
-        float pixel = final_image[i];
-        float adjusted = ((pixel - 128.0f) * contrast_val) + 128.0f;
-        if (adjusted < 0)
-            adjusted = 0;
-        if (adjusted > 255)
-            adjusted = 255;
-        final_image[i] = (uint8_t) adjusted;
-    }
-
-    // Increase brightness by configured f-stop for e-paper display
-    float fstop = display_manager_get_brightness_fstop();
-    float multiplier = powf(2.0f, fstop);  // 2^fstop
-    ESP_LOGI(TAG, "Increasing brightness by %.2f f-stop (multiplier: %.2f)", fstop, multiplier);
-    for (size_t i = 0; i < pixel_count; i++) {
-        int brightened = (int) (final_image[i] * multiplier);
-        final_image[i] = (brightened > 255) ? 255 : brightened;
-    }
-
-    // Apply dithering
-    ESP_LOGI(TAG, "Applying Floyd-Steinberg dithering");
-    apply_floyd_steinberg_dither(final_image, final_width, final_height);
+    // Apply dithering based on processing mode
+    // Stock mode: use theoretical palette (matches original Waveshare algorithm)
+    // Enhanced mode: use measured palette (accurate error diffusion)
+    const rgb_t *dither_palette = use_stock_mode ? palette : palette_measured;
+    ESP_LOGI(TAG, "Applying Floyd-Steinberg dithering with %s palette",
+             use_stock_mode ? "theoretical" : "measured");
+    apply_floyd_steinberg_dither(final_image, final_width, final_height, dither_palette);
 
     // Write BMP file
     ESP_LOGI(TAG, "Writing BMP file");
