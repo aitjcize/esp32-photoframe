@@ -15,6 +15,8 @@ DISPLAY_WIDTH = 800
 DISPLAY_HEIGHT = 480
 
 # 7-color e-paper palette (same as ESP32)
+# NOTE: These are theoretical RGB values. For better accuracy, measure actual
+# displayed colors with a camera/color picker and update this palette.
 PALETTE = np.array([
     [0, 0, 0],       # Black
     [255, 255, 255], # White
@@ -25,8 +27,23 @@ PALETTE = np.array([
     [0, 255, 0]      # Green
 ], dtype=np.uint8)
 
-def find_closest_color(r, g, b):
+# Measured palette - actual displayed colors captured from e-paper display
+# These values are significantly different from theoretical RGB, especially white!
+PALETTE_MEASURED = np.array([
+    [2, 2, 2],         # Black (measured)
+    [179, 182, 171],   # White (measured - much darker than theoretical!)
+    [201, 184, 0],     # Yellow (measured)
+    [117, 10, 0],      # Red (measured - much darker)
+    [0, 0, 0],         # Reserved
+    [0, 47, 107],      # Blue (measured - much darker)
+    [33, 69, 40]       # Green (measured - much darker)
+], dtype=np.uint8)
+
+def find_closest_color(r, g, b, palette=None):
     """Find closest color in palette (same algorithm as ESP32)"""
+    if palette is None:
+        palette = PALETTE
+    
     min_dist = float('inf')
     closest = 1
     
@@ -34,9 +51,9 @@ def find_closest_color(r, g, b):
         if i == 4:  # Skip reserved color
             continue
         
-        dr = int(r) - int(PALETTE[i][0])
-        dg = int(g) - int(PALETTE[i][1])
-        db = int(b) - int(PALETTE[i][2])
+        dr = int(r) - int(palette[i][0])
+        dg = int(g) - int(palette[i][1])
+        db = int(b) - int(palette[i][2])
         dist = dr*dr + dg*dg + db*db
         
         if dist < min_dist:
@@ -45,14 +62,24 @@ def find_closest_color(r, g, b):
     
     return closest
 
-def apply_floyd_steinberg_dither(image):
+def apply_floyd_steinberg_dither(image, dither_palette=None, output_palette=None):
     """
     Apply Floyd-Steinberg dithering (same algorithm as ESP32)
     Input: RGB image as numpy array (height, width, 3)
     Output: Dithered image
+    
+    Args:
+        dither_palette: Palette used for finding closest color (e.g., measured colors)
+        output_palette: Palette used for output RGB values (e.g., theoretical colors for BMP)
+                       If None, uses dither_palette
     """
+    if dither_palette is None:
+        dither_palette = PALETTE
+    if output_palette is None:
+        output_palette = dither_palette
+    
     height, width = image.shape[:2]
-    errors = np.zeros((height, width, 3), dtype=np.int32)
+    errors = np.zeros((height, width, 3), dtype=np.int64)  # Use int64 to prevent overflow
     output = image.copy().astype(np.int32)
     
     for y in range(height):
@@ -67,16 +94,17 @@ def apply_floyd_steinberg_dither(image):
             old_g = max(0, min(255, old_g))
             old_b = max(0, min(255, old_b))
             
-            # Find closest palette color
-            color_idx = find_closest_color(old_r, old_g, old_b)
+            # Find closest palette color using dither_palette
+            color_idx = find_closest_color(old_r, old_g, old_b, dither_palette)
             
-            # Set new pixel value
-            output[y, x] = PALETTE[color_idx]
+            # Set new pixel value using output_palette
+            output[y, x] = output_palette[color_idx]
             
-            # Calculate error
-            err_r = old_r - PALETTE[color_idx][0]
-            err_g = old_g - PALETTE[color_idx][1]
-            err_b = old_b - PALETTE[color_idx][2]
+            # Calculate error using dither_palette (for accurate error diffusion)
+            # Use int() to ensure we're working with Python ints, not numpy scalars
+            err_r = int(old_r) - int(dither_palette[color_idx][0])
+            err_g = int(old_g) - int(dither_palette[color_idx][1])
+            err_b = int(old_b) - int(dither_palette[color_idx][2])
             
             # Distribute error to neighboring pixels (Floyd-Steinberg)
             if x + 1 < width:
@@ -158,21 +186,29 @@ def apply_brightness_fstop(image, fstop):
     brightened = np.clip(brightened, 0, 255)
     return brightened.astype(np.uint8)
 
-def process_image(input_path, output_bmp, output_thumb, brightness_fstop=0.3, contrast=1.3):
+def process_image(input_path, output_bmp, output_thumb, brightness_fstop=0.0, contrast=1.2,
+                 use_measured_palette=True, render_measured_palette=False):
     """
-    Process image using the exact same pipeline as ESP32
+    Process image using ESP32 pipeline with measured color palette.
     
-    Pipeline:
-    1. Load JPEG
-    2. Rotate if portrait (90° clockwise)
-    3. Resize if needed (to 800x480)
-    4. Apply contrast adjustment
-    5. Apply brightness adjustment (f-stop)
-    6. Apply Floyd-Steinberg dithering
-    7. Save as BMP
-    8. Save thumbnail
+    Args:
+        brightness_fstop: Brightness adjustment in f-stops (default: 0.0)
+        contrast: Contrast multiplier (default: 1.2)
+        use_measured_palette: Use measured colors for dithering (default: True)
+        render_measured_palette: Render BMP with measured colors for preview (default: False)
     """
     print(f"Processing: {input_path}")
+    
+    # Determine palettes
+    dither_palette = PALETTE_MEASURED if use_measured_palette else PALETTE
+    output_palette = PALETTE_MEASURED if render_measured_palette else PALETTE
+    
+    if use_measured_palette:
+        print(f"  Dithering with measured color palette")
+    if render_measured_palette:
+        print(f"  Rendering BMP with measured colors (darker output)")
+    else:
+        print(f"  Rendering BMP with theoretical colors (standard output)")
     
     # 1. Load JPEG
     img = Image.open(input_path)
@@ -189,7 +225,7 @@ def process_image(input_path, output_bmp, output_thumb, brightness_fstop=0.3, co
         image = rotate_90_clockwise(image)
         print(f"  After rotation: {image.shape[1]}x{image.shape[0]}")
     
-    # 3. Resize with cover (fill and crop) - same as frontend
+    # 3. Resize with cover (fill and crop)
     if image.shape[1] != DISPLAY_WIDTH or image.shape[0] != DISPLAY_HEIGHT:
         print(f"  Resizing to {DISPLAY_WIDTH}x{DISPLAY_HEIGHT} (cover mode: scale and crop)")
         image = resize_image_cover(image, DISPLAY_WIDTH, DISPLAY_HEIGHT)
@@ -198,39 +234,54 @@ def process_image(input_path, output_bmp, output_thumb, brightness_fstop=0.3, co
     print(f"  Applying contrast: {contrast}")
     image = apply_contrast(image, contrast)
     
-    # 5. Apply brightness adjustment (f-stop)
+    # 5. Apply brightness adjustment
     print(f"  Applying brightness: {brightness_fstop} f-stop (multiplier: {2**brightness_fstop:.2f})")
     image = apply_brightness_fstop(image, brightness_fstop)
     
     # 6. Apply Floyd-Steinberg dithering
     print(f"  Applying Floyd-Steinberg dithering")
-    dithered = apply_floyd_steinberg_dither(image)
+    dithered = apply_floyd_steinberg_dither(image, dither_palette, output_palette)
     
     # 7. Save BMP
     print(f"  Saving BMP: {output_bmp}")
     Image.fromarray(dithered).save(output_bmp, 'BMP')
     
     # 8. Save thumbnail (from original, before dithering)
+    # Match webapp thumbnail size: 200x120 (or 120x200 for portrait)
     print(f"  Saving thumbnail: {output_thumb}")
-    # Reload original for thumbnail
     thumb_img = Image.open(input_path)
     if thumb_img.mode != 'RGB':
         thumb_img = thumb_img.convert('RGB')
     
-    # Thumbnail is portrait orientation (480x800)
-    thumb_img.thumbnail((480, 800), Image.Resampling.LANCZOS)
+    thumb_img.thumbnail((200, 120), Image.Resampling.LANCZOS)
     thumb_img.save(output_thumb, 'JPEG', quality=85)
     
     print(f"  Done!")
 
 def main():
     parser = argparse.ArgumentParser(
-        description='PhotoFrame Image Processor - Replicates ESP32 image processing pipeline'
+        description='PhotoFrame Image Processor - Convert JPEG to e-paper BMP',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic usage with default settings (measured palette, contrast 1.2, brightness 0.0)
+  %(prog)s input.jpg
+  
+  # Adjust brightness and contrast
+  %(prog)s input.jpg -b 0.5 -c 1.5
+  
+  # Preview with measured palette rendering (darker output)
+  %(prog)s input.jpg --render-measured
+        """
     )
     parser.add_argument('input', help='Input JPEG image')
     parser.add_argument('-o', '--output-dir', default='.', help='Output directory (default: current directory)')
-    parser.add_argument('-b', '--brightness', type=float, default=0.3, help='Brightness f-stop (default: 0.3)')
-    parser.add_argument('-c', '--contrast', type=float, default=1.3, help='Contrast multiplier (default: 1.3)')
+    parser.add_argument('-b', '--brightness', type=float, default=0.0, help='Brightness f-stop (default: 0.0)')
+    parser.add_argument('-c', '--contrast', type=float, default=1.2, help='Contrast multiplier (default: 1.2)')
+    parser.add_argument('--no-measured-palette', dest='measured_palette', action='store_false', default=True,
+                       help='Use theoretical color palette instead of measured (default: measured palette)')
+    parser.add_argument('--render-measured', action='store_true',
+                       help='Render BMP with measured palette colors (darker output for preview)')
     
     args = parser.parse_args()
     
@@ -242,18 +293,19 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Generate output filenames
     base_name = input_path.stem
     output_bmp = output_dir / f"{base_name}.bmp"
     output_thumb = output_dir / f"{base_name}.jpg"
-    
+        
     try:
         process_image(
             input_path,
             output_bmp,
             output_thumb,
             brightness_fstop=args.brightness,
-            contrast=args.contrast
+            contrast=args.contrast,
+            use_measured_palette=args.measured_palette,
+            render_measured_palette=args.render_measured
         )
         return 0
     except Exception as e:

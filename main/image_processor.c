@@ -20,6 +20,7 @@ typedef struct {
     uint8_t b;
 } rgb_t;
 
+// Theoretical palette - used for BMP output (firmware compatibility)
 static const rgb_t palette[7] = {
     {0, 0, 0},        // Black
     {255, 255, 255},  // White
@@ -30,7 +31,18 @@ static const rgb_t palette[7] = {
     {0, 255, 0}       // Green
 };
 
-static int find_closest_color(uint8_t r, uint8_t g, uint8_t b)
+// Measured palette - actual displayed colors from e-paper (used for dithering)
+static const rgb_t palette_measured[7] = {
+    {2, 2, 2},        // Black (measured)
+    {179, 182, 171},  // White (measured - much darker than theoretical!)
+    {201, 184, 0},    // Yellow (measured)
+    {117, 10, 0},     // Red (measured - much darker)
+    {0, 0, 0},        // Reserved
+    {0, 47, 107},     // Blue (measured - much darker)
+    {33, 69, 40}      // Green (measured - much darker)
+};
+
+static int find_closest_color(uint8_t r, uint8_t g, uint8_t b, const rgb_t *pal)
 {
     int min_dist = INT_MAX;
     int closest = 1;
@@ -39,9 +51,9 @@ static int find_closest_color(uint8_t r, uint8_t g, uint8_t b)
         if (i == 4)
             continue;
 
-        int dr = r - palette[i].r;
-        int dg = g - palette[i].g;
-        int db = b - palette[i].b;
+        int dr = r - pal[i].r;
+        int dg = g - pal[i].g;
+        int db = b - pal[i].b;
         int dist = dr * dr + dg * dg + db * db;
 
         if (dist < min_dist) {
@@ -73,15 +85,18 @@ static void apply_floyd_steinberg_dither(uint8_t *image, int width, int height)
             old_g = (old_g < 0) ? 0 : (old_g > 255) ? 255 : old_g;
             old_b = (old_b < 0) ? 0 : (old_b > 255) ? 255 : old_b;
 
-            int color_idx = find_closest_color(old_r, old_g, old_b);
+            // Find closest color using measured palette (accurate color matching)
+            int color_idx = find_closest_color(old_r, old_g, old_b, palette_measured);
 
+            // Output using theoretical palette (for BMP/firmware compatibility)
             image[idx] = palette[color_idx].r;
             image[idx + 1] = palette[color_idx].g;
             image[idx + 2] = palette[color_idx].b;
 
-            int err_r = old_r - palette[color_idx].r;
-            int err_g = old_g - palette[color_idx].g;
-            int err_b = old_b - palette[color_idx].b;
+            // Calculate error using measured palette (for accurate error diffusion)
+            int err_r = old_r - palette_measured[color_idx].r;
+            int err_g = old_g - palette_measured[color_idx].g;
+            int err_b = old_b - palette_measured[color_idx].b;
 
             if (x + 1 < width) {
                 int next_idx = idx + 3;

@@ -2,9 +2,40 @@
 
 ![PhotoFrame](.img/esp32-photoframe.png)
 
-A modern, feature-rich firmware for the **Waveshare ESP32-S3-PhotoPainter** that replaces the stock firmware with a powerful RESTful API and web interface. This firmware provides superior image management, automatic rotation handling, drag-and-drop uploads, and intelligent power management.
+A modern, feature-rich firmware for the **Waveshare ESP32-S3-PhotoPainter** that replaces the stock firmware with a powerful RESTful API, web interface, and **significantly better image quality**. This firmware provides superior image management, automatic rotation handling, drag-and-drop uploads, and intelligent power management.
 
 **Product Page**: [Waveshare ESP32-S3-PhotoPainter](https://www.waveshare.com/wiki/ESP32-S3-PhotoPainter)
+
+## Image Quality Comparison
+
+Our firmware uses a **measured color palette** for superior image rendering compared to the stock firmware. The images below show simulated results of what you'll see on the actual e-paper display:
+
+<table>
+<tr>
+<td align="center"><b>Original Image</b></td>
+<td align="center"><b>Stock Algorithm</b></td>
+<td align="center"><b>Our Algorithm</b></td>
+</tr>
+<tr>
+<td><img src=".img/sample.jpg" width="250"/></td>
+<td><img src=".img/stock_algorithm.bmp" width="250"/></td>
+<td><img src=".img/our_algorithm.bmp" width="250"/></td>
+</tr>
+<tr>
+<td align="center">Source JPEG</td>
+<td align="center">Theoretical palette<br/>(washed out colors)</td>
+<td align="center">Measured palette<br/>(accurate colors)</td>
+</tr>
+</table>
+
+**Why Our Algorithm is Better:**
+
+- ✅ **Accurate Color Matching**: Uses actual measured e-paper colors (e.g., white is really RGB 179,182,171 not 255,255,255)
+- ✅ **Better Dithering**: Floyd-Steinberg algorithm with measured palette produces more natural color transitions
+- ✅ **Optimized Contrast**: Default 1.2× contrast with neutral brightness preserves image tonality
+- ✅ **No Over-Saturation**: Avoids the washed-out appearance of theoretical palette matching
+
+The measured palette accounts for the fact that e-paper displays show darker, more muted colors than pure RGB values. By dithering with these actual colors, the firmware makes better decisions about which palette color to use for each pixel, resulting in images that look significantly better on the physical display.
 
 ## Why This Firmware?
 
@@ -24,13 +55,11 @@ This custom firmware is **better than the stock firmware** because it offers:
 - **Smart Resizing**: Client-side scaling to exact display dimensions (800×480 or 480×800)
 - **Portrait Detection**: Automatically rotates portrait images for landscape display
 - **Thumbnail Gallery**: Fast-loading JPEG thumbnails in original orientation
-- **Brightness Adjustment**: 0.3 f-stop increase optimized for e-paper
-- **Floyd-Steinberg Dithering**: Professional 7-color palette conversion
+- **Adjustable Brightness & Contrast**: Customizable settings for optimal image appearance
+- **Floyd-Steinberg Dithering**: Professional 7-color palette conversion with measured color palette
 
 ### Web Interface
 - **Responsive Design**: Works on desktop and mobile browsers
-- **Real-time Feedback**: Loading spinners, status messages, progress indicators
-- **Concurrent Protection**: Prevents multiple simultaneous display operations
 - **Image Preview**: Thumbnails show actual orientation before display
 
 ### Power Management
@@ -202,23 +231,12 @@ Key endpoints:
 Edit `main/config.h` to customize:
 
 ```c
-#define AUTO_SLEEP_TIMEOUT_SEC      120   // Auto-sleep timeout (2 minutes)
-#define IMAGE_ROTATE_INTERVAL_SEC   60    // Default rotation interval
-#define DISPLAY_WIDTH               800   // E-paper width
-#define DISPLAY_HEIGHT              480   // E-paper height
-#define DEFAULT_BRIGHTNESS_FSTOP    0.3   // Default brightness adjustment in f-stops
-#define DEFAULT_CONTRAST            1.3   // Default contrast multiplier (1.0 = no change)
-```
-
-**HTTP Server Configuration** (`main/http_server.c`):
-```c
-config.stack_size = 12288;           // 12KB stack per worker thread
-config.max_open_sockets = 4;         // Max 4 concurrent connections
-```
-
-**Watchdog Configuration** (`sdkconfig.defaults`):
-```
-CONFIG_ESP_INT_WDT_TIMEOUT_MS=1000   // Interrupt watchdog timeout (1000ms for e-paper SPI)
+#define AUTO_SLEEP_TIMEOUT_SEC      120    // Auto-sleep timeout (2 minutes)
+#define IMAGE_ROTATE_INTERVAL_SEC   3600   // Default rotation interval (1 hour)
+#define DISPLAY_WIDTH               800    // E-paper width
+#define DISPLAY_HEIGHT              480    // E-paper height
+#define DEFAULT_BRIGHTNESS_FSTOP    0.0    // Default brightness adjustment in f-stops
+#define DEFAULT_CONTRAST            1.2    // Default contrast multiplier (1.0 = no change)
 ```
 
 ## Image Format
