@@ -79,7 +79,7 @@ done
 
 ## Notes
 
-- The tool uses the same default values as the ESP32 firmware (brightness: 0.3, contrast: 1.3)
+- The tool uses the same default values as the ESP32 firmware (brightness: 0.0, contrast: 1.1)
 - Portrait images are automatically rotated to landscape orientation
 - The 7-color palette matches the e-paper display exactly
 - Floyd-Steinberg dithering uses the same algorithm as the firmware

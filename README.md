@@ -17,9 +17,9 @@ Our firmware uses a **measured color palette** for superior image rendering comp
 <td align="center"><b>Our Algorithm</b></td>
 </tr>
 <tr>
-<td><img src=".img/sample.jpg" width="250"/></td>
-<td><img src=".img/stock_algorithm.bmp" width="250"/></td>
-<td><img src=".img/our_algorithm.bmp" width="250"/></td>
+<td><a href="https://github.com/aitjcize/esp32-photoframe/raw/refs/heads/main/.img/sample.jpg"><img src=".img/sample.jpg" width="250"/></a></td>
+<td><a href="https://github.com/aitjcize/esp32-photoframe/raw/refs/heads/main/.img/stock_algorithm.bmp"><img src=".img/stock_algorithm.bmp" width="250"/></a></td>
+<td><a href="https://github.com/aitjcize/esp32-photoframe/raw/refs/heads/main/.img/our_algorithm.bmp"><img src=".img/our_algorithm.bmp" width="250"/></a></td>
 </tr>
 <tr>
 <td align="center">Source JPEG</td>
@@ -36,6 +36,8 @@ Our firmware uses a **measured color palette** for superior image rendering comp
 - ✅ **No Over-Saturation**: Avoids the washed-out appearance of theoretical palette matching
 
 The measured palette accounts for the fact that e-paper displays show darker, more muted colors than pure RGB values. By dithering with these actual colors, the firmware makes better decisions about which palette color to use for each pixel, resulting in images that look significantly better on the physical display.
+
+📖 **[Read the technical deep-dive on measured color palettes →](docs/MEASURED_PALETTE.md)**
 
 ## Why This Firmware?
 
