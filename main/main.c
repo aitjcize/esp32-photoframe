@@ -50,9 +50,10 @@ static esp_err_t init_sdcard(void)
 
     // Retry SD card initialization up to 5 times with delays
     esp_err_t ret = ESP_FAIL;
-    for (int retry = 0; retry < 5; retry++) {
+    const int retries = 3;
+    for (int retry = 0; retry < retries; retry++) {
         if (retry > 0) {
-            ESP_LOGW(TAG, "SD card init failed, retrying... (attempt %d/5)", retry + 1);
+            ESP_LOGW(TAG, "SD card init failed, retrying... (attempt %d/%d)", retry + 1, retries);
             vTaskDelay(pdMS_TO_TICKS(500));  // Wait 500ms before retry
         }
 
@@ -65,9 +66,9 @@ static esp_err_t init_sdcard(void)
 
     if (ret != ESP_OK) {
         if (ret == ESP_FAIL) {
-            ESP_LOGE(TAG, "Failed to mount filesystem after 5 attempts");
+            ESP_LOGE(TAG, "Failed to mount filesystem after %d attempts", retries);
         } else {
-            ESP_LOGE(TAG, "Failed to initialize SD card after 5 attempts (%s)",
+            ESP_LOGE(TAG, "Failed to initialize SD card after %d attempts (%s)", retries,
                      esp_err_to_name(ret));
         }
         return ret;
