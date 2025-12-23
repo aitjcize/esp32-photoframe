@@ -17,7 +17,7 @@ esp_err_t ble_wake_service_stop(void);
 bool ble_wake_service_is_running(void);
 
 // Enable/disable BLE wake mode
-void ble_wake_service_set_enabled(bool enabled);
+esp_err_t ble_wake_service_set_enabled(bool enabled);
 
 // Get BLE wake mode status
 bool ble_wake_service_get_enabled(void);

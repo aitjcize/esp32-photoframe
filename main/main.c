@@ -11,6 +11,7 @@
 #include "driver/sdmmc_host.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "esp_sleep.h"
 #include "esp_system.h"
 #include "esp_vfs_fat.h"
@@ -287,6 +288,32 @@ void app_main(void)
     if (ble_wake_service_get_enabled()) {
         ESP_LOGI(TAG, "BLE wake mode enabled, starting BLE advertising");
         ESP_ERROR_CHECK(ble_wake_service_start());
+        
+        // Enable automatic light sleep only when on battery power
+        // When USB is connected, power consumption is not a concern
+        // Set CONFIG_PM_DEBUG_ENABLE_USB=y in sdkconfig to test with USB connected
+        bool enable_pm = !axp_is_usb_connected();
+        
+#if 1
+        enable_pm = true;  // Force enable for debugging even with USB
+        ESP_LOGI(TAG, "PM_DEBUG: Forcing automatic light sleep even with USB connected");
+#endif
+        
+        if (enable_pm) {
+            esp_pm_config_t pm_config = {
+                .max_freq_mhz = 160,
+                .min_freq_mhz = 80,
+                .light_sleep_enable = true
+            };
+            esp_err_t pm_err = esp_pm_configure(&pm_config);
+            if (pm_err == ESP_OK) {
+                ESP_LOGI(TAG, "Automatic light sleep enabled (BLE remains active)");
+            } else {
+                ESP_LOGW(TAG, "Failed to enable automatic light sleep: %s", esp_err_to_name(pm_err));
+            }
+        } else {
+            ESP_LOGI(TAG, "USB connected - automatic light sleep disabled");
+        }
     }
 
     if (wifi_manager_is_connected()) {

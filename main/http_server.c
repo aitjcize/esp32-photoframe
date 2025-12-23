@@ -957,45 +957,6 @@ static esp_err_t config_handler(httpd_req_t *req)
     return ESP_FAIL;
 }
 
-static esp_err_t battery_status_handler(httpd_req_t *req)
-{
-    if (!system_ready) {
-        httpd_resp_set_status(req, HTTPD_503);
-        httpd_resp_sendstr(req, "System is still initializing");
-        return ESP_FAIL;
-    }
-
-    power_manager_reset_sleep_timer();
-
-    cJSON *root = cJSON_CreateObject();
-
-    bool battery_connected = axp_is_battery_connected();
-    cJSON_AddBoolToObject(root, "connected", battery_connected);
-
-    if (battery_connected) {
-        int percent = axp_get_battery_percent();
-        int voltage = axp_get_battery_voltage();
-        bool charging = axp_is_charging();
-
-        cJSON_AddNumberToObject(root, "percent", percent);
-        cJSON_AddNumberToObject(root, "voltage", voltage);
-        cJSON_AddBoolToObject(root, "charging", charging);
-    } else {
-        cJSON_AddNumberToObject(root, "percent", -1);
-        cJSON_AddNumberToObject(root, "voltage", 0);
-        cJSON_AddBoolToObject(root, "charging", false);
-    }
-
-    char *json_str = cJSON_Print(root);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, json_str);
-
-    free(json_str);
-    cJSON_Delete(root);
-
-    return ESP_OK;
-}
-
 esp_err_t http_server_init(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();

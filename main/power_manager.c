@@ -1,10 +1,10 @@
 #include "power_manager.h"
 
 #include "axp_prot.h"
+#include "ble_wake_service.h"
 #include "config.h"
 #include "display_manager.h"
 #include "driver/gpio.h"
-#include "driver/rtc_io.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
@@ -25,13 +25,17 @@ static void rotation_timer_task(void *arg)
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
 
-        // Only run active rotation when USB is connected (device stays awake)
-        if (!axp_is_usb_connected()) {
-            rotate_countdown = 0;  // Reset when on battery (uses sleep-based rotation)
+        // Run active rotation when:
+        // 1. USB is connected (device stays awake), OR
+        // 2. On battery with BLE wake enabled (automatic light sleep keeps device responsive)
+        bool should_run = axp_is_usb_connected() || ble_wake_service_get_enabled();
+        
+        if (!should_run) {
+            rotate_countdown = 0;  // Reset when on battery without BLE (uses sleep-based rotation)
             continue;
         }
 
-        // Handle active rotation when USB connected and auto-rotate enabled
+        // Handle active rotation when conditions are met and auto-rotate enabled
         if (display_manager_get_auto_rotate()) {
             if (rotate_countdown == 0) {
                 // Initialize rotation countdown
@@ -39,7 +43,7 @@ static void rotation_timer_task(void *arg)
             } else {
                 rotate_countdown--;
                 if (rotate_countdown == 0) {
-                    ESP_LOGI(TAG, "Active rotation triggered (USB powered)");
+                    ESP_LOGI(TAG, "Active rotation triggered");
                     display_manager_handle_timer_wakeup();
                     rotate_countdown = display_manager_get_rotate_interval();
                 }
@@ -88,18 +92,19 @@ static void sleep_timer_task(void *arg)
 
 esp_err_t power_manager_init(void)
 {
-    last_wakeup_cause = esp_sleep_get_wakeup_cause();
+    uint32_t wakeup_causes = esp_sleep_get_wakeup_causes();
     ext1_wakeup_pin_mask = 0;
 
-    switch (last_wakeup_cause) {
-    case ESP_SLEEP_WAKEUP_TIMER:
+    // Check wakeup causes directly
+    if (wakeup_causes & ESP_SLEEP_WAKEUP_TIMER) {
         ESP_LOGI(TAG, "Wakeup caused by timer (auto-rotate)");
+        last_wakeup_cause = ESP_SLEEP_WAKEUP_TIMER;
         // Disable auto-sleep for timer wakeup - device will go back to sleep immediately
         sleep_enabled = false;
-        break;
-    case ESP_SLEEP_WAKEUP_EXT1:
+    } else if (wakeup_causes & ESP_SLEEP_WAKEUP_EXT1) {
         // ESP32-S3 only supports EXT1, check which GPIO triggered it
         ext1_wakeup_pin_mask = esp_sleep_get_ext1_wakeup_status();
+        last_wakeup_cause = ESP_SLEEP_WAKEUP_EXT1;
 
         if (ext1_wakeup_pin_mask & (1ULL << BOOT_BUTTON_GPIO)) {
             ESP_LOGI(TAG, "Wakeup caused by BOOT button (GPIO %d)", BOOT_BUTTON_GPIO);
@@ -108,11 +113,12 @@ esp_err_t power_manager_init(void)
         } else {
             ESP_LOGI(TAG, "Wakeup caused by EXT1 (unknown GPIO: 0x%llx)", ext1_wakeup_pin_mask);
         }
-        break;
-    case ESP_SLEEP_WAKEUP_UNDEFINED:
-    default:
+    } else if (wakeup_causes & ESP_SLEEP_WAKEUP_BT) {
+        ESP_LOGI(TAG, "Wakeup caused by BLE");
+        last_wakeup_cause = ESP_SLEEP_WAKEUP_BT;
+    } else {
         ESP_LOGI(TAG, "Not a deep sleep wakeup");
-        break;
+        last_wakeup_cause = ESP_SLEEP_WAKEUP_UNDEFINED;
     }
 
     // Configure button GPIOs as input with pull-ups
@@ -167,10 +173,17 @@ void power_manager_enter_sleep(void)
     esp_sleep_enable_ext1_wakeup((1ULL << BOOT_BUTTON_GPIO) | (1ULL << KEY_BUTTON_GPIO),
                                  ESP_EXT1_WAKEUP_ANY_LOW);
 
-    ESP_LOGI(TAG, "Entering deep sleep now");
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    esp_deep_sleep_start();
+    // Check if BLE wake mode is enabled
+    if (ble_wake_service_get_enabled()) {
+        ESP_LOGI(TAG, "BLE wake enabled - automatic light sleep is active (system will sleep/wake automatically)");
+        // With automatic light sleep enabled, the system handles sleep automatically
+        // BLE remains active and the device will wake when needed
+        return;
+    } else {
+        ESP_LOGI(TAG, "Entering deep sleep now");
+        vTaskDelay(pdMS_TO_TICKS(100));
+        esp_deep_sleep_start();
+    }
 }
 
 void power_manager_enter_sleep_with_timer(uint32_t sleep_time_sec)
@@ -187,10 +200,17 @@ void power_manager_enter_sleep_with_timer(uint32_t sleep_time_sec)
     esp_sleep_enable_ext1_wakeup((1ULL << BOOT_BUTTON_GPIO) | (1ULL << KEY_BUTTON_GPIO),
                                  ESP_EXT1_WAKEUP_ANY_LOW);
 
-    ESP_LOGI(TAG, "Entering deep sleep now");
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    esp_deep_sleep_start();
+    // Check if BLE wake mode is enabled
+    if (ble_wake_service_get_enabled()) {
+        ESP_LOGI(TAG, "BLE wake enabled - automatic light sleep is active (system will sleep/wake automatically)");
+        // With automatic light sleep enabled, the system handles sleep automatically
+        // BLE remains active and the device will wake when needed
+        return;
+    } else {
+        ESP_LOGI(TAG, "Entering deep sleep now");
+        vTaskDelay(pdMS_TO_TICKS(100));
+        esp_deep_sleep_start();
+    }
 }
 
 void power_manager_trigger_sleep(void)
