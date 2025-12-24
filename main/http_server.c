@@ -723,16 +723,34 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
 
     // Get content length
     size_t content_len = req->content_len;
-    if (content_len == 0 || content_len > 5 * 1024 * 1024) {  // Max 5MB
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid content length (max 5MB)");
+    const size_t MAX_UPLOAD_SIZE = 5 * 1024 * 1024;  // 5MB max for JPEG file
+
+    if (content_len == 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty request body");
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Receiving JPG image for direct display, size: %d bytes", content_len);
+    if (content_len > MAX_UPLOAD_SIZE) {
+        ESP_LOGW(TAG, "Upload rejected: %zu bytes exceeds limit of %zu bytes", content_len,
+                 MAX_UPLOAD_SIZE);
+        char error_msg[128];
+        snprintf(error_msg, sizeof(error_msg),
+                 "File too large: %zu KB (max: %zu KB). Please compress or resize your image.",
+                 content_len / 1024, MAX_UPLOAD_SIZE / 1024);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, error_msg);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Receiving JPG image for direct display, size: %zu bytes (%.1f KB)", content_len,
+             content_len / 1024.0);
 
     // Create temporary file path in /sdcard root
     const char *temp_jpg_path = "/sdcard/.temp_upload.jpg";
     const char *temp_bmp_path = "/sdcard/.temp_upload.bmp";
+
+    // Delete old temp files to prevent caching issues
+    unlink(temp_jpg_path);
+    unlink(temp_bmp_path);
 
     // Open file for writing
     FILE *fp = fopen(temp_jpg_path, "wb");
@@ -778,9 +796,21 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
     // Convert JPG to BMP using image processor
     esp_err_t err = image_processor_convert_jpg_to_bmp(temp_jpg_path, temp_bmp_path, false);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to convert JPG to BMP");
+        ESP_LOGE(TAG, "Failed to convert JPG to BMP: %s", esp_err_to_name(err));
         unlink(temp_jpg_path);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to process image");
+
+        // Provide specific error messages based on error type
+        if (err == ESP_ERR_INVALID_SIZE) {
+            httpd_resp_send_err(
+                req, HTTPD_400_BAD_REQUEST,
+                "Image is too large (max: 6400x3840). Please resize your image and try again.");
+        } else if (err == ESP_ERR_NO_MEM) {
+            httpd_resp_send_err(
+                req, HTTPD_400_BAD_REQUEST,
+                "Image requires too much memory to process. Please use a smaller image.");
+        } else {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to process image");
+        }
         return ESP_FAIL;
     }
 

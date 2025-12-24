@@ -331,7 +331,7 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
     fread(jpg_buffer, 1, jpg_size, fp);
     fclose(fp);
 
-    // First, get image info to know the output size
+    // First, get image info at full scale to determine if we need to scale during decode
     esp_jpeg_image_cfg_t jpeg_cfg = {.indata = jpg_buffer,
                                      .indata_size = jpg_size,
                                      .outbuf = NULL,
@@ -354,7 +354,63 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
     ESP_LOGI(TAG, "JPEG info: %dx%d, output size: %zu bytes", outimg.width, outimg.height,
              outimg.output_len);
 
-    // Allocate output buffer
+    // Determine optimal JPEG decode scale to reduce memory usage
+    // Scale down large images during decode to avoid memory allocation failures
+    esp_jpeg_image_scale_t decode_scale = JPEG_IMAGE_SCALE_0;
+    int scaled_width = outimg.width;
+    int scaled_height = outimg.height;
+
+    // If image is much larger than display, use JPEG decoder's built-in scaling
+    // This reduces memory usage significantly (e.g., 1/2 scale = 1/4 memory)
+    if (outimg.width > DISPLAY_WIDTH * 2 || outimg.height > DISPLAY_HEIGHT * 2) {
+        decode_scale = JPEG_IMAGE_SCALE_1_2;  // 1:2 scale
+        scaled_width = outimg.width / 2;
+        scaled_height = outimg.height / 2;
+        ESP_LOGI(TAG, "Image is large, using 1:2 JPEG decode scale: %dx%d -> %dx%d", outimg.width,
+                 outimg.height, scaled_width, scaled_height);
+    }
+
+    if (outimg.width > DISPLAY_WIDTH * 4 || outimg.height > DISPLAY_HEIGHT * 4) {
+        decode_scale = JPEG_IMAGE_SCALE_1_4;  // 1:4 scale
+        scaled_width = outimg.width / 4;
+        scaled_height = outimg.height / 4;
+        ESP_LOGI(TAG, "Image is very large, using 1:4 JPEG decode scale: %dx%d -> %dx%d",
+                 outimg.width, outimg.height, scaled_width, scaled_height);
+    }
+
+    // Check if image is still too large even after maximum scaling
+    // Maximum supported: 1:8 scale would be ~6400x3840 original -> 800x480 scaled
+    if (outimg.width > DISPLAY_WIDTH * 8 || outimg.height > DISPLAY_HEIGHT * 8) {
+        ESP_LOGE(TAG, "Image is too large: %dx%d (max supported: %dx%d)", outimg.width,
+                 outimg.height, DISPLAY_WIDTH * 8, DISPLAY_HEIGHT * 8);
+        free(jpg_buffer);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    // Get scaled image info
+    if (decode_scale != JPEG_IMAGE_SCALE_0) {
+        jpeg_cfg.out_scale = decode_scale;
+        ret = esp_jpeg_get_image_info(&jpeg_cfg, &outimg);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to get scaled JPEG info: %s", esp_err_to_name(ret));
+            free(jpg_buffer);
+            return ret;
+        }
+        ESP_LOGI(TAG, "Scaled JPEG output: %dx%d, size: %zu bytes", outimg.width, outimg.height,
+                 outimg.output_len);
+    }
+
+    // Final safety check: ensure decoded size won't exceed available memory
+    // Typical SPIRAM: 8MB, need headroom for processing
+    const size_t MAX_DECODED_SIZE = 4 * 1024 * 1024;  // 4MB max for decoded image
+    if (outimg.output_len > MAX_DECODED_SIZE) {
+        ESP_LOGE(TAG, "Decoded image size too large: %zu bytes (max: %zu bytes)", outimg.output_len,
+                 MAX_DECODED_SIZE);
+        free(jpg_buffer);
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Allocate output buffer for scaled image
     uint8_t *rgb_buffer = (uint8_t *) heap_caps_malloc(outimg.output_len, MALLOC_CAP_SPIRAM);
     if (!rgb_buffer) {
         ESP_LOGE(TAG, "Failed to allocate output buffer (%zu bytes)", outimg.output_len);
@@ -362,7 +418,7 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
         return ESP_FAIL;
     }
 
-    // Decode JPEG
+    // Decode JPEG with scaling
     jpeg_cfg.outbuf = rgb_buffer;
     jpeg_cfg.outbuf_size = outimg.output_len;
 
@@ -385,63 +441,121 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
 
     // Check if image is portrait and needs rotation for display
     bool is_portrait = outimg.height > outimg.width;
+    ESP_LOGI(TAG, "Image orientation check: %dx%d (width x height), is_portrait=%d", outimg.width,
+             outimg.height, is_portrait);
+
+    // STEP 1: Resize to appropriate target size immediately to free large decoded buffer
+    int target_width, target_height;
+
     if (is_portrait) {
-        ESP_LOGI(TAG, "Portrait image detected (%dx%d), rotating 90° clockwise for display",
-                 outimg.width, outimg.height);
-
-        size_t rotated_size = outimg.width * outimg.height * 3;
-        ESP_LOGI(TAG, "Allocating %zu bytes for rotation", rotated_size);
-
-        rotated = (uint8_t *) heap_caps_malloc(rotated_size, MALLOC_CAP_SPIRAM);
-        if (rotated) {
-            ESP_LOGI(TAG, "Rotation buffer allocated, performing rotation");
-
-            // Rotate 90° clockwise: swap dimensions and rotate pixels
-            for (int y = 0; y < outimg.height; y++) {
-                for (int x = 0; x < outimg.width; x++) {
-                    int src_idx = (y * outimg.width + x) * 3;
-                    // Rotate 90° clockwise: (x,y) -> (height-1-y, x)
-                    int dst_x = outimg.height - 1 - y;
-                    int dst_y = x;
-                    int dst_idx = (dst_y * outimg.height + dst_x) * 3;
-
-                    rotated[dst_idx] = rgb_buffer[src_idx];
-                    rotated[dst_idx + 1] = rgb_buffer[src_idx + 1];
-                    rotated[dst_idx + 2] = rgb_buffer[src_idx + 2];
-                }
-            }
-
-            ESP_LOGI(TAG, "Rotation complete");
-            final_image = rotated;
-            final_width = outimg.height;  // Swapped
-            final_height = outimg.width;  // Swapped
-
-            // Free original buffer immediately after rotation
-            free(rgb_buffer);
-            rgb_buffer = NULL;
-        } else {
-            ESP_LOGE(TAG, "Failed to allocate rotation buffer, using original orientation");
-        }
+        // Portrait: resize to fit display width after rotation
+        // Target height = display width (800), maintain aspect ratio
+        target_width = (outimg.width * DISPLAY_WIDTH) / outimg.height;
+        target_height = DISPLAY_WIDTH;
+        ESP_LOGI(TAG, "Portrait image: resizing %dx%d -> %dx%d (will rotate after)", final_width,
+                 final_height, target_width, target_height);
+    } else {
+        // Landscape: resize directly to display size
+        target_width = DISPLAY_WIDTH;
+        target_height = DISPLAY_HEIGHT;
+        ESP_LOGI(TAG, "Landscape image: resizing %dx%d -> %dx%d", final_width, final_height,
+                 target_width, target_height);
     }
 
-    // Image should already be correct size from webapp (800x480 or 480x800 after rotation)
-    // Only resize if dimensions don't match display
-    if (final_width != DISPLAY_WIDTH || final_height != DISPLAY_HEIGHT) {
-        ESP_LOGW(TAG, "Unexpected dimensions %dx%d, expected %dx%d", final_width, final_height,
-                 DISPLAY_WIDTH, DISPLAY_HEIGHT);
-        ESP_LOGI(TAG, "Resizing from %dx%d to %dx%d", final_width, final_height, DISPLAY_WIDTH,
-                 DISPLAY_HEIGHT);
-        resized =
-            resize_image(final_image, final_width, final_height, DISPLAY_WIDTH, DISPLAY_HEIGHT);
-        if (resized) {
-            if (rotated)
-                free(rotated);  // Free rotated buffer if we're replacing it
-            final_image = resized;
-            final_width = DISPLAY_WIDTH;
-            final_height = DISPLAY_HEIGHT;
-        } else {
-            ESP_LOGW(TAG, "Resize failed, using current size");
+    // Only resize if needed
+    if (final_width != target_width || final_height != target_height) {
+        resized = resize_image(final_image, final_width, final_height, target_width, target_height);
+        if (!resized) {
+            ESP_LOGE(TAG, "Failed to resize image from %dx%d to %dx%d", final_width, final_height,
+                     target_width, target_height);
+            free(rgb_buffer);
+            return ESP_FAIL;
         }
+        free(rgb_buffer);
+        rgb_buffer = NULL;
+        final_image = resized;
+        final_width = target_width;
+        final_height = target_height;
+        ESP_LOGI(TAG, "Resize complete: %dx%d", final_width, final_height);
+    }
+
+    // STEP 2: Rotate portrait images (now working with smaller buffer)
+    if (is_portrait) {
+        size_t rotated_size = final_width * final_height * 3;
+        ESP_LOGI(TAG, "Rotating portrait image, allocating %zu bytes", rotated_size);
+
+        rotated = (uint8_t *) heap_caps_malloc(rotated_size, MALLOC_CAP_SPIRAM);
+        if (!rotated) {
+            ESP_LOGE(TAG, "Failed to allocate rotation buffer (%zu bytes)", rotated_size);
+            if (resized)
+                free(resized);
+            else if (rgb_buffer)
+                free(rgb_buffer);
+            return ESP_FAIL;
+        }
+
+        ESP_LOGI(TAG, "Performing 90° clockwise rotation");
+
+        // Rotate 90° clockwise: swap dimensions and rotate pixels
+        for (int y = 0; y < final_height; y++) {
+            for (int x = 0; x < final_width; x++) {
+                int src_idx = (y * final_width + x) * 3;
+                int dst_x = final_height - 1 - y;
+                int dst_y = x;
+                int dst_idx = (dst_y * final_height + dst_x) * 3;
+
+                rotated[dst_idx] = final_image[src_idx];
+                rotated[dst_idx + 1] = final_image[src_idx + 1];
+                rotated[dst_idx + 2] = final_image[src_idx + 2];
+            }
+        }
+
+        ESP_LOGI(TAG, "Rotation complete");
+        if (resized)
+            free(resized);
+        else if (rgb_buffer)
+            free(rgb_buffer);
+        rgb_buffer = NULL;
+        resized = NULL;
+        final_image = rotated;
+
+        // Swap dimensions after rotation
+        int temp = final_width;
+        final_width = final_height;
+        final_height = temp;
+        ESP_LOGI(TAG, "After rotation: %dx%d", final_width, final_height);
+    }
+
+    // STEP 3: Final resize if still needed (shouldn't happen normally)
+    if (final_width != DISPLAY_WIDTH || final_height != DISPLAY_HEIGHT) {
+        ESP_LOGE(TAG, "Unexpected dimensions %dx%d after processing, expected %dx%d", final_width,
+                 final_height, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        uint8_t *final_resized =
+            resize_image(final_image, final_width, final_height, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        if (!final_resized) {
+            ESP_LOGE(TAG, "Final resize failed from %dx%d to %dx%d", final_width, final_height,
+                     DISPLAY_WIDTH, DISPLAY_HEIGHT);
+            if (rotated)
+                free(rotated);
+            else if (resized)
+                free(resized);
+            else if (rgb_buffer)
+                free(rgb_buffer);
+            return ESP_FAIL;
+        }
+        if (rotated) {
+            free(rotated);
+            rotated = NULL;
+        } else if (resized) {
+            free(resized);
+            resized = NULL;
+        } else if (rgb_buffer) {
+            free(rgb_buffer);
+            rgb_buffer = NULL;
+        }
+        final_image = final_resized;
+        final_width = DISPLAY_WIDTH;
+        final_height = DISPLAY_HEIGHT;
     }
 
     // Apply dithering based on processing mode
@@ -456,16 +570,18 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
     ESP_LOGI(TAG, "Writing BMP file");
     ret = write_bmp_file(bmp_path, final_image, final_width, final_height);
 
-    // Cleanup
-    if (resized) {
-        free(resized);
-    } else if (rotated) {
-        free(rotated);
-    }
+    // Cleanup - free final_image (which could be rotated, resized, final_resized, or rgb_buffer)
+    free(final_image);
 
-    // Free rgb_buffer if not already freed (only freed early if rotation succeeded)
-    if (rgb_buffer) {
+    // These should already be NULL if they were freed earlier, but check anyway
+    if (rgb_buffer && rgb_buffer != final_image) {
         free(rgb_buffer);
+    }
+    if (resized && resized != final_image) {
+        free(resized);
+    }
+    if (rotated && rotated != final_image) {
+        free(rotated);
     }
 
     if (ret == ESP_OK) {
