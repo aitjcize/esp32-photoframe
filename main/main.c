@@ -126,7 +126,7 @@ static void button_task(void *arg)
             if (duration > 50 && duration < 3000) {
                 ESP_LOGI(TAG, "Key button pressed, triggering rotation");
                 power_manager_reset_sleep_timer();
-                display_manager_handle_timer_wakeup();
+                display_manager_handle_wakeup();
             }
         }
 
@@ -215,22 +215,12 @@ void app_main(void)
     }
 
     // Check wake-up source with priority: Timer > KEY > BOOT
-    if (power_manager_is_timer_wakeup()) {
-        ESP_LOGI(TAG, "Timer wakeup detected - auto-rotate and sleep");
-        display_manager_handle_timer_wakeup();
+    if (power_manager_is_timer_wakeup() || power_manager_is_key_button_wakeup()) {
+        display_manager_handle_wakeup();
 
         // Go directly back to sleep without starting WiFi or HTTP server
         ESP_LOGI(TAG, "Auto-rotate complete, going back to sleep");
-        power_manager_enter_sleep_with_timer(display_manager_get_rotate_interval());
-        // Won't reach here after sleep
-    } else if (power_manager_is_key_button_wakeup()) {
-        ESP_LOGI(TAG, "KEY button wakeup detected - rotate and sleep");
-        display_manager_handle_timer_wakeup();
-
-        // Go directly back to sleep without starting WiFi or HTTP server
-        // Need to reschedule auto-rotate timer if enabled (RTC timer is one-shot)
-        ESP_LOGI(TAG, "Manual rotation complete, going back to sleep");
-        power_manager_trigger_sleep();
+        power_manager_enter_sleep();
         // Won't reach here after sleep
     } else if (power_manager_is_boot_button_wakeup()) {
         ESP_LOGI(TAG, "BOOT button wakeup detected - starting WiFi and HTTP server");

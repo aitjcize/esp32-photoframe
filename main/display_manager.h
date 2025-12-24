@@ -14,6 +14,6 @@ void display_manager_set_rotate_interval(int seconds);
 int display_manager_get_rotate_interval(void);
 void display_manager_set_auto_rotate(bool enabled);
 bool display_manager_get_auto_rotate(void);
-void display_manager_handle_timer_wakeup(void);
+void display_manager_handle_wakeup(void);
 
 #endif

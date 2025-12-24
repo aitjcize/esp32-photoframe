@@ -201,14 +201,14 @@ bool display_manager_get_auto_rotate(void)
     return auto_rotate_enabled;
 }
 
-void display_manager_handle_timer_wakeup(void)
+void display_manager_handle_wakeup(void)
 {
     if (!auto_rotate_enabled) {
-        ESP_LOGW(TAG, "Timer wakeup but auto-rotate is disabled");
+        ESP_LOGW(TAG, "Wakeup but auto-rotate is disabled");
         return;
     }
 
-    ESP_LOGI(TAG, "Handling timer wakeup for auto-rotate");
+    ESP_LOGI(TAG, "Handling wakeup for auto-rotate");
 
     DIR *dir = opendir(IMAGE_DIRECTORY);
     if (!dir) {

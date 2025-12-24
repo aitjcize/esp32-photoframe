@@ -107,6 +107,16 @@ Download the latest prebuilt firmware from the [GitHub Releases](https://github.
 
 Replace `/dev/ttyUSB0` with your serial port (e.g., `/dev/cu.usbserial-*` on macOS, `COM3` on Windows).
 
+#### ⚠️ Important: Device Not Detected?
+
+This firmware has **automatic light sleep** enabled. If the device is not detected for flashing:
+
+1. **Press and hold the PWR button for 5 seconds** (until device powers off)
+2. **Hold down the BOOT button and click the PWR button** to enter download mode
+3. **Run the flash command** while in download mode
+
+The device will remain in download mode and be detectable for flashing.
+
 ---
 
 **For developers:** See **[DEV.md](docs/DEV.md)** for build-from-source instructions and configuration options.

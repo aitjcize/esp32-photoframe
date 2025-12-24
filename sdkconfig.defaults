@@ -49,3 +49,10 @@ CONFIG_ESP_INT_WDT_TIMEOUT_MS=1000
 # Task Watchdog - Increase timeout for slow SD card writes during image conversion
 # Default is 5 seconds, increase to 15 seconds to allow for slow SD card operations
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=15
+
+# Power Management - Enable automatic light sleep and CPU frequency scaling
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+CONFIG_PM_DFS_INIT_AUTO=y
+CONFIG_PM_TRACE=y
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y

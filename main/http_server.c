@@ -880,6 +880,18 @@ static esp_err_t battery_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static void delayed_sleep_task(void *arg)
+{
+    // Wait for HTTP response to be sent
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    ESP_LOGI(TAG, "Delayed sleep task: entering sleep now");
+    power_manager_enter_sleep();
+
+    // Task will be deleted when device enters deep sleep
+    vTaskDelete(NULL);
+}
+
 static esp_err_t sleep_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -899,11 +911,8 @@ static esp_err_t sleep_handler(httpd_req_t *req)
     free(json_str);
     cJSON_Delete(response);
 
-    // Give time for HTTP response to be sent before entering sleep
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    // Trigger sleep - will use auto-rotate settings if enabled
-    power_manager_trigger_sleep();
+    // Create a task to enter sleep after HTTP response completes
+    xTaskCreate(delayed_sleep_task, "delayed_sleep", 2048, NULL, 5, NULL);
 
     return ESP_OK;
 }

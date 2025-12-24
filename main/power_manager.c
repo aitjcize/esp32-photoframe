@@ -6,6 +6,7 @@
 #include "driver/gpio.h"
 #include "driver/rtc_io.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "esp_sleep.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -46,7 +47,7 @@ static void rotation_timer_task(void *arg)
             } else if (now >= next_rotation_time) {
                 // Time to rotate
                 ESP_LOGI(TAG, "Active rotation triggered (USB powered)");
-                display_manager_handle_timer_wakeup();
+                display_manager_handle_wakeup();
 
                 // Schedule next rotation
                 int rotate_interval = display_manager_get_rotate_interval();
@@ -113,6 +114,43 @@ static void sleep_timer_task(void *arg)
     }
 }
 
+static void power_manager_enable_auto_light_sleep(void)
+{
+    // Configure automatic light sleep with CPU frequency scaling
+    // This allows the ESP32 to automatically enter light sleep when idle
+    // and scale CPU frequency down to save power while maintaining WiFi connectivity
+    esp_pm_config_t pm_config = {
+        .max_freq_mhz = 160,         // Maximum CPU frequency (160MHz for ESP32-S3)
+        .min_freq_mhz = 40,          // Minimum CPU frequency (40MHz when idle)
+        .light_sleep_enable = true,  // Enable automatic light sleep
+    };
+
+    esp_err_t pm_ret = esp_pm_configure(&pm_config);
+    if (pm_ret == ESP_OK) {
+        ESP_LOGI(TAG, "Automatic light sleep enabled (CPU: 160MHz -> 40MHz)");
+    } else {
+        ESP_LOGW(TAG, "Failed to configure power management: %s", esp_err_to_name(pm_ret));
+    }
+}
+
+static void power_manager_disable_auto_light_sleep(void)
+{
+    esp_pm_config_t pm_config = {
+        .max_freq_mhz = 160,  // Maximum CPU frequency (160MHz for ESP32-S3)
+        .min_freq_mhz = 40,   // Minimum CPU frequency (40MHz when idle)
+        .light_sleep_enable = false,
+    };
+
+    esp_err_t pm_ret = esp_pm_configure(&pm_config);
+    if (pm_ret == ESP_OK) {
+        ESP_LOGI(TAG, "Automatic light sleep disabled");
+    } else {
+        ESP_LOGW(TAG, "Failed to configure power management: %s", esp_err_to_name(pm_ret));
+    }
+
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+}
+
 esp_err_t power_manager_init(void)
 {
     // Get wakeup causes bitmap (new API in ESP-IDF v6.0)
@@ -170,19 +208,21 @@ esp_err_t power_manager_init(void)
     xTaskCreate(sleep_timer_task, "sleep_timer", 4096, NULL, 5, &sleep_timer_task_handle);
     xTaskCreate(rotation_timer_task, "rotation_timer", 4096, NULL, 5, &rotation_timer_task_handle);
 
+    power_manager_enable_auto_light_sleep();
+
     ESP_LOGI(TAG, "Power manager initialized");
     return ESP_OK;
 }
 
 void power_manager_enter_sleep(void)
 {
+    power_manager_disable_auto_light_sleep();
+
     ESP_LOGI(TAG, "Preparing to enter deep sleep mode");
 
     // Turn off LEDs before sleep to save power (active-low)
     gpio_set_level(LED_RED_GPIO, 1);
     gpio_set_level(LED_GREEN_GPIO, 1);
-
-    http_server_stop();
 
     // Check if auto-rotate is enabled
     if (display_manager_get_auto_rotate()) {
@@ -202,45 +242,10 @@ void power_manager_enter_sleep(void)
     esp_deep_sleep_start();
 }
 
-void power_manager_enter_sleep_with_timer(uint32_t sleep_time_sec)
-{
-    ESP_LOGI(TAG, "Preparing to enter deep sleep with timer wake-up in %lu seconds",
-             sleep_time_sec);
-
-    // Turn off LEDs before sleep to save power (active-low)
-    gpio_set_level(LED_RED_GPIO, 1);
-    gpio_set_level(LED_GREEN_GPIO, 1);
-
-    http_server_stop();
-
-    // Enable timer, boot button, and key button wake-up (ESP32-S3 only supports EXT1)
-    esp_sleep_enable_timer_wakeup(sleep_time_sec * 1000000ULL);  // Convert to microseconds
-    esp_sleep_enable_ext1_wakeup((1ULL << BOOT_BUTTON_GPIO) | (1ULL << KEY_BUTTON_GPIO),
-                                 ESP_EXT1_WAKEUP_ANY_LOW);
-
-    ESP_LOGI(TAG, "Entering deep sleep now");
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    esp_deep_sleep_start();
-}
-
-void power_manager_trigger_sleep(void)
-{
-    ESP_LOGI(TAG, "Sleep triggered");
-
-    // Check if auto-rotate is enabled and use its interval for wake-up
-    if (display_manager_get_auto_rotate()) {
-        power_manager_enter_sleep_with_timer(display_manager_get_rotate_interval());
-    } else {
-        power_manager_enter_sleep();
-    }
-}
-
 void power_manager_reset_sleep_timer(void)
 {
     next_sleep_time = esp_timer_get_time() + (AUTO_SLEEP_TIMEOUT_SEC * 1000000LL);
-    sleep_enabled = true;  // Enable sleep timer when user interacts with web server
-    ESP_LOGI(TAG, "Sleep timer reset, will sleep in %d seconds", AUTO_SLEEP_TIMEOUT_SEC);
+    sleep_enabled = true;
 }
 
 void power_manager_reset_rotate_timer(void)
