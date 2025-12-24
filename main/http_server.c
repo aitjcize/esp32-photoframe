@@ -930,10 +930,12 @@ static esp_err_t config_handler(httpd_req_t *req)
     if (req->method == HTTP_GET) {
         int rotate_interval = display_manager_get_rotate_interval();
         bool auto_rotate = display_manager_get_auto_rotate();
+        bool deep_sleep_enabled = power_manager_get_deep_sleep_enabled();
 
         cJSON *root = cJSON_CreateObject();
         cJSON_AddNumberToObject(root, "rotate_interval", rotate_interval);
         cJSON_AddBoolToObject(root, "auto_rotate", auto_rotate);
+        cJSON_AddBoolToObject(root, "deep_sleep_enabled", deep_sleep_enabled);
 
         char *json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");
@@ -967,6 +969,11 @@ static esp_err_t config_handler(httpd_req_t *req)
         cJSON *auto_rotate_obj = cJSON_GetObjectItem(root, "auto_rotate");
         if (auto_rotate_obj && cJSON_IsBool(auto_rotate_obj)) {
             display_manager_set_auto_rotate(cJSON_IsTrue(auto_rotate_obj));
+        }
+
+        cJSON *deep_sleep_obj = cJSON_GetObjectItem(root, "deep_sleep_enabled");
+        if (deep_sleep_obj && cJSON_IsBool(deep_sleep_obj)) {
+            power_manager_set_deep_sleep_enabled(cJSON_IsTrue(deep_sleep_obj));
         }
 
         cJSON_Delete(root);

@@ -12,13 +12,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "http_server.h"
+#include "nvs.h"
 
 static const char *TAG = "power_manager";
 
 static TaskHandle_t sleep_timer_task_handle = NULL;
 static TaskHandle_t rotation_timer_task_handle = NULL;
-static int64_t next_sleep_time = 0;  // Use absolute time for sleep timer
-static bool sleep_enabled = true;    // Enabled by default to prevent battery drain
+static int64_t next_sleep_time = 0;     // Use absolute time for sleep timer
+static bool deep_sleep_enabled = true;  // Enabled by default, can be disabled for HA integration
 static esp_sleep_wakeup_cause_t last_wakeup_cause = ESP_SLEEP_WAKEUP_UNDEFINED;
 static int64_t next_rotation_time = 0;  // Use absolute time for rotation
 static uint64_t ext1_wakeup_pin_mask = 0;
@@ -75,8 +76,8 @@ static void sleep_timer_task(void *arg)
             continue;
         }
 
-        // Handle auto-sleep timer when on battery
-        if (sleep_enabled) {
+        // Handle auto-sleep timer when on battery (only if deep sleep is enabled)
+        if (deep_sleep_enabled) {
             int64_t now = esp_timer_get_time();
 
             if (next_sleep_time == 0) {
@@ -110,6 +111,9 @@ static void sleep_timer_task(void *arg)
                 ESP_LOGI(TAG, "Sleep timeout reached, entering deep sleep");
                 power_manager_enter_sleep();
             }
+        } else {
+            // Deep sleep disabled - reset timer to prevent it from triggering
+            next_sleep_time = 0;
         }
     }
 }
@@ -153,6 +157,16 @@ static void power_manager_disable_auto_light_sleep(void)
 
 esp_err_t power_manager_init(void)
 {
+    // Load deep sleep enabled setting from NVS
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {
+        uint8_t enabled = 1;  // Default to enabled
+        nvs_get_u8(nvs_handle, NVS_DEEP_SLEEP_KEY, &enabled);
+        deep_sleep_enabled = (enabled != 0);
+        nvs_close(nvs_handle);
+    }
+    ESP_LOGI(TAG, "Deep sleep %s", deep_sleep_enabled ? "enabled" : "disabled");
+
     // Get wakeup causes bitmap (new API in ESP-IDF v6.0)
     uint32_t wakeup_causes = esp_sleep_get_wakeup_causes();
     ext1_wakeup_pin_mask = 0;
@@ -161,8 +175,6 @@ esp_err_t power_manager_init(void)
     if (wakeup_causes & (1 << ESP_SLEEP_WAKEUP_TIMER)) {
         last_wakeup_cause = ESP_SLEEP_WAKEUP_TIMER;
         ESP_LOGI(TAG, "Wakeup caused by timer (auto-rotate)");
-        // Disable auto-sleep for timer wakeup - device will go back to sleep immediately
-        sleep_enabled = false;
     } else if (wakeup_causes & (1 << ESP_SLEEP_WAKEUP_EXT1)) {
         last_wakeup_cause = ESP_SLEEP_WAKEUP_EXT1;
         // ESP32-S3 only supports EXT1, check which GPIO triggered it
@@ -202,8 +214,11 @@ esp_err_t power_manager_init(void)
                               .pull_down_en = GPIO_PULLDOWN_DISABLE,
                               .pull_up_en = GPIO_PULLUP_DISABLE};
     gpio_config(&led_conf);
-    gpio_set_level(LED_RED_GPIO, 0);    // Turn on red LED when awake (active-low)
-    gpio_set_level(LED_GREEN_GPIO, 1);  // Turn off green LED (active-low)
+
+    // Turn on red LED only if deep sleep is enabled (to indicate battery mode)
+    // If deep sleep is disabled, keep LED off to save battery
+    gpio_set_level(LED_RED_GPIO, deep_sleep_enabled ? 0 : 1);  // active-low
+    gpio_set_level(LED_GREEN_GPIO, 1);                         // Turn off green LED (active-low)
 
     xTaskCreate(sleep_timer_task, "sleep_timer", 4096, NULL, 5, &sleep_timer_task_handle);
     xTaskCreate(rotation_timer_task, "rotation_timer", 4096, NULL, 5, &rotation_timer_task_handle);
@@ -245,7 +260,6 @@ void power_manager_enter_sleep(void)
 void power_manager_reset_sleep_timer(void)
 {
     next_sleep_time = esp_timer_get_time() + (AUTO_SLEEP_TIMEOUT_SEC * 1000000LL);
-    sleep_enabled = true;
 }
 
 void power_manager_reset_rotate_timer(void)
@@ -275,4 +289,27 @@ bool power_manager_is_key_button_wakeup(void)
 {
     return (last_wakeup_cause == ESP_SLEEP_WAKEUP_EXT1) &&
            (ext1_wakeup_pin_mask & (1ULL << KEY_BUTTON_GPIO));
+}
+
+void power_manager_set_deep_sleep_enabled(bool enabled)
+{
+    deep_sleep_enabled = enabled;
+
+    // Save to NVS
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_DEEP_SLEEP_KEY, enabled ? 1 : 0);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    // Update RED LED state: on when deep sleep enabled, off when disabled (to save battery)
+    gpio_set_level(LED_RED_GPIO, enabled ? 0 : 1);  // active-low
+
+    ESP_LOGI(TAG, "Deep sleep %s", enabled ? "enabled" : "disabled");
+}
+
+bool power_manager_get_deep_sleep_enabled(void)
+{
+    return deep_sleep_enabled;
 }

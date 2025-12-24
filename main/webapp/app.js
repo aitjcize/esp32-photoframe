@@ -916,11 +916,25 @@ async function loadConfig() {
         
         document.getElementById('autoRotate').checked = data.auto_rotate || false;
         document.getElementById('rotateInterval').value = data.rotate_interval || 3600;
+        document.getElementById('deepSleepEnabled').checked = data.deep_sleep_enabled !== false;
+        
+        // Update warning visibility based on loaded state
+        updateDeepSleepWarning();
     } catch (error) {
         // Silently fail if API not available (standalone mode)
         console.log('Config API not available (standalone mode)');
     }
 }
+
+// Toggle deep sleep warning visibility based on checkbox state
+function updateDeepSleepWarning() {
+    const deepSleepEnabled = document.getElementById('deepSleepEnabled').checked;
+    const warning = document.getElementById('deepSleepWarning');
+    warning.style.display = deepSleepEnabled ? 'none' : 'block';
+}
+
+// Add event listener to deep sleep checkbox
+document.getElementById('deepSleepEnabled').addEventListener('change', updateDeepSleepWarning);
 
 document.getElementById('configForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -928,6 +942,7 @@ document.getElementById('configForm').addEventListener('submit', async (e) => {
     const statusDiv = document.getElementById('configStatus');
     const autoRotate = document.getElementById('autoRotate').checked;
     const rotateInterval = parseInt(document.getElementById('rotateInterval').value);
+    const deepSleepEnabled = document.getElementById('deepSleepEnabled').checked;
     
     try {
         const response = await fetch(`${API_BASE}/api/config`, {
@@ -937,7 +952,8 @@ document.getElementById('configForm').addEventListener('submit', async (e) => {
             },
             body: JSON.stringify({
                 auto_rotate: autoRotate,
-                rotate_interval: rotateInterval
+                rotate_interval: rotateInterval,
+                deep_sleep_enabled: deepSleepEnabled
             })
         });
         

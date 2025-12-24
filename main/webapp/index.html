@@ -192,7 +192,7 @@
         </section>
 
         <section class="card">
-            <h2>Auto-Rotate Settings</h2>
+            <h2>Power & Auto-Rotate Settings</h2>
             <form id="configForm">
                 <div class="form-group">
                     <label>
@@ -203,6 +203,18 @@
                 <div class="form-group">
                     <label for="rotateInterval">Rotation Interval (seconds):</label>
                     <input type="number" id="rotateInterval" min="10" max="86400" value="3600">
+                </div>
+                <div class="form-group" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                    <label>
+                        <input type="checkbox" id="deepSleepEnabled" checked>
+                        Enable Deep Sleep
+                    </label>
+                    <div id="deepSleepWarning" style="display: none; margin-top: 10px; padding: 12px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
+                        <div style="font-weight: 600; color: #856404; margin-bottom: 5px;">⚠️ Power Consumption Notice</div>
+                        <small style="color: #856404; line-height: 1.5;">
+                            Disabling deep sleep keeps the HTTP server accessible for Home Assistant integration, but will significantly increase power consumption and reduce battery life. Only disable if the device is permanently powered via USB.
+                        </small>
+                    </div>
                 </div>
                 <button type="submit" class="btn btn-primary">Save Settings</button>
                 <div id="configStatus"></div>

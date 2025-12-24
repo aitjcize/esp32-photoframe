@@ -14,5 +14,7 @@ bool power_manager_is_timer_wakeup(void);
 bool power_manager_is_ext1_wakeup(void);
 bool power_manager_is_boot_button_wakeup(void);
 bool power_manager_is_key_button_wakeup(void);
+void power_manager_set_deep_sleep_enabled(bool enabled);
+bool power_manager_get_deep_sleep_enabled(void);
 
 #endif

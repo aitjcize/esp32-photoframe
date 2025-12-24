@@ -47,24 +47,56 @@ The measured palette accounts for the fact that e-paper displays show darker, mo
 
 ## Power Management
 
-The firmware implements intelligent power management that adapts based on the power source:
+The firmware implements intelligent power management with configurable deep sleep behavior:
 
-### When USB Connected
-- **Auto-Sleep**: Disabled (device stays awake indefinitely)
-- **Auto-Rotate**: Uses active countdown timer (works while device is awake)
-- **Web Interface**: Always accessible
-- **Battery Charging**: Limited to 500mA for USB 2.0 compatibility
-- **Use Case**: Ideal for development, testing, or continuous display
+### Deep Sleep Modes
 
-### When Running on Battery
-- **Auto-Sleep**: Enabled - device enters deep sleep after 2 minutes of inactivity
+The device supports two power modes, configurable via the web interface:
+
+#### 1. Deep Sleep Enabled (Default - Battery Efficient)
+**Best for**: Battery-powered operation, portable use
+
+- **LED Indicator**: RED LED on when awake
+- **Auto-Sleep**: Device enters deep sleep after 2 minutes of inactivity (on battery only)
 - **Auto-Rotate**: Uses timer-based wake-up from deep sleep
-- **Sleep Timer Reset**: Any HTTP interaction or button press resets the 2-minute countdown
+- **Web Interface**: Accessible only when awake
 - **Wake-Up Methods**:
   - Boot button (GPIO 0) - wakes device and starts HTTP server
   - Key button (GPIO 4) - wakes device and triggers image rotation
   - Auto-rotate timer - wakes device at configured interval
-- **Use Case**: Battery-efficient operation for portable/standalone use
+- **Power Consumption**: Minimal (~10μA in deep sleep)
+- **Battery Life**: Maximum (weeks to months depending on rotation interval)
+
+#### 2. Deep Sleep Disabled (Always-On Mode)
+**Best for**: Home Assistant integration
+
+- **LED Indicator**: RED LED off (to save power)
+- **Auto-Sleep**: Disabled when on battery (device stays awake with auto light sleep)
+- **Auto-Rotate**: Uses active countdown timer
+- **Web Interface**: Always accessible via HTTP
+- **Power Consumption**: Higher (~40-80mA with auto light sleep)
+- **Battery Life**: Significantly reduced (hours instead of weeks)
+
+### USB vs Battery Behavior
+
+**When USB Connected** (regardless of deep sleep setting):
+- Auto-sleep is disabled (device stays awake)
+- Auto-rotate uses active countdown timer
+- Web interface always accessible
+
+**When Running on Battery**:
+- Behavior depends on deep sleep setting (see modes above)
+- Sleep timer reset by any HTTP interaction or button press
+
+### Configuring Deep Sleep
+
+Access the web interface and navigate to **Power & Auto-Rotate Settings**:
+
+1. Check/uncheck **"Enable Deep Sleep"**
+2. Click **"Save Settings"**
+3. Setting is saved to non-volatile storage and persists across reboots
+
+**Power Consumption Warning**: When deep sleep is disabled, a warning appears explaining the increased power consumption.
 
 ## Hardware
 
