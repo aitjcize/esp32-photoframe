@@ -29,13 +29,18 @@ static void rotation_timer_task(void *arg)
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
 
-        // Only run active rotation when USB is connected (device stays awake)
-        if (!axp_is_usb_connected()) {
-            next_rotation_time = 0;  // Reset when on battery (uses sleep-based rotation)
+        // Run active rotation when:
+        // 1. USB is connected (device stays awake), OR
+        // 2. Deep sleep is disabled (device stays awake on battery)
+        bool should_use_active_rotation = axp_is_usb_connected() || !deep_sleep_enabled;
+
+        if (!should_use_active_rotation) {
+            next_rotation_time =
+                0;  // Reset when on battery with deep sleep enabled (uses sleep-based rotation)
             continue;
         }
 
-        // Handle active rotation when USB connected and auto-rotate enabled
+        // Handle active rotation when device stays awake and auto-rotate enabled
         if (display_manager_get_auto_rotate()) {
             int64_t now = esp_timer_get_time();  // Get absolute time in microseconds
 
@@ -43,11 +48,13 @@ static void rotation_timer_task(void *arg)
                 // Initialize next rotation time
                 int rotate_interval = display_manager_get_rotate_interval();
                 next_rotation_time = now + (rotate_interval * 1000000LL);
-                ESP_LOGI(TAG, "Active rotation scheduled in %d seconds (USB powered)",
-                         rotate_interval);
+                const char *reason = axp_is_usb_connected() ? "USB powered" : "deep sleep disabled";
+                ESP_LOGI(TAG, "Active rotation scheduled in %d seconds (%s)", rotate_interval,
+                         reason);
             } else if (now >= next_rotation_time) {
                 // Time to rotate
-                ESP_LOGI(TAG, "Active rotation triggered (USB powered)");
+                const char *reason = axp_is_usb_connected() ? "USB powered" : "deep sleep disabled";
+                ESP_LOGI(TAG, "Active rotation triggered (%s)", reason);
                 display_manager_handle_wakeup();
 
                 // Schedule next rotation
