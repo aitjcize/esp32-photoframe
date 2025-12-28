@@ -188,9 +188,9 @@ void app_main(void)
 
     // Wait for power rails to stabilize after AXP2101 initialization
     // The AXP2101 enables DC1, ALDO3, ALDO4 at 3.3V which power the SD card
-    // Stock firmware has similar stabilization wait before SD card access
+    // Increase delay to ensure SD card power is fully stable
     ESP_LOGI(TAG, "Waiting for power rails to stabilize...");
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(500));  // Increased from 200ms to 500ms
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
