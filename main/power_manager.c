@@ -258,6 +258,9 @@ void power_manager_enter_sleep(void)
     esp_sleep_enable_ext1_wakeup((1ULL << BOOT_BUTTON_GPIO) | (1ULL << KEY_BUTTON_GPIO),
                                  ESP_EXT1_WAKEUP_ANY_LOW);
 
+    ESP_LOGI(TAG, "Configuring AXP2101 for deep sleep");
+    axp_basic_sleep_start();
+
     ESP_LOGI(TAG, "Entering deep sleep now");
     vTaskDelay(pdMS_TO_TICKS(100));
 
