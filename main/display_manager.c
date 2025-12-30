@@ -205,11 +205,10 @@ bool display_manager_get_auto_rotate(void)
 void display_manager_handle_wakeup(void)
 {
     if (!auto_rotate_enabled) {
-        ESP_LOGW(TAG, "Wakeup but auto-rotate is disabled");
-        return;
+        ESP_LOGI(TAG, "Manual rotation triggered (auto-rotate is disabled)");
+    } else {
+        ESP_LOGI(TAG, "Handling wakeup for auto-rotate");
     }
-
-    ESP_LOGI(TAG, "Handling wakeup for auto-rotate");
 
     // Get enabled albums
     char **enabled_albums = NULL;
