@@ -2,6 +2,21 @@ import { processImage, applyExposure, applyContrast, applySaturation, applyScurv
 
 const API_BASE = '';
 
+// Centralized default configuration for image processing
+const DEFAULT_PARAMS = {
+    exposure: 1.0,
+    saturation: 1.3,
+    toneMode: 'scurve',
+    contrast: 1.0,
+    strength: 0.9,
+    shadowBoost: 0.0,
+    highlightCompress: 1.5,
+    midpoint: 0.5,
+    colorMethod: 'rgb',
+    renderMeasured: true,
+    processingMode: 'enhanced'
+};
+
 let currentImages = [];
 let selectedImage = null;
 let currentAlbums = [];
@@ -402,19 +417,7 @@ async function selectImage(filename, element) {
 let currentImageFile = null;
 let currentImageCanvas = null;
 let originalImageData = null; // Store original unprocessed image data
-let currentParams = {
-    exposure: 1.0,
-    saturation: 1.5,
-    toneMode: 'scurve',  // 'contrast' or 'scurve'
-    contrast: 1.0,
-    strength: 0.9,
-    shadowBoost: 0.0,
-    highlightCompress: 1.5,
-    midpoint: 0.5,
-    colorMethod: 'rgb',  // 'rgb' or 'lab'
-    renderMeasured: true,  // true = measured (darker) colors matching e-paper display
-    processingMode: 'enhanced'  // 'stock' (Waveshare original) or 'enhanced' (our algorithm)
-};
+let currentParams = { ...DEFAULT_PARAMS };
 
 document.getElementById('fileInput').addEventListener('change', async (e) => {
     const file = e.target.files[0];
@@ -876,37 +879,25 @@ document.getElementById('discardImage').addEventListener('click', () => {
 
 // Reset to defaults
 document.getElementById('resetParams').addEventListener('click', () => {
-    currentParams = {
-        exposure: 1.0,
-        saturation: 1.5,
-        toneMode: 'scurve',
-        contrast: 1.0,
-        strength: 0.9,
-        shadowBoost: 0.0,
-        highlightCompress: 1.5,
-        midpoint: 0.5,
-        colorMethod: 'rgb',
-        renderMeasured: true,
-        processingMode: 'enhanced'
-    };
+    currentParams = { ...DEFAULT_PARAMS };
     
-    document.getElementById('exposure').value = 1.0;
-    document.getElementById('exposureValue').textContent = '1.0';
-    document.getElementById('saturation').value = 1.5;
-    document.getElementById('saturationValue').textContent = '1.5';
-    document.getElementById('contrast').value = 1.0;
-    document.getElementById('contrastValue').textContent = '1.0';
-    document.getElementById('scurveStrength').value = 0.9;
-    document.getElementById('strengthValue').textContent = '0.9';
-    document.getElementById('scurveShadow').value = 0.0;
-    document.getElementById('shadowValue').textContent = '0.0';
-    document.getElementById('scurveHighlight').value = 1.5;
-    document.getElementById('highlightValue').textContent = '1.5';
-    document.getElementById('scurveMidpoint').value = 0.5;
-    document.getElementById('midpointValue').textContent = '0.5';
-    document.querySelector('input[name="colorMethod"][value="rgb"]').checked = true;
-    document.querySelector('input[name="toneMode"][value="scurve"]').checked = true;
-    document.querySelector('input[name="processingMode"][value="enhanced"]').checked = true;
+    document.getElementById('exposure').value = DEFAULT_PARAMS.exposure;
+    document.getElementById('exposureValue').textContent = DEFAULT_PARAMS.exposure;
+    document.getElementById('saturation').value = DEFAULT_PARAMS.saturation;
+    document.getElementById('saturationValue').textContent = DEFAULT_PARAMS.saturation;
+    document.getElementById('contrast').value = DEFAULT_PARAMS.contrast;
+    document.getElementById('contrastValue').textContent = DEFAULT_PARAMS.contrast;
+    document.getElementById('scurveStrength').value = DEFAULT_PARAMS.strength;
+    document.getElementById('strengthValue').textContent = DEFAULT_PARAMS.strength;
+    document.getElementById('scurveShadow').value = DEFAULT_PARAMS.shadowBoost;
+    document.getElementById('shadowValue').textContent = DEFAULT_PARAMS.shadowBoost;
+    document.getElementById('scurveHighlight').value = DEFAULT_PARAMS.highlightCompress;
+    document.getElementById('highlightValue').textContent = DEFAULT_PARAMS.highlightCompress;
+    document.getElementById('scurveMidpoint').value = DEFAULT_PARAMS.midpoint;
+    document.getElementById('midpointValue').textContent = DEFAULT_PARAMS.midpoint;
+    document.querySelector(`input[name="colorMethod"][value="${DEFAULT_PARAMS.colorMethod}"]`).checked = true;
+    document.querySelector(`input[name="toneMode"][value="${DEFAULT_PARAMS.toneMode}"]`).checked = true;
+    document.querySelector(`input[name="processingMode"][value="${DEFAULT_PARAMS.processingMode}"]`).checked = true;
     document.getElementById('enhancedControls').style.display = 'grid';
     document.getElementById('colorMethodControl').style.display = 'block';
     document.getElementById('contrastControl').style.display = 'none';
@@ -1238,4 +1229,26 @@ function setupDragAndDrop() {
     }
 }
 
+// Initialize form controls with default values on page load
+function initializeFormDefaults() {
+    document.getElementById('exposure').value = DEFAULT_PARAMS.exposure;
+    document.getElementById('exposureValue').textContent = DEFAULT_PARAMS.exposure;
+    document.getElementById('saturation').value = DEFAULT_PARAMS.saturation;
+    document.getElementById('saturationValue').textContent = DEFAULT_PARAMS.saturation;
+    document.getElementById('contrast').value = DEFAULT_PARAMS.contrast;
+    document.getElementById('contrastValue').textContent = DEFAULT_PARAMS.contrast;
+    document.getElementById('scurveStrength').value = DEFAULT_PARAMS.strength;
+    document.getElementById('strengthValue').textContent = DEFAULT_PARAMS.strength;
+    document.getElementById('scurveShadow').value = DEFAULT_PARAMS.shadowBoost;
+    document.getElementById('shadowValue').textContent = DEFAULT_PARAMS.shadowBoost;
+    document.getElementById('scurveHighlight').value = DEFAULT_PARAMS.highlightCompress;
+    document.getElementById('highlightValue').textContent = DEFAULT_PARAMS.highlightCompress;
+    document.getElementById('scurveMidpoint').value = DEFAULT_PARAMS.midpoint;
+    document.getElementById('midpointValue').textContent = DEFAULT_PARAMS.midpoint;
+    document.querySelector(`input[name="colorMethod"][value="${DEFAULT_PARAMS.colorMethod}"]`).checked = true;
+    document.querySelector(`input[name="toneMode"][value="${DEFAULT_PARAMS.toneMode}"]`).checked = true;
+    document.querySelector(`input[name="processingMode"][value="${DEFAULT_PARAMS.processingMode}"]`).checked = true;
+}
+
 setupDragAndDrop();
+initializeFormDefaults();

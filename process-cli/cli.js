@@ -13,6 +13,22 @@ const __dirname = path.dirname(__filename);
 const DISPLAY_WIDTH = 800;
 const DISPLAY_HEIGHT = 480;
 
+// Centralized default configuration for image processing
+// Keep in sync with webapp/app.js DEFAULT_PARAMS
+const DEFAULT_PARAMS = {
+    exposure: 1.0,
+    saturation: 1.3,
+    toneMode: 'scurve',
+    contrast: 1.0,
+    strength: 0.9,
+    shadowBoost: 0.0,
+    highlightCompress: 1.5,
+    midpoint: 0.5,
+    colorMethod: 'rgb',
+    renderMeasured: true,
+    processingMode: 'enhanced'
+};
+
 // BMP file writing (24-bit RGB format)
 function writeBMP(imageData, outputPath) {
     const width = imageData.width;
@@ -158,22 +174,30 @@ async function processImageFile(inputPath, outputBmp, outputThumb, options) {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     
     const params = {
+        exposure: options.exposure,
         saturation: options.saturation,
+        toneMode: options.toneMode,
+        contrast: options.contrast,
         strength: options.scurveStrength,
         shadowBoost: options.scurveShadow,
         highlightCompress: options.scurveHighlight,
         midpoint: options.scurveMidpoint,
-        colorMethod: 'rgb', // CLI always uses RGB for consistency
+        colorMethod: options.colorMethod,
         renderMeasured: options.renderMeasured,
         processingMode: options.processingMode
     };
     
     if (params.processingMode === 'stock') {
-        console.log(`  Using stock Waveshare algorithm (no S-curve, theoretical palette)`);
+        console.log(`  Using stock Waveshare algorithm (no tone mapping, theoretical palette)`);
     } else {
-        console.log(`  Using enhanced algorithm with S-curve tone mapping`);
-        console.log(`  S-curve: strength=${params.strength}, shadow=${params.shadowBoost}, highlight=${params.highlightCompress}`);
-        console.log(`  Saturation: ${params.saturation}`);
+        console.log(`  Using enhanced algorithm`);
+        console.log(`  Exposure: ${params.exposure}, Saturation: ${params.saturation}`);
+        if (params.toneMode === 'scurve') {
+            console.log(`  Tone mapping: S-Curve (strength=${params.strength}, shadow=${params.shadowBoost}, highlight=${params.highlightCompress})`);
+        } else {
+            console.log(`  Tone mapping: Simple Contrast (${params.contrast})`);
+        }
+        console.log(`  Color method: ${params.colorMethod}`);
     }
     
     if (options.renderMeasured) {
@@ -236,13 +260,17 @@ program
     .option('-o, --output-dir <dir>', 'Output directory', '.')
     .option('--suffix <suffix>', 'Suffix to add to output filename', '')
     .option('--no-thumbnail', 'Skip thumbnail generation')
-    .option('--scurve-strength <value>', 'S-curve overall strength (0.0-1.0)', parseFloat, 0.9)
-    .option('--scurve-shadow <value>', 'S-curve shadow boost (0.0-1.0)', parseFloat, 0.0)
-    .option('--scurve-highlight <value>', 'S-curve highlight compress (0.5-3.0)', parseFloat, 1.5)
-    .option('--scurve-midpoint <value>', 'S-curve midpoint (0.3-0.7)', parseFloat, 0.5)
-    .option('--saturation <value>', 'Saturation multiplier (1.0=normal, >1.0=more vibrant)', parseFloat, 1.5)
+    .option('--exposure <value>', 'Exposure multiplier (0.5-2.0, 1.0=normal)', parseFloat, DEFAULT_PARAMS.exposure)
+    .option('--saturation <value>', 'Saturation multiplier (0.5-2.0, 1.0=normal)', parseFloat, DEFAULT_PARAMS.saturation)
+    .option('--tone-mode <mode>', 'Tone mapping mode: scurve or contrast', DEFAULT_PARAMS.toneMode)
+    .option('--contrast <value>', 'Contrast multiplier for simple mode (0.5-2.0, 1.0=normal)', parseFloat, DEFAULT_PARAMS.contrast)
+    .option('--scurve-strength <value>', 'S-curve overall strength (0.0-1.0)', parseFloat, DEFAULT_PARAMS.strength)
+    .option('--scurve-shadow <value>', 'S-curve shadow boost (0.0-1.0)', parseFloat, DEFAULT_PARAMS.shadowBoost)
+    .option('--scurve-highlight <value>', 'S-curve highlight compress (0.5-5.0)', parseFloat, DEFAULT_PARAMS.highlightCompress)
+    .option('--scurve-midpoint <value>', 'S-curve midpoint (0.3-0.7)', parseFloat, DEFAULT_PARAMS.midpoint)
+    .option('--color-method <method>', 'Color matching: rgb or lab', DEFAULT_PARAMS.colorMethod)
     .option('--render-measured', 'Render BMP with measured palette colors (darker output for preview)')
-    .option('--processing-mode <mode>', 'Processing algorithm: enhanced (default, with S-curve) or stock (Waveshare original)', 'enhanced')
+    .option('--processing-mode <mode>', 'Processing algorithm: enhanced (with tone mapping) or stock (Waveshare original)', DEFAULT_PARAMS.processingMode)
     .action(async (input, options) => {
         try {
             const inputPath = path.resolve(input);
