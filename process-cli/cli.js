@@ -3,6 +3,7 @@
 import { createCanvas, loadImage } from 'canvas';
 import { Command } from 'commander';
 import fs from 'fs';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { processImage, PALETTE_THEORETICAL } from './image-processor.js';
@@ -28,6 +29,39 @@ const DEFAULT_PARAMS = {
     renderMeasured: true,
     processingMode: 'enhanced'
 };
+
+// Fetch processing settings from device
+async function fetchDeviceSettings(host) {
+    return new Promise((resolve, reject) => {
+        const url = `http://${host}/api/settings/processing`;
+        console.log(`Fetching settings from device: ${url}`);
+        
+        http.get(url, (res) => {
+            let data = '';
+            
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+            
+            res.on('end', () => {
+                if (res.statusCode === 200) {
+                    try {
+                        const settings = JSON.parse(data);
+                        console.log('Device settings loaded successfully');
+                        console.log(`  exposure=${settings.exposure}, saturation=${settings.saturation}, tone_mode=${settings.toneMode}`);
+                        resolve(settings);
+                    } catch (error) {
+                        reject(new Error(`Failed to parse device settings: ${error.message}`));
+                    }
+                } else {
+                    reject(new Error(`HTTP ${res.statusCode}: Failed to fetch settings from device`));
+                }
+            });
+        }).on('error', (error) => {
+            reject(new Error(`Failed to connect to device at ${host}: ${error.message}`));
+        });
+    });
+}
 
 // BMP file writing (24-bit RGB format)
 function writeBMP(imageData, outputPath) {
@@ -260,6 +294,8 @@ program
     .option('-o, --output-dir <dir>', 'Output directory', '.')
     .option('--suffix <suffix>', 'Suffix to add to output filename', '')
     .option('--no-thumbnail', 'Skip thumbnail generation')
+    .option('--device-parameters', 'Fetch processing parameters from device')
+    .option('--device-host <host>', 'Device hostname or IP address (default: photoframe.local)', 'photoframe.local')
     .option('--exposure <value>', 'Exposure multiplier (0.5-2.0, 1.0=normal)', parseFloat, DEFAULT_PARAMS.exposure)
     .option('--saturation <value>', 'Saturation multiplier (0.5-2.0, 1.0=normal)', parseFloat, DEFAULT_PARAMS.saturation)
     .option('--tone-mode <mode>', 'Tone mapping mode: scurve or contrast', DEFAULT_PARAMS.toneMode)
@@ -284,21 +320,52 @@ program
                 fs.mkdirSync(outputDir, { recursive: true });
             }
             
+            // Fetch device settings if --device-parameters is specified
+            let deviceSettings = null;
+            if (options.deviceParameters) {
+                try {
+                    deviceSettings = await fetchDeviceSettings(options.deviceHost);
+                } catch (error) {
+                    console.error(`Error: ${error.message}`);
+                    process.exit(1);
+                }
+            }
+            
             const baseName = path.basename(input, path.extname(input));
             const suffix = options.suffix || '';
             const outputBmp = path.join(outputDir, `${baseName}${suffix}.bmp`);
             const outputThumb = options.thumbnail ? path.join(outputDir, `${baseName}${suffix}.jpg`) : null;
             
-            await processImageFile(inputPath, outputBmp, outputThumb, {
+            // Use device settings if available, otherwise use CLI options
+            const processOptions = deviceSettings ? {
                 generateThumbnail: options.thumbnail,
+                exposure: deviceSettings.exposure,
+                saturation: deviceSettings.saturation,
+                toneMode: deviceSettings.toneMode,
+                contrast: deviceSettings.contrast,
+                scurveStrength: deviceSettings.strength,
+                scurveShadow: deviceSettings.shadowBoost,
+                scurveHighlight: deviceSettings.highlightCompress,
+                scurveMidpoint: deviceSettings.midpoint,
+                colorMethod: deviceSettings.colorMethod,
+                renderMeasured: deviceSettings.renderMeasured,
+                processingMode: deviceSettings.processingMode
+            } : {
+                generateThumbnail: options.thumbnail,
+                exposure: options.exposure,
+                saturation: options.saturation,
+                toneMode: options.toneMode,
+                contrast: options.contrast,
                 scurveStrength: options.scurveStrength,
                 scurveShadow: options.scurveShadow,
                 scurveHighlight: options.scurveHighlight,
                 scurveMidpoint: options.scurveMidpoint,
-                saturation: options.saturation,
+                colorMethod: options.colorMethod,
                 renderMeasured: options.renderMeasured,
                 processingMode: options.processingMode
-            });
+            };
+            
+            await processImageFile(inputPath, outputBmp, outputThumb, processOptions);
         } catch (error) {
             console.error(`Error processing image: ${error.message}`);
             console.error(error.stack);

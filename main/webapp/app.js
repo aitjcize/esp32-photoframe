@@ -919,6 +919,7 @@ document.getElementById('resetParams').addEventListener('click', () => {
     document.querySelector('.curve-canvas-wrapper').style.display = 'flex';
     
     updatePreview();
+    scheduleSaveSettings();
 });
 
 // Upload processed image
