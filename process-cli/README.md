@@ -19,7 +19,7 @@ npm install
 ```
 
 **System Requirements:**
-- Node.js 14+ 
+- Node.js 14+ up to Node.js 20 (dependencies are no longer supported for higher versions)
 - macOS/Linux: Install Cairo dependencies (see below)
 
 **macOS:**
