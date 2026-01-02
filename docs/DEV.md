@@ -4,7 +4,7 @@ This guide covers building the firmware from source and advanced configuration o
 
 ## Software Requirements
 
-- ESP-IDF v5.0 or later
+- ESP-IDF v6.0 or later
 - Python 3.7+ (for build tools)
 - ESP Component Manager (comes with ESP-IDF)
 
