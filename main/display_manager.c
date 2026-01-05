@@ -210,6 +210,25 @@ void display_manager_handle_wakeup(void)
 
     ESP_LOGI(TAG, "Handling wakeup for auto-rotate");
 
+// Try to fetch remote image
+#include "network_fetcher.h"
+    const char *remote_image_path = IMAGE_DIRECTORY "/current_remote.bmp";
+
+    // Only fetch if we have network connectivity
+    // Note: display_manager doesn't know about wifi state directly,
+    // but app_main ensures wifi is up before calling this if we want it to work.
+    // However, if we fail, we just fall back to local images.
+
+    esp_err_t fetch_ret =
+        network_fetch_image("https://frame.svetuskin.com/image", remote_image_path);
+    if (fetch_ret == ESP_OK) {
+        ESP_LOGI(TAG, "Fetched remote image successfully. Displaying...");
+        display_manager_show_image(remote_image_path);
+        return;
+    } else {
+        ESP_LOGW(TAG, "Failed to fetch remote image, falling back to SD card rotation");
+    }
+
     DIR *dir = opendir(IMAGE_DIRECTORY);
     if (!dir) {
         ESP_LOGE(TAG, "Failed to open image directory");

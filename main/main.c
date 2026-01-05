@@ -215,18 +215,10 @@ void app_main(void)
     }
 
     // Check wake-up source with priority: Timer > KEY > BOOT
-    if (power_manager_is_timer_wakeup() || power_manager_is_key_button_wakeup()) {
-        display_manager_handle_wakeup();
+    bool is_timer_wakeup = power_manager_is_timer_wakeup();
+    bool is_key_wakeup = power_manager_is_key_button_wakeup();
 
-        // Go directly back to sleep without starting WiFi or HTTP server
-        ESP_LOGI(TAG, "Auto-rotate complete, going back to sleep");
-        power_manager_enter_sleep();
-        // Won't reach here after sleep
-    } else if (power_manager_is_boot_button_wakeup()) {
-        ESP_LOGI(TAG, "BOOT button wakeup detected - starting WiFi and HTTP server");
-        // Continue with normal initialization
-    }
-
+    // Always initialize WiFi first if we woke up from timer (for auto-rotate) or normal boot
     ESP_ERROR_CHECK(wifi_manager_init());
     ESP_ERROR_CHECK(wifi_provisioning_init());
 
@@ -256,10 +248,12 @@ void app_main(void)
     ESP_ERROR_CHECK(wifi_manager_load_credentials(wifi_ssid, wifi_password));
     ESP_LOGI(TAG, "Connecting to WiFi SSID: %s", wifi_ssid);
 
+    bool wifi_connected = false;
     if (wifi_manager_connect(wifi_ssid, wifi_password) == ESP_OK) {
         char ip_str[16];
         wifi_manager_get_ip(ip_str, sizeof(ip_str));
         ESP_LOGI(TAG, "Connected to WiFi, IP: %s", ip_str);
+        wifi_connected = true;
 
         // Start mDNS service
         ESP_ERROR_CHECK(mdns_service_init());
@@ -277,9 +271,21 @@ void app_main(void)
         esp_restart();
     }
 
+    if (is_timer_wakeup || is_key_wakeup) {
+        display_manager_handle_wakeup();
+
+        // Go directly back to sleep without starting HTTP server
+        ESP_LOGI(TAG, "Auto-rotate complete, going back to sleep");
+        power_manager_enter_sleep();
+        // Won't reach here after sleep
+    } else if (power_manager_is_boot_button_wakeup()) {
+        ESP_LOGI(TAG, "BOOT button wakeup detected - starting HTTP server");
+        // Continue with normal initialization
+    }
+
     ESP_ERROR_CHECK(http_server_init());
 
-    if (wifi_manager_is_connected()) {
+    if (wifi_connected) {
         char ip_str[16];
         wifi_manager_get_ip(ip_str, sizeof(ip_str));
         ESP_LOGI(TAG, "===========================================");
