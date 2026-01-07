@@ -6,6 +6,7 @@
 
 #include "GUI_BMPfile.h"
 #include "GUI_Paint.h"
+#include "axp_prot.h"
 #include "config.h"
 #include "epaper_port.h"
 #include "esp_heap_caps.h"
@@ -98,30 +99,42 @@ esp_err_t display_manager_show_image(const char *filename)
 
     // Expect absolute path from caller
     ESP_LOGI(TAG, "Displaying image: %s", filename);
-    ESP_LOGI(TAG, "Free heap before display: %lu bytes", esp_get_free_heap_size());
 
-    ESP_LOGI(TAG, "Clearing display buffer");
+    // Pause battery charging if both USB and battery are connected
+    // This prevents PMIC power management contention during high display current draw
+    bool usb_connected = axp_is_usb_connected();
+    bool battery_connected = axp_is_battery_connected();
+    bool need_charging_pause = usb_connected && battery_connected;
+
+    if (need_charging_pause) {
+        ESP_LOGI(TAG, "Pausing charging during display (USB + battery connected)");
+        axp_disable_charging();
+        vTaskDelay(pdMS_TO_TICKS(100));  // Allow PMIC to stabilize
+    }
+
     Paint_Clear(EPD_7IN3E_WHITE);
 
-    ESP_LOGI(TAG, "Reading BMP file into buffer");
     if (GUI_ReadBmp_RGB_6Color(filename, 0, 0) != 0) {
         ESP_LOGE(TAG, "Failed to read BMP file");
+        if (need_charging_pause) {
+            axp_enable_charging();
+        }
         xSemaphoreGive(display_mutex);
         return ESP_FAIL;
     }
 
     ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
-    ESP_LOGI(TAG, "Free heap before epaper_port_display: %lu bytes", esp_get_free_heap_size());
 
     // Yield to watchdog before long operation
     vTaskDelay(pdMS_TO_TICKS(10));
 
-    ESP_LOGI(TAG, "Calling epaper_port_display...");
     epaper_port_display(epd_image_buffer);
-    ESP_LOGI(TAG, "epaper_port_display returned successfully");
 
-    ESP_LOGI(TAG, "E-paper display update complete");
-    ESP_LOGI(TAG, "Free heap after display: %lu bytes", esp_get_free_heap_size());
+    // Re-enable charging if we disabled it
+    if (need_charging_pause) {
+        ESP_LOGI(TAG, "Resuming charging after display update");
+        axp_enable_charging();
+    }
 
     strncpy(current_image, filename, sizeof(current_image) - 1);
 
