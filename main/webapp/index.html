@@ -294,6 +294,23 @@
         <section class="card">
             <h2>Power & Auto-Rotate Settings</h2>
             <form id="configForm">
+                <div class="form-group" style="margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #e0e0e0;">
+                    <label style="font-weight: 600; margin-bottom: 10px; display: block;">Gallery Mode:</label>
+                    <div style="margin-top: 8px;">
+                        <label style="display: block; margin-bottom: 8px;">
+                            <input type="radio" name="displayMode" value="0" checked style="margin-right: 8px;">
+                            Local Gallery (SD Card)
+                        </label>
+                        <label style="display: block;">
+                            <input type="radio" name="displayMode" value="1" style="margin-right: 8px;">
+                            Remote Gallery (fetch from server)
+                        </label>
+                    </div>
+                    <small style="color: #666; display: block; margin-top: 10px;">
+                        Remote mode fetches a pre-processed image from the configured server on each rotation.
+                        Falls back to local gallery if the fetch fails.
+                    </small>
+                </div>
                 <div class="form-group">
                     <label>
                         <input type="checkbox" id="autoRotate">

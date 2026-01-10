@@ -18,6 +18,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "image_processor.h"
+#include "nvs.h"
 #include "power_manager.h"
 #include "processing_settings.h"
 
@@ -933,10 +934,19 @@ static esp_err_t config_handler(httpd_req_t *req)
         bool auto_rotate = display_manager_get_auto_rotate();
         bool deep_sleep_enabled = power_manager_get_deep_sleep_enabled();
 
+        // Read display_mode from NVS
+        uint8_t display_mode = DISPLAY_MODE_LOCAL;
+        nvs_handle_t nvs_handle;
+        if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {
+            nvs_get_u8(nvs_handle, NVS_DISPLAY_MODE_KEY, &display_mode);
+            nvs_close(nvs_handle);
+        }
+
         cJSON *root = cJSON_CreateObject();
         cJSON_AddNumberToObject(root, "rotate_interval", rotate_interval);
         cJSON_AddBoolToObject(root, "auto_rotate", auto_rotate);
         cJSON_AddBoolToObject(root, "deep_sleep_enabled", deep_sleep_enabled);
+        cJSON_AddNumberToObject(root, "display_mode", display_mode);
 
         char *json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");
@@ -975,6 +985,18 @@ static esp_err_t config_handler(httpd_req_t *req)
         cJSON *deep_sleep_obj = cJSON_GetObjectItem(root, "deep_sleep_enabled");
         if (deep_sleep_obj && cJSON_IsBool(deep_sleep_obj)) {
             power_manager_set_deep_sleep_enabled(cJSON_IsTrue(deep_sleep_obj));
+        }
+
+        cJSON *display_mode_obj = cJSON_GetObjectItem(root, "display_mode");
+        if (display_mode_obj && cJSON_IsNumber(display_mode_obj)) {
+            uint8_t display_mode = (uint8_t) display_mode_obj->valueint;
+            nvs_handle_t nvs_handle;
+            if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+                nvs_set_u8(nvs_handle, NVS_DISPLAY_MODE_KEY, display_mode);
+                nvs_commit(nvs_handle);
+                nvs_close(nvs_handle);
+                ESP_LOGI(TAG, "Display mode set to %d", display_mode);
+            }
         }
 
         cJSON_Delete(root);

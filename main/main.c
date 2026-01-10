@@ -22,11 +22,24 @@
 #include "nvs_flash.h"
 #include "power_manager.h"
 #include "processing_settings.h"
+#include "remote_gallery.h"
 #include "sdmmc_cmd.h"
 #include "wifi_manager.h"
 #include "wifi_provisioning.h"
 
 static const char *TAG = "main";
+
+// Helper to read display_mode from NVS
+static uint8_t get_display_mode(void)
+{
+    uint8_t display_mode = DISPLAY_MODE_LOCAL;  // Default to local
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {
+        nvs_get_u8(nvs_handle, NVS_DISPLAY_MODE_KEY, &display_mode);
+        nvs_close(nvs_handle);
+    }
+    return display_mode;
+}
 
 static esp_err_t init_sdcard(void)
 {
@@ -129,7 +142,9 @@ static void button_task(void *arg)
             if (duration > 50 && duration < 3000) {
                 ESP_LOGI(TAG, "Key button pressed, triggering rotation");
                 power_manager_reset_sleep_timer();
-                display_manager_handle_wakeup();
+                // Always use local mode for manual button presses (no WiFi available in this
+                // context)
+                display_manager_handle_wakeup(DISPLAY_MODE_LOCAL);
             }
         }
 
@@ -226,7 +241,41 @@ void app_main(void)
 
     // Check wake-up source with priority: Timer > KEY > BOOT
     if (power_manager_is_timer_wakeup() || power_manager_is_key_button_wakeup()) {
-        display_manager_handle_wakeup();
+        uint8_t display_mode = get_display_mode();
+        uint8_t effective_mode = display_mode;
+
+        // Remote Gallery Mode: Download image first, then disconnect WiFi before display
+        if (display_mode == DISPLAY_MODE_REMOTE) {
+            ESP_LOGI(TAG, "Remote gallery mode - connecting WiFi to download image");
+
+            ESP_ERROR_CHECK(wifi_manager_init());
+
+            char wifi_ssid[WIFI_SSID_MAX_LEN] = {0};
+            char wifi_password[WIFI_PASS_MAX_LEN] = {0};
+
+            if (wifi_manager_load_credentials(wifi_ssid, wifi_password) == ESP_OK &&
+                wifi_manager_connect(wifi_ssid, wifi_password) == ESP_OK) {
+                ESP_LOGI(TAG, "WiFi connected, downloading remote image");
+
+                esp_err_t download_result = remote_gallery_download_image();
+
+                // Disconnect WiFi BEFORE display update to save power
+                wifi_manager_disconnect();
+
+                if (download_result == ESP_OK) {
+                    ESP_LOGI(TAG, "Remote image downloaded successfully");
+                    effective_mode = DISPLAY_MODE_REMOTE;
+                } else {
+                    ESP_LOGW(TAG, "Remote download failed, falling back to local gallery");
+                    effective_mode = DISPLAY_MODE_LOCAL;
+                }
+            } else {
+                ESP_LOGW(TAG, "WiFi connection failed, falling back to local gallery");
+                effective_mode = DISPLAY_MODE_LOCAL;
+            }
+        }
+
+        display_manager_handle_wakeup(effective_mode);
 
         // Go directly back to sleep without starting WiFi or HTTP server
         ESP_LOGI(TAG, "Auto-rotate complete, going back to sleep");

@@ -1176,6 +1176,15 @@ async function loadConfig() {
     document.getElementById("deepSleepEnabled").checked =
       data.deep_sleep_enabled !== false;
 
+    // Load display mode (0 = local, 1 = remote)
+    const displayMode = data.display_mode || 0;
+    const displayModeRadio = document.querySelector(
+      `input[name="displayMode"][value="${displayMode}"]`,
+    );
+    if (displayModeRadio) {
+      displayModeRadio.checked = true;
+    }
+
     // Update warning visibility based on loaded state
     updateDeepSleepWarning();
   } catch (error) {
@@ -1205,6 +1214,10 @@ document.getElementById("configForm").addEventListener("submit", async (e) => {
     document.getElementById("rotateInterval").value,
   );
   const deepSleepEnabled = document.getElementById("deepSleepEnabled").checked;
+  const displayModeRadio = document.querySelector(
+    'input[name="displayMode"]:checked',
+  );
+  const displayMode = displayModeRadio ? parseInt(displayModeRadio.value) : 0;
 
   try {
     const response = await fetch(`${API_BASE}/api/config`, {
@@ -1216,6 +1229,7 @@ document.getElementById("configForm").addEventListener("submit", async (e) => {
         auto_rotate: autoRotate,
         rotate_interval: rotateInterval,
         deep_sleep_enabled: deepSleepEnabled,
+        display_mode: displayMode,
       }),
     });
 

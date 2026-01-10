@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 #include "http_server.h"
 #include "nvs.h"
+#include "remote_gallery.h"
 
 static const char *TAG = "power_manager";
 
@@ -52,10 +53,33 @@ static void rotation_timer_task(void *arg)
                 ESP_LOGI(TAG, "Active rotation scheduled in %d seconds (%s)", rotate_interval,
                          reason);
             } else if (now >= next_rotation_time) {
-                // Time to rotate
+                // Time to rotate - read display_mode from NVS
+                uint8_t display_mode = DISPLAY_MODE_LOCAL;
+                nvs_handle_t nvs_handle;
+                if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {
+                    nvs_get_u8(nvs_handle, NVS_DISPLAY_MODE_KEY, &display_mode);
+                    nvs_close(nvs_handle);
+                }
+
+                uint8_t effective_mode = display_mode;
+
+                // Remote Gallery Mode: WiFi is already connected, just download
+                if (display_mode == DISPLAY_MODE_REMOTE) {
+                    ESP_LOGI(TAG, "Remote gallery mode - downloading image");
+                    esp_err_t download_result = remote_gallery_download_image();
+
+                    if (download_result == ESP_OK) {
+                        ESP_LOGI(TAG, "Remote image downloaded successfully");
+                        effective_mode = DISPLAY_MODE_REMOTE;
+                    } else {
+                        ESP_LOGW(TAG, "Remote download failed, falling back to local gallery");
+                        effective_mode = DISPLAY_MODE_LOCAL;
+                    }
+                }
+
                 const char *reason = axp_is_usb_connected() ? "USB powered" : "deep sleep disabled";
-                ESP_LOGI(TAG, "Active rotation triggered (%s)", reason);
-                display_manager_handle_wakeup();
+                ESP_LOGI(TAG, "Active rotation triggered (%s), mode=%d", reason, effective_mode);
+                display_manager_handle_wakeup(effective_mode);
 
                 // Schedule next rotation
                 int rotate_interval = display_manager_get_rotate_interval();

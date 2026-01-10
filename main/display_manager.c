@@ -187,15 +187,32 @@ bool display_manager_get_auto_rotate(void)
     return auto_rotate_enabled;
 }
 
-void display_manager_handle_wakeup(void)
+void display_manager_handle_wakeup(uint8_t gallery_mode)
 {
     if (!auto_rotate_enabled) {
         ESP_LOGI(TAG, "Manual rotation triggered (auto-rotate is disabled)");
     } else {
-        ESP_LOGI(TAG, "Handling wakeup for auto-rotate");
+        ESP_LOGI(TAG, "Handling wakeup for auto-rotate, gallery_mode=%d", gallery_mode);
     }
 
-    // Get enabled albums
+    // Remote Gallery Mode: Try to display remote.bmp
+    if (gallery_mode == 1) {
+        struct stat st;
+        if (stat(TEMP_IMAGE_PATH, &st) == 0) {
+            ESP_LOGI(TAG, "Remote mode: Displaying %s", TEMP_IMAGE_PATH);
+            if (display_manager_show_image(TEMP_IMAGE_PATH) == ESP_OK) {
+                ESP_LOGI(TAG, "Remote gallery display complete");
+                return;
+            }
+            ESP_LOGW(TAG, "Failed to display remote image, falling back to local gallery");
+        } else {
+            ESP_LOGW(TAG, "Remote image not found at %s, falling back to local gallery",
+                     TEMP_IMAGE_PATH);
+        }
+        // Fall through to local gallery mode
+    }
+
+    // Local Gallery Mode (or fallback from remote mode)
     char **enabled_albums = NULL;
     int album_count = 0;
     if (album_manager_get_enabled_albums(&enabled_albums, &album_count) != ESP_OK ||
