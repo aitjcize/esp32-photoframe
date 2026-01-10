@@ -35,11 +35,9 @@
 #define NVS_ENABLED_ALBUMS_KEY "enabled_albums"
 #define NVS_DISPLAY_MODE_KEY "display_mode"
 
-// Remote Gallery Configuration
 #define REMOTE_GALLERY_URL "https://frame.svetuskin.com/image"
 #define TEMP_IMAGE_PATH "/sdcard/remote.bmp"
 
-// Display Mode Values
 #define DISPLAY_MODE_LOCAL 0
 #define DISPLAY_MODE_REMOTE 1
 

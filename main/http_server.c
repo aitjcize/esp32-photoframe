@@ -934,7 +934,6 @@ static esp_err_t config_handler(httpd_req_t *req)
         bool auto_rotate = display_manager_get_auto_rotate();
         bool deep_sleep_enabled = power_manager_get_deep_sleep_enabled();
 
-        // Read display_mode from NVS
         uint8_t display_mode = DISPLAY_MODE_LOCAL;
         nvs_handle_t nvs_handle;
         if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {

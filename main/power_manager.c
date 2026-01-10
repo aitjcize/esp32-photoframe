@@ -36,24 +36,20 @@ static void rotation_timer_task(void *arg)
         bool should_use_active_rotation = axp_is_usb_connected() || !deep_sleep_enabled;
 
         if (!should_use_active_rotation) {
-            next_rotation_time =
-                0;  // Reset when on battery with deep sleep enabled (uses sleep-based rotation)
+            next_rotation_time = 0;
             continue;
         }
 
-        // Handle active rotation when device stays awake and auto-rotate enabled
         if (display_manager_get_auto_rotate()) {
-            int64_t now = esp_timer_get_time();  // Get absolute time in microseconds
+            int64_t now = esp_timer_get_time();
 
             if (next_rotation_time == 0) {
-                // Initialize next rotation time
                 int rotate_interval = display_manager_get_rotate_interval();
                 next_rotation_time = now + (rotate_interval * 1000000LL);
                 const char *reason = axp_is_usb_connected() ? "USB powered" : "deep sleep disabled";
                 ESP_LOGI(TAG, "Active rotation scheduled in %d seconds (%s)", rotate_interval,
                          reason);
             } else if (now >= next_rotation_time) {
-                // Time to rotate - read display_mode from NVS
                 uint8_t display_mode = DISPLAY_MODE_LOCAL;
                 nvs_handle_t nvs_handle;
                 if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {
@@ -63,7 +59,6 @@ static void rotation_timer_task(void *arg)
 
                 uint8_t effective_mode = display_mode;
 
-                // Remote Gallery Mode: WiFi is already connected, just download
                 if (display_mode == DISPLAY_MODE_REMOTE) {
                     ESP_LOGI(TAG, "Remote gallery mode - downloading image");
                     esp_err_t download_result = remote_gallery_download_image();
@@ -81,13 +76,12 @@ static void rotation_timer_task(void *arg)
                 ESP_LOGI(TAG, "Active rotation triggered (%s), mode=%d", reason, effective_mode);
                 display_manager_handle_wakeup(effective_mode);
 
-                // Schedule next rotation
                 int rotate_interval = display_manager_get_rotate_interval();
                 next_rotation_time = now + (rotate_interval * 1000000LL);
                 ESP_LOGI(TAG, "Next rotation scheduled in %d seconds", rotate_interval);
             }
         } else {
-            next_rotation_time = 0;  // Reset if auto-rotate disabled
+            next_rotation_time = 0;
         }
     }
 }
@@ -100,19 +94,15 @@ static void sleep_timer_task(void *arg)
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
 
-        // Skip auto-sleep when USB is connected
         if (axp_is_usb_connected()) {
-            // Reset timer so it doesn't trigger immediately when USB is unplugged
             next_sleep_time = 0;
             continue;
         }
 
-        // Handle auto-sleep timer when on battery (only if deep sleep is enabled)
         if (deep_sleep_enabled) {
             int64_t now = esp_timer_get_time();
 
             if (next_sleep_time == 0) {
-                // Initialize sleep timer
                 next_sleep_time = now + (AUTO_SLEEP_TIMEOUT_SEC * 1000000LL);
                 last_blink_time = now;
                 last_log_time = now;

@@ -68,8 +68,6 @@ esp_err_t display_manager_init(void)
                      auto_rotate_enabled ? "yes" : "no");
         }
 
-        // Random rotation - no need to load index from NVS
-
         nvs_close(nvs_handle);
     }
 
@@ -89,7 +87,6 @@ esp_err_t display_manager_show_image(const char *filename)
         return ESP_FAIL;
     }
 
-    // Expect absolute path from caller
     ESP_LOGI(TAG, "Displaying image: %s", filename);
     ESP_LOGI(TAG, "Free heap before display: %lu bytes", esp_get_free_heap_size());
 
@@ -106,7 +103,6 @@ esp_err_t display_manager_show_image(const char *filename)
     ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
     ESP_LOGI(TAG, "Free heap before epaper_port_display: %lu bytes", esp_get_free_heap_size());
 
-    // Yield to watchdog before long operation
     vTaskDelay(pdMS_TO_TICKS(10));
 
     ESP_LOGI(TAG, "Calling epaper_port_display...");
@@ -139,13 +135,10 @@ esp_err_t display_manager_clear(void)
 
 bool display_manager_is_busy(void)
 {
-    // Try to take the mutex without blocking
     if (xSemaphoreTake(display_mutex, 0) == pdTRUE) {
-        // Mutex was available, give it back
         xSemaphoreGive(display_mutex);
         return false;
     }
-    // Mutex is held by another task
     return true;
 }
 
@@ -195,8 +188,7 @@ void display_manager_handle_wakeup(uint8_t gallery_mode)
         ESP_LOGI(TAG, "Handling wakeup for auto-rotate, gallery_mode=%d", gallery_mode);
     }
 
-    // Remote Gallery Mode: Try to display remote.bmp
-    if (gallery_mode == 1) {
+    if (gallery_mode == DISPLAY_MODE_REMOTE) {
         struct stat st;
         if (stat(TEMP_IMAGE_PATH, &st) == 0) {
             ESP_LOGI(TAG, "Remote mode: Displaying %s", TEMP_IMAGE_PATH);
@@ -209,10 +201,8 @@ void display_manager_handle_wakeup(uint8_t gallery_mode)
             ESP_LOGW(TAG, "Remote image not found at %s, falling back to local gallery",
                      TEMP_IMAGE_PATH);
         }
-        // Fall through to local gallery mode
     }
 
-    // Local Gallery Mode (or fallback from remote mode)
     char **enabled_albums = NULL;
     int album_count = 0;
     if (album_manager_get_enabled_albums(&enabled_albums, &album_count) != ESP_OK ||
@@ -223,7 +213,6 @@ void display_manager_handle_wakeup(uint8_t gallery_mode)
 
     ESP_LOGI(TAG, "Collecting images from %d enabled album(s)", album_count);
 
-    // Check for stale albums (removed from SD card) and disable them
     bool found_stale_albums = false;
     for (int i = 0; i < album_count; i++) {
         if (!album_manager_album_exists(enabled_albums[i])) {
@@ -234,7 +223,6 @@ void display_manager_handle_wakeup(uint8_t gallery_mode)
         }
     }
 
-    // If we found stale albums, reload the enabled list
     if (found_stale_albums) {
         album_manager_free_album_list(enabled_albums, album_count);
         if (album_manager_get_enabled_albums(&enabled_albums, &album_count) != ESP_OK ||
@@ -245,7 +233,6 @@ void display_manager_handle_wakeup(uint8_t gallery_mode)
         ESP_LOGI(TAG, "After cleanup: %d enabled album(s)", album_count);
     }
 
-    // Count total images across all enabled albums
     int total_image_count = 0;
     for (int i = 0; i < album_count; i++) {
         char album_path[256];
@@ -278,7 +265,6 @@ void display_manager_handle_wakeup(uint8_t gallery_mode)
         return;
     }
 
-    // Build image list with absolute paths from all enabled albums
     char **image_list = malloc(total_image_count * sizeof(char *));
     int idx = 0;
 
@@ -312,15 +298,12 @@ void display_manager_handle_wakeup(uint8_t gallery_mode)
 
     album_manager_free_album_list(enabled_albums, album_count);
 
-    // Select random image
     int random_index = esp_random() % total_image_count;
 
-    // Display random image
     ESP_LOGI(TAG, "Auto-rotate: Displaying random image %d/%d: %s", random_index + 1,
              total_image_count, image_list[random_index]);
     display_manager_show_image(image_list[random_index]);
 
-    // Free image list
     for (int i = 0; i < total_image_count; i++) {
         free(image_list[i]);
     }

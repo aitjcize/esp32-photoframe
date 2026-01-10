@@ -10,7 +10,6 @@
 
 static const char *TAG = "remote_gallery";
 
-// Buffer size for streaming download
 #define HTTP_BUFFER_SIZE 4096
 
 esp_err_t remote_gallery_download_image(void)
@@ -19,7 +18,7 @@ esp_err_t remote_gallery_download_image(void)
 
     esp_http_client_config_t config = {
         .url = REMOTE_GALLERY_URL,
-        .timeout_ms = 30000,  // 30 second timeout
+        .timeout_ms = 30000,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .buffer_size = HTTP_BUFFER_SIZE,
     };
@@ -48,7 +47,6 @@ esp_err_t remote_gallery_download_image(void)
         return ESP_FAIL;
     }
 
-    // Open file for writing
     FILE *fp = fopen(TEMP_IMAGE_PATH, "wb");
     if (!fp) {
         ESP_LOGE(TAG, "Failed to open file for writing: %s", TEMP_IMAGE_PATH);
@@ -57,7 +55,6 @@ esp_err_t remote_gallery_download_image(void)
         return ESP_FAIL;
     }
 
-    // Allocate buffer for streaming
     char *buffer = malloc(HTTP_BUFFER_SIZE);
     if (!buffer) {
         ESP_LOGE(TAG, "Failed to allocate download buffer");
@@ -67,7 +64,6 @@ esp_err_t remote_gallery_download_image(void)
         return ESP_ERR_NO_MEM;
     }
 
-    // Stream data to file
     int total_bytes = 0;
     int read_len;
     while ((read_len = esp_http_client_read(client, buffer, HTTP_BUFFER_SIZE)) > 0) {

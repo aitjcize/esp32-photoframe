@@ -142,9 +142,30 @@ static void button_task(void *arg)
             if (duration > 50 && duration < 3000) {
                 ESP_LOGI(TAG, "Key button pressed, triggering rotation");
                 power_manager_reset_sleep_timer();
-                // Always use local mode for manual button presses (no WiFi available in this
-                // context)
-                display_manager_handle_wakeup(DISPLAY_MODE_LOCAL);
+
+                uint8_t display_mode = DISPLAY_MODE_LOCAL;
+                nvs_handle_t nvs_handle;
+                if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {
+                    nvs_get_u8(nvs_handle, NVS_DISPLAY_MODE_KEY, &display_mode);
+                    nvs_close(nvs_handle);
+                }
+
+                uint8_t effective_mode = display_mode;
+
+                if (display_mode == DISPLAY_MODE_REMOTE) {
+                    if (wifi_manager_is_connected()) {
+                        ESP_LOGI(TAG, "Remote gallery mode - downloading image");
+                        if (remote_gallery_download_image() != ESP_OK) {
+                            ESP_LOGW(TAG, "Remote download failed, falling back to local");
+                            effective_mode = DISPLAY_MODE_LOCAL;
+                        }
+                    } else {
+                        ESP_LOGW(TAG, "Remote mode but WiFi not connected, using local");
+                        effective_mode = DISPLAY_MODE_LOCAL;
+                    }
+                }
+
+                display_manager_handle_wakeup(effective_mode);
             }
         }
 
@@ -156,7 +177,6 @@ static void button_task(void *arg)
 
 void app_main(void)
 {
-    // Check reset reason to detect crashes
     esp_reset_reason_t reset_reason = esp_reset_reason();
     const char *reset_reason_str;
     switch (reset_reason) {
@@ -190,15 +210,12 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "PhotoFrame starting... (Reset reason: %s)", reset_reason_str);
 
-    // Log initial memory state
     ESP_LOGI(TAG, "Free heap: %lu bytes, Largest free block: %lu bytes", esp_get_free_heap_size(),
              heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 
-    // Initialize I2C bus (required for AXP2101 communication)
     ESP_LOGI(TAG, "Initializing I2C bus...");
     i2c_master_Init();
 
-    // Initialize AXP2101 power management chip (required for e-paper display power)
     ESP_LOGI(TAG, "Initializing AXP2101 power management...");
     axp_i2c_prot_init();
     axp_cmd_init();
@@ -236,15 +253,12 @@ void app_main(void)
         // Won't reach here
     }
 
-    // Initialize album manager
     ESP_ERROR_CHECK(album_manager_init());
 
-    // Check wake-up source with priority: Timer > KEY > BOOT
     if (power_manager_is_timer_wakeup() || power_manager_is_key_button_wakeup()) {
         uint8_t display_mode = get_display_mode();
         uint8_t effective_mode = display_mode;
 
-        // Remote Gallery Mode: Download image first, then disconnect WiFi before display
         if (display_mode == DISPLAY_MODE_REMOTE) {
             ESP_LOGI(TAG, "Remote gallery mode - connecting WiFi to download image");
 
@@ -277,13 +291,10 @@ void app_main(void)
 
         display_manager_handle_wakeup(effective_mode);
 
-        // Go directly back to sleep without starting WiFi or HTTP server
         ESP_LOGI(TAG, "Auto-rotate complete, going back to sleep");
         power_manager_enter_sleep();
-        // Won't reach here after sleep
     } else if (power_manager_is_boot_button_wakeup()) {
         ESP_LOGI(TAG, "BOOT button wakeup detected - starting WiFi and HTTP server");
-        // Continue with normal initialization
     }
 
     ESP_ERROR_CHECK(wifi_manager_init());
@@ -320,7 +331,6 @@ void app_main(void)
         wifi_manager_get_ip(ip_str, sizeof(ip_str));
         ESP_LOGI(TAG, "Connected to WiFi, IP: %s", ip_str);
 
-        // Start mDNS service
         ESP_ERROR_CHECK(mdns_service_init());
     } else {
         ESP_LOGW(TAG, "Failed to connect to WiFi - clearing credentials");
