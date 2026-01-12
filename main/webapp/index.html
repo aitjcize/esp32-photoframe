@@ -49,7 +49,7 @@
         </section>
 
         <!-- Hidden file input -->
-        <input type="file" id="fileInput" accept=".jpg,.jpeg" style="display: none;">
+        <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.heic,.heif,.webp,.gif,.bmp" style="display: none;">
         
         <section class="card" id="imageProcessingSection" style="display: none;">
             <h2>Image Processing</h2>
@@ -326,6 +326,7 @@
         </footer>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
     <script type="module" src="image-processor.js"></script>
     <script type="module" src="app.js"></script>
 </body>

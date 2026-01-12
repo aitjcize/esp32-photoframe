@@ -631,7 +631,31 @@ function getExifOrientation(file) {
   });
 }
 
-function loadImage(file) {
+async function loadImage(file) {
+  // Check if HEIC/HEIF and convert if needed
+  let fileToLoad = file;
+  if (
+    file.type === "image/heic" ||
+    file.type === "image/heif" ||
+    file.name.toLowerCase().endsWith(".heic") ||
+    file.name.toLowerCase().endsWith(".heif")
+  ) {
+    try {
+      console.log("Converting HEIC/HEIF to JPEG...");
+      const convertedBlob = await heic2any({
+        blob: file,
+        toType: "image/jpeg",
+        quality: 1.0,
+      });
+      fileToLoad = convertedBlob;
+    } catch (error) {
+      console.error("HEIC conversion failed:", error);
+      throw new Error(
+        "Failed to convert HEIC image. Please try a different format.",
+      );
+    }
+  }
+
   return new Promise(async (resolve, reject) => {
     const orientation = await getExifOrientation(file);
     const reader = new FileReader();
@@ -692,7 +716,7 @@ function loadImage(file) {
       img.src = e.target.result;
     };
     reader.onerror = reject;
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(fileToLoad);
   });
 }
 

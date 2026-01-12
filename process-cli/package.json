@@ -13,9 +13,14 @@
   "dependencies": {
     "canvas": "^2.11.2",
     "commander": "^11.1.0",
-    "exif-parser": "^0.1.12"
+    "exif-parser": "^0.1.12",
+    "heic-convert": "^2.1.0"
   },
-  "keywords": ["esp32", "photoframe", "image-processing"],
+  "keywords": [
+    "esp32",
+    "photoframe",
+    "image-processing"
+  ],
   "author": "",
   "license": "MIT"
 }

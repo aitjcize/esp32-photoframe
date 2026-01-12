@@ -4,6 +4,7 @@ import { createCanvas, loadImage } from "canvas";
 import { Command } from "commander";
 import ExifParser from "exif-parser";
 import fs from "fs";
+import heicConvert from "heic-convert";
 import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -253,7 +254,16 @@ function rotate90Clockwise(canvas) {
 // Check if file is an image
 function isImageFile(filename) {
   const ext = path.extname(filename).toLowerCase();
-  return [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"].includes(ext);
+  return [
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".bmp",
+    ".webp",
+    ".heic",
+    ".heif",
+  ].includes(ext);
 }
 
 // Process all images in a folder structure (albums)
@@ -399,6 +409,26 @@ function applyExifOrientation(canvas, orientation) {
   return newCanvas;
 }
 
+async function loadImageWithHeicSupport(inputPath) {
+  const ext = path.extname(inputPath).toLowerCase();
+
+  // Check if HEIC/HEIF format
+  if (ext === ".heic" || ext === ".heif") {
+    console.log(`  Converting HEIC to JPEG...`);
+    const inputBuffer = fs.readFileSync(inputPath);
+    const outputBuffer = await heicConvert({
+      buffer: inputBuffer,
+      format: "JPEG",
+      quality: 1.0,
+    });
+    // Load from converted buffer
+    return await loadImage(outputBuffer);
+  }
+
+  // Load normally for other formats
+  return await loadImage(inputPath);
+}
+
 async function processImageFile(
   inputPath,
   outputBmp,
@@ -408,8 +438,8 @@ async function processImageFile(
 ) {
   console.log(`Processing: ${inputPath}`);
 
-  // 1. Load image
-  const img = await loadImage(inputPath);
+  // 1. Load image (with HEIC conversion if needed)
+  const img = await loadImageWithHeicSupport(inputPath);
   let canvas = createCanvas(img.width, img.height);
   let ctx = canvas.getContext("2d");
   ctx.drawImage(img, 0, 0);
