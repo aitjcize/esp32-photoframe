@@ -13,7 +13,40 @@ import json
 import os
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
+
+
+def get_latest_github_release():
+    """Get the latest release version from GitHub API."""
+    try:
+        # Try to get repository from git remote
+        result = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        
+        if result.returncode == 0:
+            # Parse GitHub repo from URL (e.g., git@github.com:user/repo.git or https://github.com/user/repo.git)
+            remote_url = result.stdout.strip()
+            if "github.com" in remote_url:
+                # Extract owner/repo
+                if remote_url.startswith("git@"):
+                    repo_path = remote_url.split("github.com:")[1].replace(".git", "")
+                else:
+                    repo_path = remote_url.split("github.com/")[1].replace(".git", "")
+                
+                # Fetch latest release from GitHub API
+                api_url = f"https://api.github.com/repos/{repo_path}/releases/latest"
+                with urllib.request.urlopen(api_url) as response:
+                    data = json.loads(response.read())
+                    return data["tag_name"]
+    except Exception as e:
+        print(f"Warning: Could not fetch latest release from GitHub API: {e}")
+    
+    return None
 
 
 def get_git_version(dev=False):
@@ -33,17 +66,29 @@ def get_git_version(dev=False):
             )
             return f"dev-{result.stdout.strip()}"
         else:
-            # For stable builds, use latest tag
+            # For stable builds, try multiple methods to get latest tag
+            
+            # Method 1: Try git describe
             result = subprocess.run(
                 ["git", "describe", "--tags", "--abbrev=0"],
                 capture_output=True,
                 text=True,
                 check=False,
             )
-            if result.returncode == 0:
-                return result.stdout.strip()
+            if result.returncode == 0 and result.stdout.strip():
+                version = result.stdout.strip()
+                print(f"Got version from git describe: {version}")
+                return version
 
-            # Fallback to commit hash if no tags
+            # Method 2: Try fetching from GitHub API
+            print("Git tags not available, trying GitHub API...")
+            github_version = get_latest_github_release()
+            if github_version:
+                print(f"Got version from GitHub API: {github_version}")
+                return github_version
+
+            # Method 3: Fallback to commit hash
+            print("Warning: Could not get stable version, falling back to commit hash")
             result = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
                 capture_output=True,
