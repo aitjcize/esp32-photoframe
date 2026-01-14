@@ -22,8 +22,8 @@ typedef struct {
 // HTTP event handler to write data to file
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
-    download_context_t *ctx = (download_context_t *)evt->user_data;
-    
+    download_context_t *ctx = (download_context_t *) evt->user_data;
+
     switch (evt->event_id) {
     case HTTP_EVENT_ON_DATA:
         if (ctx->file) {
@@ -86,17 +86,18 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
         }
 
         err = esp_http_client_perform(client);
-        
+
         status_code = esp_http_client_get_status_code(client);
         content_length = esp_http_client_get_content_length(client);
         total_downloaded = ctx.total_read;
-        
+
         fclose(file);
         esp_http_client_cleanup(client);
 
         // Check if download was successful
         if (err == ESP_OK && status_code == 200 && total_downloaded > 0) {
-            ESP_LOGI(TAG, "Downloaded %d bytes (content_length: %d), converting JPG to BMP...", total_downloaded, content_length);
+            ESP_LOGI(TAG, "Downloaded %d bytes (content_length: %d), converting JPG to BMP...",
+                     total_downloaded, content_length);
             break;  // Success, exit retry loop
         }
 

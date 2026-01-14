@@ -32,6 +32,36 @@
 
 static const char *TAG = "main";
 
+// Helper function to connect to WiFi with timeout
+static bool connect_to_wifi_with_timeout(int timeout_seconds)
+{
+    char wifi_ssid[WIFI_SSID_MAX_LEN] = {0};
+    char wifi_password[WIFI_PASS_MAX_LEN] = {0};
+
+    ESP_ERROR_CHECK(wifi_manager_load_credentials(wifi_ssid, wifi_password));
+    ESP_LOGI(TAG, "Connecting to WiFi SSID: %s", wifi_ssid);
+    wifi_manager_connect(wifi_ssid, wifi_password);
+
+    // Wait for WiFi connection (with timeout)
+    ESP_LOGI(TAG, "Waiting for WiFi connection...");
+    int retry_count = 0;
+    while (!wifi_manager_is_connected() && retry_count < timeout_seconds) {
+        if (retry_count % 10 == 0 && retry_count > 0) {
+            ESP_LOGI(TAG, "WiFi connecting... (%d seconds elapsed)", retry_count);
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        retry_count++;
+    }
+
+    if (wifi_manager_is_connected()) {
+        ESP_LOGI(TAG, "WiFi connected after %d seconds", retry_count);
+        return true;
+    } else {
+        ESP_LOGE(TAG, "WiFi connection timeout after %d seconds", timeout_seconds);
+        return false;
+    }
+}
+
 static esp_err_t init_sdcard(void)
 {
     ESP_LOGI(TAG, "Initializing SD card");
@@ -238,18 +268,10 @@ void app_main(void)
             // URL mode - need WiFi to fetch image from URL
             ESP_LOGI(TAG, "URL rotation mode - initializing WiFi");
             ESP_ERROR_CHECK(wifi_manager_init());
-            ESP_ERROR_CHECK(wifi_provisioning_init());
 
-            // Wait for WiFi connection (with timeout)
-            int retry_count = 0;
-            while (!wifi_manager_is_connected() && retry_count < 30) {
-                vTaskDelay(pdMS_TO_TICKS(1000));
-                retry_count++;
-            }
-
-            if (wifi_manager_is_connected()) {
+            if (connect_to_wifi_with_timeout(60)) {
                 const char *image_url = config_manager_get_image_url();
-                ESP_LOGI(TAG, "WiFi connected, downloading from: %s", image_url);
+                ESP_LOGI(TAG, "Downloading from: %s", image_url);
 
                 char saved_bmp_path[512];
                 if (fetch_and_save_image_from_url(image_url, saved_bmp_path,
@@ -304,17 +326,7 @@ void app_main(void)
         esp_restart();
     }
 
-    char wifi_ssid[WIFI_SSID_MAX_LEN] = {0};
-    char wifi_password[WIFI_PASS_MAX_LEN] = {0};
-
-    ESP_ERROR_CHECK(wifi_manager_load_credentials(wifi_ssid, wifi_password));
-    ESP_LOGI(TAG, "Connecting to WiFi SSID: %s", wifi_ssid);
-
-    if (wifi_manager_connect(wifi_ssid, wifi_password) == ESP_OK) {
-        char ip_str[16];
-        wifi_manager_get_ip(ip_str, sizeof(ip_str));
-        ESP_LOGI(TAG, "Connected to WiFi, IP: %s", ip_str);
-
+    if (connect_to_wifi_with_timeout(30)) {
         // Start mDNS service
         ESP_ERROR_CHECK(mdns_service_init());
     } else {
