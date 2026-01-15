@@ -92,25 +92,21 @@ jobs:
           firmware/partition-table.bin
           firmware/FLASH.txt
         body: |
-          ## 🌐 Web Flasher (Easiest)
-          
+          ## 🎉 What's New
+
+          ## 🔧 Improvements
+
+          ## Installation
+          ### 🌐 Web Flasher (Easiest)
+
           Flash directly from your browser (Chrome/Edge/Opera required):
           **[https://aitjcize.github.io/esp32-photoframe/](https://aitjcize.github.io/esp32-photoframe/)**
-          
-          ## 📦 Firmware Files
-          
-          **Quick Flash (Recommended):**
-          - `photoframe-firmware-merged.bin` - Single file containing bootloader, partition table, and application
-            ```bash
-            esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 photoframe-firmware-merged.bin
-            ```
-          
-          **Individual Files:**
-          - `bootloader.bin` - Bootloader (flash at 0x0)
-          - `partition-table.bin` - Partition table (flash at 0x8000)
-          - `photoframe-api.bin` - Application firmware (flash at 0x10000)
-          
-          See `FLASH.txt` for detailed flashing instructions.
+
+          ### 📦 Manually
+          `photoframe-firmware-merged.bin` - Single file containing bootloader, partition table, and application
+          ```bash
+          esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 photoframe-firmware-merged.bin
+          ```
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   
