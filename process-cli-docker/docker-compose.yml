@@ -1,0 +1,11 @@
+services:
+  photoframe-process:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PHOTOFRAME_DIR: /data
+    volumes:
+      - ${PHOTOFRAME_DIR}:/data
+    command: ["./run-processing.sh"]
+    restart: "no"

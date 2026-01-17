@@ -135,6 +135,8 @@ node cli.js input.jpg --device-parameters -o /path/to/sdcard/images/
 
 See [process-cli/README.md](process-cli/README.md) for details.
 
+If you're looking for an easy way to do this within a Docker container, see [process-cli-docker/DOCKER.md](process-cli-docker/DOCKER.md) for details.
+
 ## License
 
 This project is based on the ESP32-S3-PhotoPainter sample code. Please refer to the original project for licensing information.
