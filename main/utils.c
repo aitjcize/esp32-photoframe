@@ -21,6 +21,7 @@ static const char *TAG = "utils";
 typedef struct {
     FILE *file;
     int total_read;
+    char *content_type;
 } download_context_t;
 
 // HTTP event handler to write data to file
@@ -33,6 +34,11 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
         if (ctx->file) {
             fwrite(evt->data, 1, evt->data_len, ctx->file);
             ctx->total_read += evt->data_len;
+        }
+        break;
+    case HTTP_EVENT_ON_HEADER:
+        if (strcmp(evt->header_key, "Content-Type") == 0) {
+            sprintf(ctx->content_type, "%s", evt->header_value);
         }
         break;
     default:
@@ -52,6 +58,7 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
     esp_err_t err = ESP_FAIL;
     int status_code = 0;
     int content_length = 0;
+    char *content_type;
     int total_downloaded = 0;
     const int max_retries = 3;
 
@@ -71,6 +78,7 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
         download_context_t ctx = {
             .file = file,
             .total_read = 0,
+            .content_type = malloc(128)
         };
 
         esp_http_client_config_t config = {
@@ -94,6 +102,7 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
         status_code = esp_http_client_get_status_code(client);
         content_length = esp_http_client_get_content_length(client);
         total_downloaded = ctx.total_read;
+        content_type = ctx.content_type;
 
         fclose(file);
         esp_http_client_cleanup(client);
@@ -126,7 +135,18 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
     }
 
     // Convert JPG to BMP using image processor
-    err = image_processor_convert_jpg_to_bmp(temp_jpg_path, temp_bmp_path, false);
+    if (strcmp(content_type, "image/bmp") == 0) {
+        // just move our temp "jpg" to the bmp file
+        if (rename(temp_jpg_path, temp_bmp_path) != 0) {
+            ESP_LOGE(TAG, "Failed to move downloaded BMP to temp location");
+            unlink(temp_jpg_path);
+            unlink(temp_bmp_path);
+            return ESP_FAIL;
+        }
+    } else {
+        err = image_processor_convert_jpg_to_bmp(temp_jpg_path, temp_bmp_path, false);
+    }
+    
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to convert JPG to BMP: %s", esp_err_to_name(err));
         unlink(temp_jpg_path);
