@@ -137,6 +137,7 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
     // Convert JPG to BMP using image processor
     if (strcmp(content_type, "image/bmp") == 0) {
         // just move our temp "jpg" to the bmp file
+        unlink(temp_bmp_path);
         if (rename(temp_jpg_path, temp_bmp_path) != 0) {
             ESP_LOGE(TAG, "Failed to move downloaded BMP to temp location");
             unlink(temp_jpg_path);
