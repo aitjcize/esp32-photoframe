@@ -9,6 +9,7 @@
 static const char *TAG = "config_manager";
 
 static int rotate_interval = IMAGE_ROTATE_INTERVAL_SEC;
+static int image_rotation = IMAGE_ROTATION_DEG;
 static bool auto_rotate_enabled = false;
 static char image_url[IMAGE_URL_MAX_LEN] = {0};
 static char ha_url[HA_URL_MAX_LEN] = {0};
@@ -32,6 +33,12 @@ esp_err_t config_manager_init(void)
             auto_rotate_enabled = (stored_enabled != 0);
             ESP_LOGI(TAG, "Loaded auto-rotate enabled from NVS: %s",
                      auto_rotate_enabled ? "yes" : "no");
+        }
+
+        int32_t stored_image_rotation = IMAGE_ROTATION_DEG;
+        if (nvs_get_i32(nvs_handle, NVS_IMAGE_ROTATION_KEY, &stored_image_rotation) == ESP_OK) {
+            image_rotation = stored_image_rotation;
+            ESP_LOGI(TAG, "Loaded image rotation from NVS: %d degrees", image_rotation);
         }
 
         size_t url_len = IMAGE_URL_MAX_LEN;
@@ -92,6 +99,25 @@ void config_manager_set_rotate_interval(int seconds)
 int config_manager_get_rotate_interval(void)
 {
     return rotate_interval;
+}
+
+void config_manager_set_image_rotation(int rotation)
+{
+    image_rotation = rotation;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_i32(nvs_handle, NVS_IMAGE_ROTATION_KEY, rotation);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Image rotation set to %d degrees", rotation);
+}
+
+int config_manager_get_image_rotation(void)
+{
+    return image_rotation;
 }
 
 void config_manager_set_auto_rotate(bool enabled)

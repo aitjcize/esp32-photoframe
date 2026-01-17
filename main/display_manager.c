@@ -43,14 +43,18 @@ esp_err_t display_manager_init(void)
         return ESP_FAIL;
     }
 
-    Paint_NewImage(epd_image_buffer, DISPLAY_WIDTH, DISPLAY_HEIGHT, 0, EPD_7IN3E_WHITE);
-    Paint_SetScale(6);
-    Paint_SelectImage(epd_image_buffer);
-    Paint_SetRotate(180);
+    display_manager_initialize_paint();
 
     ESP_LOGI(TAG, "Display manager initialized");
     ESP_LOGI(TAG, "Auto-rotate uses timer-based wake-up (only works during sleep cycles)");
     return ESP_OK;
+}
+
+void display_manager_initialize_paint(void) {
+    Paint_NewImage(epd_image_buffer, DISPLAY_WIDTH, DISPLAY_HEIGHT, ((config_manager_get_image_rotation() + 180) % 360), EPD_7IN3E_WHITE);
+    Paint_SetScale(6);
+    Paint_SelectImage(epd_image_buffer);
+    Paint_SetRotate(config_manager_get_image_rotation());
 }
 
 esp_err_t display_manager_show_image(const char *filename)
