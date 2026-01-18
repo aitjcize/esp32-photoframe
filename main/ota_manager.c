@@ -439,7 +439,9 @@ esp_err_t ota_manager_init(void)
         return err;
     }
 
-    // Perform initial check on startup
+    // Perform initial check on startup after a delay to allow network to stabilize
+    ESP_LOGI(TAG, "Initial OTA check will run in 10 seconds");
+    vTaskDelay(pdMS_TO_TICKS(10000));
     xTaskCreate(&ota_check_task, "ota_check_task", 12288, NULL, 5, NULL);
 
     return ESP_OK;
