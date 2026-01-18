@@ -2551,8 +2551,9 @@ async function installUpdate() {
     const data = await response.json();
 
     if (data.status === "success") {
-      statusDiv.textContent = "Update started";
-      statusDiv.className = "status-success";
+      // Clear status message - the state info box will show progress
+      statusDiv.textContent = "";
+      statusDiv.className = "";
 
       // Start polling for status updates
       if (otaStatusInterval) {
