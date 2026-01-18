@@ -4,6 +4,9 @@ import {
   applyContrast,
   applySaturation,
   applyScurveTonemap,
+  applyExifOrientation,
+  resizeImageCover,
+  generateThumbnail,
 } from "./image-processor.js";
 
 const API_BASE = "";
@@ -456,38 +459,28 @@ async function resizeImage(file, maxWidth, maxHeight, quality) {
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const origWidth = img.width;
-        const origHeight = img.height;
+        // Load image into a temporary canvas
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = img.width;
+        tempCanvas.height = img.height;
+        const tempCtx = tempCanvas.getContext("2d");
+        tempCtx.drawImage(img, 0, 0);
 
         // Determine if portrait or landscape
-        const isPortrait = origHeight > origWidth;
+        const isPortrait = img.height > img.width;
 
-        // Set canvas to exact display dimensions
-        if (isPortrait) {
-          canvas.width = maxHeight; // 480
-          canvas.height = maxWidth; // 800
-        } else {
-          canvas.width = maxWidth; // 800
-          canvas.height = maxHeight; // 480
-        }
+        // Set target dimensions based on orientation
+        const targetWidth = isPortrait ? maxHeight : maxWidth;
+        const targetHeight = isPortrait ? maxWidth : maxHeight;
 
-        // Calculate scale to COVER (fill) the canvas
-        const scaleX = canvas.width / origWidth;
-        const scaleY = canvas.height / origHeight;
-        const scale = Math.max(scaleX, scaleY);
+        // Use shared resizeImageCover function
+        const resizedCanvas = resizeImageCover(
+          tempCanvas,
+          targetWidth,
+          targetHeight,
+        );
 
-        const scaledWidth = Math.round(origWidth * scale);
-        const scaledHeight = Math.round(origHeight * scale);
-
-        // Center and crop
-        const offsetX = (canvas.width - scaledWidth) / 2;
-        const offsetY = (canvas.height - scaledHeight) / 2;
-
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
-
-        canvas.toBlob(
+        resizedCanvas.toBlob(
           (blob) => {
             resolve(blob);
           },
@@ -662,52 +655,22 @@ async function loadImage(file) {
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        // Apply EXIF orientation
+        // Apply EXIF orientation using shared function
         if (orientation > 1) {
-          const canvas = document.createElement("canvas");
-          const ctx = canvas.getContext("2d");
+          // Load image into temporary canvas
+          const tempCanvas = document.createElement("canvas");
+          tempCanvas.width = img.width;
+          tempCanvas.height = img.height;
+          const tempCtx = tempCanvas.getContext("2d");
+          tempCtx.drawImage(img, 0, 0);
 
-          // Set canvas dimensions based on orientation
-          if (orientation >= 5 && orientation <= 8) {
-            // Rotations that swap width/height
-            canvas.width = img.height;
-            canvas.height = img.width;
-          } else {
-            canvas.width = img.width;
-            canvas.height = img.height;
-          }
+          // Apply EXIF orientation transformation
+          const orientedCanvas = applyExifOrientation(tempCanvas, orientation);
 
-          // Apply transformations based on EXIF orientation
-          switch (orientation) {
-            case 2:
-              ctx.transform(-1, 0, 0, 1, img.width, 0);
-              break;
-            case 3:
-              ctx.transform(-1, 0, 0, -1, img.width, img.height);
-              break;
-            case 4:
-              ctx.transform(1, 0, 0, -1, 0, img.height);
-              break;
-            case 5:
-              ctx.transform(0, 1, 1, 0, 0, 0);
-              break;
-            case 6:
-              ctx.transform(0, 1, -1, 0, img.height, 0);
-              break;
-            case 7:
-              ctx.transform(0, -1, -1, 0, img.height, img.width);
-              break;
-            case 8:
-              ctx.transform(0, -1, 1, 0, 0, img.width);
-              break;
-          }
-
-          ctx.drawImage(img, 0, 0);
-
-          // Create a new image from the rotated canvas
-          const rotatedImg = new Image();
-          rotatedImg.onload = () => resolve(rotatedImg);
-          rotatedImg.src = canvas.toDataURL();
+          // Create a new image from the oriented canvas
+          const orientedImg = new Image();
+          orientedImg.onload = () => resolve(orientedImg);
+          orientedImg.src = orientedCanvas.toDataURL();
         } else {
           resolve(img);
         }
@@ -1221,8 +1184,31 @@ document
         });
       }
 
-      // Create thumbnail (200x120 or 120x200) from original
-      const thumbnailBlob = await resizeImage(currentImageFile, 200, 120, 0.85);
+      // Create thumbnail (320x192 or 192x320) from original using shared function
+      const thumbnailBlob = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            // Load image into a canvas first
+            const tempCanvas = document.createElement("canvas");
+            tempCanvas.width = img.width;
+            tempCanvas.height = img.height;
+            const tempCtx = tempCanvas.getContext("2d");
+            tempCtx.drawImage(img, 0, 0);
+
+            // Generate thumbnail using shared function
+            const thumbCanvas = generateThumbnail(tempCanvas, 400, 240);
+
+            // Convert to blob
+            thumbCanvas.toBlob(resolve, "image/jpeg", 0.85);
+          };
+          img.onerror = reject;
+          img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(currentImageFile);
+      });
 
       const formData = new FormData();
       // Send text fields first so backend can parse them before processing files

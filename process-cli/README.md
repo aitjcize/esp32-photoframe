@@ -127,7 +127,7 @@ For input `photo.jpg`, the tool generates:
 - `photo.bmp`: Processed BMP for e-paper display (800x480, dithered, 7-color)
   - Default: Theoretical palette (bright colors for ESP32)
   - `--render-measured`: Measured palette (darker, matches actual e-paper)
-- `photo.jpg`: Thumbnail for web interface (160x96)
+- `photo.jpg`: Thumbnail for web interface (400x240)
 
 ## Processing Pipeline
 
@@ -147,7 +147,7 @@ For input `photo.jpg`, the tool generates:
 7. **BMP Output**: Write 800x480 indexed BMP
    - Default: Theoretical palette (for ESP32 upload)
    - `--render-measured`: Measured palette (for preview)
-8. **Thumbnail**: Generate 160x96 JPEG thumbnail
+8. **Thumbnail**: Generate 400x240 JPEG thumbnail
 
 ## Examples
 

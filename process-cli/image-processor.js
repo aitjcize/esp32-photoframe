@@ -399,6 +399,221 @@ function processImage(imageData, params) {
   }
 }
 
+/**
+ * Rotate canvas 90 degrees clockwise
+ * @param {Canvas} canvas - Source canvas (browser Canvas or node-canvas)
+ * @param {Function} createCanvas - Canvas creation function (for Node.js compatibility)
+ * @returns {Canvas} Rotated canvas
+ */
+function rotate90Clockwise(canvas, createCanvas = null) {
+  let rotatedCanvas;
+  if (createCanvas) {
+    rotatedCanvas = createCanvas(canvas.height, canvas.width);
+  } else {
+    rotatedCanvas = document.createElement("canvas");
+    rotatedCanvas.width = canvas.height;
+    rotatedCanvas.height = canvas.width;
+  }
+
+  const ctx = rotatedCanvas.getContext("2d");
+  ctx.translate(canvas.height, 0);
+  ctx.rotate(Math.PI / 2);
+  ctx.drawImage(canvas, 0, 0);
+
+  return rotatedCanvas;
+}
+
+/**
+ * Apply EXIF orientation transformation to canvas
+ * @param {Canvas} canvas - Source canvas (browser Canvas or node-canvas)
+ * @param {number} orientation - EXIF orientation value (1-8)
+ * @param {Function} createCanvas - Canvas creation function (for Node.js compatibility)
+ * @returns {Canvas} Transformed canvas
+ */
+function applyExifOrientation(canvas, orientation, createCanvas = null) {
+  if (orientation === 1) return canvas;
+
+  const { width, height } = canvas;
+  let newCanvas, ctx;
+
+  // Set canvas dimensions based on orientation
+  if (orientation >= 5 && orientation <= 8) {
+    // Rotations that swap width/height
+    if (createCanvas) {
+      newCanvas = createCanvas(height, width);
+    } else {
+      newCanvas = document.createElement("canvas");
+      newCanvas.width = height;
+      newCanvas.height = width;
+    }
+  } else {
+    if (createCanvas) {
+      newCanvas = createCanvas(width, height);
+    } else {
+      newCanvas = document.createElement("canvas");
+      newCanvas.width = width;
+      newCanvas.height = height;
+    }
+  }
+
+  ctx = newCanvas.getContext("2d");
+
+  // Apply transformations based on EXIF orientation
+  switch (orientation) {
+    case 2:
+      ctx.transform(-1, 0, 0, 1, width, 0);
+      break;
+    case 3:
+      ctx.transform(-1, 0, 0, -1, width, height);
+      break;
+    case 4:
+      ctx.transform(1, 0, 0, -1, 0, height);
+      break;
+    case 5:
+      ctx.transform(0, 1, 1, 0, 0, 0);
+      break;
+    case 6:
+      ctx.transform(0, 1, -1, 0, height, 0);
+      break;
+    case 7:
+      ctx.transform(0, -1, -1, 0, height, width);
+      break;
+    case 8:
+      ctx.transform(0, -1, 1, 0, 0, width);
+      break;
+  }
+
+  ctx.drawImage(canvas, 0, 0);
+  return newCanvas;
+}
+
+/**
+ * Resize image with cover mode (scale and crop to fill)
+ * @param {Canvas} sourceCanvas - Source canvas (browser Canvas or node-canvas)
+ * @param {number} targetWidth - Target width
+ * @param {number} targetHeight - Target height
+ * @param {Function} createCanvas - Canvas creation function (for Node.js compatibility)
+ * @returns {Canvas} Resized canvas
+ */
+function resizeImageCover(
+  sourceCanvas,
+  targetWidth,
+  targetHeight,
+  createCanvas = null,
+) {
+  const srcWidth = sourceCanvas.width;
+  const srcHeight = sourceCanvas.height;
+
+  // Calculate scale to cover (larger of the two ratios)
+  const scaleX = targetWidth / srcWidth;
+  const scaleY = targetHeight / srcHeight;
+  const scale = Math.max(scaleX, scaleY);
+
+  const scaledWidth = Math.round(srcWidth * scale);
+  const scaledHeight = Math.round(srcHeight * scale);
+
+  // Create temporary canvas for scaling
+  let tempCanvas;
+  if (createCanvas) {
+    tempCanvas = createCanvas(scaledWidth, scaledHeight);
+  } else {
+    tempCanvas = document.createElement("canvas");
+    tempCanvas.width = scaledWidth;
+    tempCanvas.height = scaledHeight;
+  }
+  const tempCtx = tempCanvas.getContext("2d");
+  tempCtx.drawImage(sourceCanvas, 0, 0, scaledWidth, scaledHeight);
+
+  // Crop to target size (center crop)
+  const cropX = Math.round((scaledWidth - targetWidth) / 2);
+  const cropY = Math.round((scaledHeight - targetHeight) / 2);
+
+  let outputCanvas;
+  if (createCanvas) {
+    outputCanvas = createCanvas(targetWidth, targetHeight);
+  } else {
+    outputCanvas = document.createElement("canvas");
+    outputCanvas.width = targetWidth;
+    outputCanvas.height = targetHeight;
+  }
+  const outputCtx = outputCanvas.getContext("2d");
+  outputCtx.drawImage(
+    tempCanvas,
+    cropX,
+    cropY,
+    targetWidth,
+    targetHeight,
+    0,
+    0,
+    targetWidth,
+    targetHeight,
+  );
+
+  return outputCanvas;
+}
+
+/**
+ * Generate thumbnail from canvas with proper orientation handling
+ * @param {Canvas} sourceCanvas - Source canvas (browser Canvas or node-canvas)
+ * @param {number} targetWidth - Target width for landscape orientation (e.g., 400)
+ * @param {number} targetHeight - Target height for landscape orientation (e.g., 240)
+ * @param {Function} createCanvas - Canvas creation function (for Node.js compatibility)
+ * @returns {Canvas} Thumbnail canvas
+ */
+function generateThumbnail(
+  sourceCanvas,
+  targetWidth = 400,
+  targetHeight = 240,
+  createCanvas = null,
+) {
+  const srcWidth = sourceCanvas.width;
+  const srcHeight = sourceCanvas.height;
+
+  // Determine orientation
+  const isPortrait = srcHeight > srcWidth;
+  const thumbWidth = isPortrait ? targetHeight : targetWidth;
+  const thumbHeight = isPortrait ? targetWidth : targetHeight;
+
+  // Create thumbnail canvas
+  let thumbCanvas;
+  if (createCanvas) {
+    // Node.js environment
+    thumbCanvas = createCanvas(thumbWidth, thumbHeight);
+  } else {
+    // Browser environment
+    thumbCanvas = document.createElement("canvas");
+    thumbCanvas.width = thumbWidth;
+    thumbCanvas.height = thumbHeight;
+  }
+
+  const thumbCtx = thumbCanvas.getContext("2d");
+
+  // Scale to cover thumbnail size (crop to fill)
+  const scaleX = thumbWidth / srcWidth;
+  const scaleY = thumbHeight / srcHeight;
+  const scale = Math.max(scaleX, scaleY);
+
+  const scaledWidth = Math.round(srcWidth * scale);
+  const scaledHeight = Math.round(srcHeight * scale);
+  const cropX = Math.round((scaledWidth - thumbWidth) / 2);
+  const cropY = Math.round((scaledHeight - thumbHeight) / 2);
+
+  // Draw scaled and cropped image
+  thumbCtx.drawImage(
+    sourceCanvas,
+    cropX / scale,
+    cropY / scale,
+    thumbWidth / scale,
+    thumbHeight / scale,
+    0,
+    0,
+    thumbWidth,
+    thumbHeight,
+  );
+
+  return thumbCanvas;
+}
+
 // Export for Node.js ES modules
 export {
   PALETTE_MEASURED,
@@ -409,4 +624,8 @@ export {
   applyScurveTonemap,
   applyFloydSteinbergDither,
   processImage,
+  rotate90Clockwise,
+  applyExifOrientation,
+  resizeImageCover,
+  generateThumbnail,
 };

@@ -8,7 +8,14 @@ import heicConvert from "heic-convert";
 import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
-import { processImage, PALETTE_THEORETICAL } from "./image-processor.js";
+import {
+  processImage,
+  PALETTE_THEORETICAL,
+  rotate90Clockwise,
+  applyExifOrientation,
+  resizeImageCover,
+  generateThumbnail,
+} from "./image-processor.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -200,57 +207,6 @@ function writeBMP(imageData, outputPath) {
   fs.writeFileSync(outputPath, buffer);
 }
 
-// Resize image with cover mode (scale and crop to fill)
-function resizeImageCover(canvas, targetWidth, targetHeight) {
-  const srcWidth = canvas.width;
-  const srcHeight = canvas.height;
-
-  // Calculate scale to cover (larger of the two ratios)
-  const scaleX = targetWidth / srcWidth;
-  const scaleY = targetHeight / srcHeight;
-  const scale = Math.max(scaleX, scaleY);
-
-  const scaledWidth = Math.round(srcWidth * scale);
-  const scaledHeight = Math.round(srcHeight * scale);
-
-  // Create temporary canvas for scaling
-  const tempCanvas = createCanvas(scaledWidth, scaledHeight);
-  const tempCtx = tempCanvas.getContext("2d");
-  tempCtx.drawImage(canvas, 0, 0, scaledWidth, scaledHeight);
-
-  // Crop to target size (center crop)
-  const cropX = Math.round((scaledWidth - targetWidth) / 2);
-  const cropY = Math.round((scaledHeight - targetHeight) / 2);
-
-  const outputCanvas = createCanvas(targetWidth, targetHeight);
-  const outputCtx = outputCanvas.getContext("2d");
-  outputCtx.drawImage(
-    tempCanvas,
-    cropX,
-    cropY,
-    targetWidth,
-    targetHeight,
-    0,
-    0,
-    targetWidth,
-    targetHeight,
-  );
-
-  return outputCanvas;
-}
-
-// Rotate 90 degrees clockwise
-function rotate90Clockwise(canvas) {
-  const rotatedCanvas = createCanvas(canvas.height, canvas.width);
-  const ctx = rotatedCanvas.getContext("2d");
-
-  ctx.translate(canvas.height, 0);
-  ctx.rotate(Math.PI / 2);
-  ctx.drawImage(canvas, 0, 0);
-
-  return rotatedCanvas;
-}
-
 // Check if file is an image
 function isImageFile(filename) {
   const ext = path.extname(filename).toLowerCase();
@@ -364,51 +320,6 @@ function getExifOrientation(filePath) {
   }
 }
 
-function applyExifOrientation(canvas, orientation) {
-  if (orientation === 1) return canvas;
-
-  const { width, height } = canvas;
-  let newCanvas, ctx;
-
-  // Set canvas dimensions based on orientation
-  if (orientation >= 5 && orientation <= 8) {
-    // Rotations that swap width/height
-    newCanvas = createCanvas(height, width);
-  } else {
-    newCanvas = createCanvas(width, height);
-  }
-
-  ctx = newCanvas.getContext("2d");
-
-  // Apply transformations based on EXIF orientation
-  switch (orientation) {
-    case 2:
-      ctx.transform(-1, 0, 0, 1, width, 0);
-      break;
-    case 3:
-      ctx.transform(-1, 0, 0, -1, width, height);
-      break;
-    case 4:
-      ctx.transform(1, 0, 0, -1, 0, height);
-      break;
-    case 5:
-      ctx.transform(0, 1, 1, 0, 0, 0);
-      break;
-    case 6:
-      ctx.transform(0, 1, -1, 0, height, 0);
-      break;
-    case 7:
-      ctx.transform(0, -1, -1, 0, height, width);
-      break;
-    case 8:
-      ctx.transform(0, -1, 1, 0, 0, width);
-      break;
-  }
-
-  ctx.drawImage(canvas, 0, 0);
-  return newCanvas;
-}
-
 async function loadImageWithHeicSupport(inputPath) {
   const ext = path.extname(inputPath).toLowerCase();
 
@@ -450,7 +361,7 @@ async function processImageFile(
   const orientation = getExifOrientation(inputPath);
   if (orientation > 1) {
     console.log(`  Applying EXIF orientation: ${orientation}`);
-    canvas = applyExifOrientation(canvas, orientation);
+    canvas = applyExifOrientation(canvas, orientation, createCanvas);
     console.log(`  After EXIF correction: ${canvas.width}x${canvas.height}`);
   }
 
@@ -463,7 +374,7 @@ async function processImageFile(
   const isPortrait = canvas.height > canvas.width;
   if (isPortrait && !options.renderMeasured) {
     console.log(`  Portrait detected, rotating 90° clockwise`);
-    canvas = rotate90Clockwise(canvas);
+    canvas = rotate90Clockwise(canvas, createCanvas);
     console.log(`  After rotation: ${canvas.width}x${canvas.height}`);
   } else if (isPortrait && options.renderMeasured) {
     console.log(`  Portrait detected, skipping rotation (debug mode)`);
@@ -483,7 +394,7 @@ async function processImageFile(
     console.log(
       `  Resizing to ${targetWidth}x${targetHeight} (cover mode: scale and crop)`,
     );
-    canvas = resizeImageCover(canvas, targetWidth, targetHeight);
+    canvas = resizeImageCover(canvas, targetWidth, targetHeight, createCanvas);
   }
 
   // 4. Apply image processing
@@ -558,38 +469,12 @@ async function processImageFile(
   if (options.generateThumbnail && outputThumb) {
     console.log(`  Generating thumbnail: ${outputThumb}`);
 
-    // Create thumbnail from EXIF-corrected canvas (before rotation/processing)
-    // Determine thumbnail orientation based on EXIF-corrected dimensions
-    const srcWidth = originalCanvas.width;
-    const srcHeight = originalCanvas.height;
-    const thumbIsPortrait = srcHeight > srcWidth;
-    const thumbWidth = thumbIsPortrait ? 96 : 160;
-    const thumbHeight = thumbIsPortrait ? 160 : 96;
-
-    const thumbCanvas = createCanvas(thumbWidth, thumbHeight);
-    const thumbCtx = thumbCanvas.getContext("2d");
-
-    // Scale EXIF-corrected canvas to thumbnail size (cover mode)
-    const scaleX = thumbWidth / srcWidth;
-    const scaleY = thumbHeight / srcHeight;
-    const scale = Math.max(scaleX, scaleY);
-
-    const scaledWidth = Math.round(srcWidth * scale);
-    const scaledHeight = Math.round(srcHeight * scale);
-    const cropX = Math.round((scaledWidth - thumbWidth) / 2);
-    const cropY = Math.round((scaledHeight - thumbHeight) / 2);
-
-    // Draw scaled and cropped EXIF-corrected canvas
-    thumbCtx.drawImage(
+    // Use shared thumbnail generation function
+    const thumbCanvas = generateThumbnail(
       originalCanvas,
-      cropX / scale,
-      cropY / scale,
-      thumbWidth / scale,
-      thumbHeight / scale,
-      0,
-      0,
-      thumbWidth,
-      thumbHeight,
+      400,
+      240,
+      createCanvas,
     );
 
     const buffer = thumbCanvas.toBuffer("image/jpeg", { quality: 0.8 });
