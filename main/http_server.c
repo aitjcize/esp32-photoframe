@@ -1068,7 +1068,6 @@ static esp_err_t config_handler(httpd_req_t *req)
         if (img_rotation_obj && cJSON_IsNumber(img_rotation_obj)) {
             config_manager_set_image_rotation(img_rotation_obj->valueint);
             display_manager_initialize_paint();
-            // TODO reset display_manager rotation?
         }
 
         cJSON *auto_rotate_obj = cJSON_GetObjectItem(root, "auto_rotate");
