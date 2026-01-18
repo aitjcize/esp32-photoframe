@@ -51,7 +51,7 @@ esp_err_t display_manager_init(void)
 }
 
 void display_manager_initialize_paint(void) {
-    Paint_NewImage(epd_image_buffer, DISPLAY_WIDTH, DISPLAY_HEIGHT, config_manager_get_image_rotation() % 360, EPD_7IN3E_WHITE);
+    Paint_NewImage(epd_image_buffer, DISPLAY_WIDTH, DISPLAY_HEIGHT, config_manager_get_image_orientation() % 360, EPD_7IN3E_WHITE);
     Paint_SetScale(6);
     Paint_SelectImage(epd_image_buffer);
 }

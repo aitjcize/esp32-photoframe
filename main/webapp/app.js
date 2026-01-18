@@ -1293,8 +1293,8 @@ async function loadConfig() {
     document.getElementById("autoRotate").checked = data.auto_rotate || false;
     document.getElementById("rotateInterval").value =
       data.rotate_interval || 3600;
-    document.getElementById("imageRotation").value =
-      data.image_rotation || 180;
+    document.getElementById("imageOrientation").value =
+      data.image_orientation || 180;
     document.getElementById("imageUrl").value =
       data.image_url || "https://picsum.photos/800/480";
     document.getElementById("haUrl").value = data.ha_url || "";
@@ -1354,8 +1354,8 @@ document.getElementById("configForm").addEventListener("submit", async (e) => {
   const rotateInterval = parseInt(
     document.getElementById("rotateInterval").value,
   );
-  const imageRotation = parseInt(
-    document.getElementById("imageRotation").value,
+  const imageOrientation = parseInt(
+    document.getElementById("imageOrientation").value,
   );
   const rotationMode = document.querySelector(
     'input[name="rotationMode"]:checked',
@@ -1376,7 +1376,7 @@ document.getElementById("configForm").addEventListener("submit", async (e) => {
       body: JSON.stringify({
         auto_rotate: autoRotate,
         rotate_interval: rotateInterval,
-        image_rotation: imageRotation,
+        image_orientation: imageOrientation,
         rotation_mode: rotationMode,
         image_url: imageUrl,
         ha_url: haUrl,

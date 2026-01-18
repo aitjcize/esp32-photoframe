@@ -1016,7 +1016,7 @@ static esp_err_t config_handler(httpd_req_t *req)
 
     if (req->method == HTTP_GET) {
         int rotate_interval = config_manager_get_rotate_interval();
-        int image_rotation = config_manager_get_image_rotation();
+        int image_orientation = config_manager_get_image_orientation();
         bool auto_rotate = config_manager_get_auto_rotate();
         bool deep_sleep_enabled = power_manager_get_deep_sleep_enabled();
         const char *image_url = config_manager_get_image_url();
@@ -1026,7 +1026,7 @@ static esp_err_t config_handler(httpd_req_t *req)
 
         cJSON *root = cJSON_CreateObject();
         cJSON_AddNumberToObject(root, "rotate_interval", rotate_interval);
-        cJSON_AddNumberToObject(root, "image_rotation", image_rotation);
+        cJSON_AddNumberToObject(root, "image_orientation", image_orientation);
         cJSON_AddBoolToObject(root, "auto_rotate", auto_rotate);
         cJSON_AddBoolToObject(root, "deep_sleep_enabled", deep_sleep_enabled);
         cJSON_AddStringToObject(root, "image_url", image_url ? image_url : "");
@@ -1064,9 +1064,9 @@ static esp_err_t config_handler(httpd_req_t *req)
             power_manager_reset_rotate_timer();
         }
 
-        cJSON *img_rotation_obj = cJSON_GetObjectItem(root, "image_rotation");
-        if (img_rotation_obj && cJSON_IsNumber(img_rotation_obj)) {
-            config_manager_set_image_rotation(img_rotation_obj->valueint);
+        cJSON *img_orientation_obj = cJSON_GetObjectItem(root, "image_orientation");
+        if (img_orientation_obj && cJSON_IsNumber(img_orientation_obj)) {
+            config_manager_set_image_orientation(img_orientation_obj->valueint);
             display_manager_initialize_paint();
         }
 

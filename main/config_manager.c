@@ -9,7 +9,7 @@
 static const char *TAG = "config_manager";
 
 static int rotate_interval = IMAGE_ROTATE_INTERVAL_SEC;
-static int image_rotation = IMAGE_ROTATION_DEG;
+static int image_orientation = IMAGE_ORIENTATION_DEG;
 static bool auto_rotate_enabled = false;
 static char image_url[IMAGE_URL_MAX_LEN] = {0};
 static char ha_url[HA_URL_MAX_LEN] = {0};
@@ -35,10 +35,10 @@ esp_err_t config_manager_init(void)
                      auto_rotate_enabled ? "yes" : "no");
         }
 
-        int32_t stored_image_rotation = IMAGE_ROTATION_DEG;
-        if (nvs_get_i32(nvs_handle, NVS_IMAGE_ROTATION_KEY, &stored_image_rotation) == ESP_OK) {
-            image_rotation = stored_image_rotation;
-            ESP_LOGI(TAG, "Loaded image rotation from NVS: %d degrees", image_rotation);
+        int32_t stored_image_orientation = IMAGE_ORIENTATION_DEG;
+        if (nvs_get_i32(nvs_handle, NVS_IMAGE_ORIENTATION_KEY, &stored_image_orientation) == ESP_OK) {
+            image_orientation = stored_image_orientation;
+            ESP_LOGI(TAG, "Loaded image orientation from NVS: %d degrees", image_orientation);
         }
 
         size_t url_len = IMAGE_URL_MAX_LEN;
@@ -101,23 +101,23 @@ int config_manager_get_rotate_interval(void)
     return rotate_interval;
 }
 
-void config_manager_set_image_rotation(int rotation)
+void config_manager_set_image_orientation(int orientation)
 {
-    image_rotation = rotation;
+    image_orientation = orientation;
 
     nvs_handle_t nvs_handle;
     if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-        nvs_set_i32(nvs_handle, NVS_IMAGE_ROTATION_KEY, rotation);
+        nvs_set_i32(nvs_handle, NVS_IMAGE_ORIENTATION_KEY, orientation);
         nvs_commit(nvs_handle);
         nvs_close(nvs_handle);
     }
 
-    ESP_LOGI(TAG, "Image rotation set to %d degrees", rotation);
+    ESP_LOGI(TAG, "Image orientation set to %d degrees", orientation);
 }
 
-int config_manager_get_image_rotation(void)
+int config_manager_get_image_orientation(void)
 {
-    return image_rotation;
+    return image_orientation;
 }
 
 void config_manager_set_auto_rotate(bool enabled)
