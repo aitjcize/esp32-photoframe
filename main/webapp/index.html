@@ -292,6 +292,18 @@
                         </small>
                     </div>
                 </div>
+                <div class="settings-section-divider">
+                    <div class="form-group">
+                        <details>
+                            <summary>Advanced Settings</summary>
+                            <label for="imageOrientation">Image orientation (degrees):</label>
+                            <input type="number" id="imageOrientation" min="0" max="360" value="180">
+                            <small class="helper-text">
+                                💡 This is only needed for images that were not converted through the UI, API or CLI, e.g. from the original Waveshare conversion tool or a custom script. If you only plan to use the default conversion implementation, leave this setting at default (180).
+                            </small>
+                        </details>
+                    </div>
+                </div>
                 
                 <button type="submit" class="btn btn-primary">Save Settings</button>
                 <div id="configStatus"></div>

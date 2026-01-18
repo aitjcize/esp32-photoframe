@@ -14,6 +14,9 @@ int config_manager_get_rotate_interval(void);
 void config_manager_set_auto_rotate(bool enabled);
 bool config_manager_get_auto_rotate(void);
 
+void config_manager_set_image_orientation(int orientation);
+int config_manager_get_image_orientation(void);
+
 void config_manager_set_image_url(const char *url);
 const char *config_manager_get_image_url(void);
 
