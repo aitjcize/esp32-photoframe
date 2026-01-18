@@ -24,7 +24,7 @@ typedef struct {
 } ota_status_t;
 
 esp_err_t ota_manager_init(void);
-esp_err_t ota_check_for_update(bool *update_available);
+esp_err_t ota_check_for_update(bool *update_available, int timeout);
 esp_err_t ota_start_update(void);
 void ota_get_status(ota_status_t *status);
 const char *ota_get_current_version(void);

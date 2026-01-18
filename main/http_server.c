@@ -1430,7 +1430,7 @@ static esp_err_t ota_check_handler(httpd_req_t *req)
 {
     if (req->method == HTTP_POST) {
         bool update_available = false;
-        esp_err_t err = ota_check_for_update(&update_available);
+        esp_err_t err = ota_check_for_update(&update_available, 30);
 
         cJSON *response = cJSON_CreateObject();
         if (err == ESP_OK) {
