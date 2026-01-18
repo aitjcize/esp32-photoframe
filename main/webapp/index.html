@@ -219,11 +219,6 @@
                         <label for="rotateInterval">Rotation Interval (seconds):</label>
                         <input type="number" id="rotateInterval" min="10" max="86400" value="3600">
                     </div>
-
-                    <div class="form-group">
-                        <label for="imageRotation">Image rotation (degrees):</label>
-                        <input type="number" id="imageRotation" min="0" max="360" value="180">
-                    </div>
                     
                     <div class="form-group">
                         <label>Rotation Mode:</label>
@@ -295,6 +290,18 @@
                         <small class="helper-text">
                             🏠 Optional: Configure Home Assistant integration for dynamic image serving and reporting battery level.
                         </small>
+                    </div>
+                </div>
+                <div class="settings-section-divider">
+                    <div class="form-group">
+                        <details>
+                            <summary>Advanced Settings</summary>
+                            <label for="imageRotation">Image orientation (degrees):</label>
+                            <input type="number" id="imageRotation" min="0" max="360" value="180">
+                            <small class="helper-text">
+                                💡 This is only needed for images that were not converted through the UI, API or CLI, e.g. from the original Waveshare conversion tool or a custom script. If you only plan to use the default conversion implementation, leave this setting at default (180).
+                            </small>
+                        </details>
                     </div>
                 </div>
                 
