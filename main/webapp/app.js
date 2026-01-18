@@ -660,14 +660,21 @@ function getExifOrientation(file) {
 async function loadImage(file) {
   // Check if HEIC/HEIF and convert if needed
   let fileToLoad = file;
-  if (
+  const isHeic =
     file.type === "image/heic" ||
     file.type === "image/heif" ||
     file.name.toLowerCase().endsWith(".heic") ||
-    file.name.toLowerCase().endsWith(".heif")
-  ) {
+    file.name.toLowerCase().endsWith(".heif");
+
+  // Detect iOS/Safari which has native HEIC support
+  const isIOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+  if (isHeic && !isIOS && !isSafari) {
+    // Only convert HEIC on non-iOS/Safari browsers
     try {
-      console.log("Converting HEIC/HEIF to JPEG...");
       const convertedBlob = await heic2any({
         blob: file,
         toType: "image/jpeg",
@@ -684,12 +691,20 @@ async function loadImage(file) {
 
   return new Promise(async (resolve, reject) => {
     const orientation = await getExifOrientation(file);
+
+    // Detect iOS/Safari which automatically applies EXIF orientation
+    const isIOS =
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const browserAutoRotates = isIOS || isSafari;
+
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        // Apply EXIF orientation using shared function
-        if (orientation > 1) {
+        // Apply EXIF orientation only if browser doesn't do it automatically
+        if (orientation > 1 && !browserAutoRotates) {
           // Load image into temporary canvas
           const tempCanvas = document.createElement("canvas");
           tempCanvas.width = img.width;
