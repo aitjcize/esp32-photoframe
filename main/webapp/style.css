@@ -446,26 +446,68 @@ footer {
         flex-direction: column;
         gap: 15px;
     }
-    
+
     header h1 {
         font-size: 1.5rem;
     }
-    
+
     .battery-status {
         position: static;
         font-size: 1rem;
     }
-    
+
     .image-grid {
         grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     }
-    
+
     .controls-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .button-group {
         flex-direction: column;
+    }
+
+    .preview-container {
+        flex-wrap: wrap;
+        gap: 20px;
+    }
+
+    .preview-canvas-wrapper,
+    .curve-canvas-wrapper {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .preview-canvas-wrapper {
+        max-height: 400px;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    #previewCanvas,
+    #originalCanvas {
+        max-height: 400px;
+        width: auto !important;
+        height: auto !important;
+        object-fit: contain;
+    }
+
+    .comparison-wrapper {
+        max-height: 400px;
+    }
+
+    .canvas-container {
+        max-height: 400px;
+    }
+
+    #curveCanvas {
+        width: 100%;
+        max-width: 300px;
+        margin: 0 auto;
+        display: block;
     }
 }
 
