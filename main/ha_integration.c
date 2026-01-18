@@ -10,6 +10,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "ota_manager.h"
 #include "utils.h"
 
 static const char *TAG = "ha_integration";
@@ -136,5 +137,34 @@ esp_err_t ha_integration_init(void)
 
     xTaskCreate(battery_push_task, "battery_push", 8192, NULL, 5, &battery_push_task_handle);
     ESP_LOGI(TAG, "HA integration initialized");
+    return ESP_OK;
+}
+
+esp_err_t ha_trigger_ota_update(void)
+{
+    ESP_LOGI(TAG, "Triggering OTA update via HA integration");
+
+    // Check for update first
+    bool update_available = false;
+    esp_err_t err = ota_check_for_update(&update_available);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to check for OTA update");
+        return err;
+    }
+
+    if (!update_available) {
+        ESP_LOGI(TAG, "No OTA update available");
+        return ESP_OK;
+    }
+
+    // Start the update
+    err = ota_start_update();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start OTA update");
+        return err;
+    }
+
+    ESP_LOGI(TAG, "OTA update started successfully");
     return ESP_OK;
 }

@@ -24,6 +24,7 @@
 #include "image_processor.h"
 #include "mdns_service.h"
 #include "nvs_flash.h"
+#include "ota_manager.h"
 #include "power_manager.h"
 #include "processing_settings.h"
 #include "sdmmc_cmd.h"
@@ -373,6 +374,9 @@ void app_main(void)
 
     ESP_ERROR_CHECK(http_server_init());
     ESP_ERROR_CHECK(ha_integration_init());
+
+    // Initialize OTA manager (checks for updates on startup and periodically)
+    ESP_ERROR_CHECK(ota_manager_init());
 
     if (wifi_manager_is_connected()) {
         char ip_str[16];

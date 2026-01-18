@@ -1811,8 +1811,7 @@ document
   .getElementById("displayCalibrationBtn")
   .addEventListener("click", async () => {
     const statusDiv = document.getElementById("displayCalibrationStatus");
-    statusDiv.innerHTML =
-      '<div class="spinner"></div><p>Displaying calibration pattern on device...</p>';
+    statusDiv.textContent = "Displaying calibration pattern on device...";
     statusDiv.className = "status-info";
 
     try {
@@ -1823,8 +1822,7 @@ document
 
       if (response.ok) {
         const result = await response.json();
-        statusDiv.innerHTML =
-          '<p style="color: #28a745;">✓ Calibration pattern displayed on device</p>';
+        statusDiv.textContent = "Calibration pattern displayed on device";
         statusDiv.className = "status-success";
 
         // Move to next step
@@ -1839,7 +1837,7 @@ document
         );
       }
     } catch (error) {
-      statusDiv.innerHTML = `<p style="color: #dc3545;">✗ Error: ${error.message}</p>`;
+      statusDiv.textContent = `Error: ${error.message}`;
       statusDiv.className = "status-error";
     }
   });
@@ -1858,8 +1856,7 @@ document
     if (!file) return;
 
     const statusDiv = document.getElementById("calibrationAnalysisStatus");
-    statusDiv.innerHTML =
-      '<div class="spinner"></div><p>Analyzing photo...</p>';
+    statusDiv.textContent = "Analyzing photo...";
     statusDiv.className = "status-info";
 
     try {
@@ -1883,8 +1880,7 @@ document
         }
 
         measuredPaletteData = palette;
-        statusDiv.innerHTML =
-          '<p style="color: #28a745;">✓ Colors extracted successfully</p>';
+        statusDiv.textContent = "Colors extracted successfully";
         statusDiv.className = "status-success";
 
         // Move to review step
@@ -1901,7 +1897,7 @@ document
     } catch (error) {
       const errorMsg =
         error.message || error.toString() || "Unknown error occurred";
-      statusDiv.innerHTML = `<p style="color: #dc3545;">✗ Error: ${errorMsg}</p>`;
+      statusDiv.textContent = `Error: ${errorMsg}`;
       statusDiv.className = "status-error";
       console.error("Calibration photo analysis error:", error);
     }
@@ -2238,8 +2234,7 @@ document
   .getElementById("saveCalibrationBtn")
   .addEventListener("click", async () => {
     const statusDiv = document.getElementById("saveCalibrationStatus");
-    statusDiv.innerHTML =
-      '<div class="spinner"></div><p>Saving calibration...</p>';
+    statusDiv.textContent = "Saving calibration...";
     statusDiv.className = "status-info";
 
     try {
@@ -2250,8 +2245,7 @@ document
       });
 
       if (response.ok) {
-        statusDiv.innerHTML =
-          '<p style="color: #28a745;">✓ Calibration saved successfully</p>';
+        statusDiv.textContent = "Calibration saved successfully";
         statusDiv.className = "status-success";
 
         // Reload palette display and close calibration flow
@@ -2265,7 +2259,7 @@ document
         throw new Error("Failed to save calibration");
       }
     } catch (error) {
-      statusDiv.innerHTML = `<p style="color: #dc3545;">✗ Error: ${error.message}</p>`;
+      statusDiv.textContent = `Error: ${error.message}`;
       statusDiv.className = "status-error";
     }
   });
@@ -2285,7 +2279,7 @@ document
   .getElementById("savePaletteBtn")
   .addEventListener("click", async () => {
     const statusDiv = document.getElementById("savePaletteStatus");
-    statusDiv.innerHTML = '<div class="spinner"></div><p>Saving palette...</p>';
+    statusDiv.textContent = "Saving palette...";
     statusDiv.className = "status-info";
 
     try {
@@ -2296,8 +2290,7 @@ document
       });
 
       if (response.ok) {
-        statusDiv.innerHTML =
-          '<p style="color: #28a745;">✓ Palette saved successfully</p>';
+        statusDiv.textContent = "Palette saved successfully";
         statusDiv.className = "status-success";
 
         // Update original data to match current
@@ -2313,7 +2306,7 @@ document
         throw new Error("Failed to save palette");
       }
     } catch (error) {
-      statusDiv.innerHTML = `<p style="color: #dc3545;">✗ Error: ${error.message}</p>`;
+      statusDiv.textContent = `Error: ${error.message}`;
       statusDiv.className = "status-error";
     }
   });
@@ -2366,7 +2359,7 @@ document.getElementById("rotateBtn").addEventListener("click", async () => {
 
   btn.disabled = true;
   statusDiv.textContent = "Rotating image...";
-  statusDiv.className = "";
+  statusDiv.className = "status-info";
 
   try {
     const response = await fetch(`${API_BASE}/api/rotate`, {
@@ -2375,7 +2368,7 @@ document.getElementById("rotateBtn").addEventListener("click", async () => {
 
     if (response.ok) {
       statusDiv.className = "status-success";
-      statusDiv.textContent = "✓ Image rotated successfully";
+      statusDiv.textContent = "Image rotated successfully";
 
       // Reload images after a short delay to show the new image
       setTimeout(() => {
@@ -2386,7 +2379,7 @@ document.getElementById("rotateBtn").addEventListener("click", async () => {
     }
   } catch (error) {
     statusDiv.className = "status-error";
-    statusDiv.textContent = "✗ Failed to rotate image: " + error.message;
+    statusDiv.textContent = "Failed to rotate image: " + error.message;
   } finally {
     btn.disabled = false;
 
@@ -2397,3 +2390,194 @@ document.getElementById("rotateBtn").addEventListener("click", async () => {
     }, 3000);
   }
 });
+
+// OTA Update Functions
+let otaStatusInterval = null;
+
+async function loadOTAStatus() {
+  try {
+    const response = await fetch(`${API_BASE}/api/ota/status`);
+    if (!response.ok) return;
+
+    const data = await response.json();
+
+    // Update version info
+    document.getElementById("currentVersion").textContent =
+      data.current_version;
+    document.getElementById("latestVersion").textContent =
+      data.latest_version || "-";
+
+    // Update state info
+    const stateInfo = document.getElementById("otaStateInfo");
+    const checkBtn = document.getElementById("checkUpdateBtn");
+    const installBtn = document.getElementById("installUpdateBtn");
+    const progressContainer = document.getElementById("otaProgress");
+    const progressBar = document.getElementById("otaProgressBar");
+
+    // Reset classes
+    stateInfo.className = "ota-state-info";
+
+    switch (data.state) {
+      case "idle":
+        stateInfo.textContent = "";
+        stateInfo.style.display = "none";
+        checkBtn.disabled = false;
+        installBtn.style.display = "none";
+        progressContainer.style.display = "none";
+        break;
+
+      case "checking":
+        stateInfo.textContent = "Checking for updates...";
+        stateInfo.className = "ota-state-info checking";
+        stateInfo.style.display = "block";
+        checkBtn.disabled = true;
+        installBtn.style.display = "none";
+        progressContainer.style.display = "none";
+        break;
+
+      case "update_available":
+        stateInfo.textContent = `Update available: ${data.latest_version}`;
+        stateInfo.className = "ota-state-info update-available";
+        stateInfo.style.display = "block";
+        checkBtn.disabled = false;
+        installBtn.style.display = "block";
+        progressContainer.style.display = "none";
+        break;
+
+      case "downloading":
+        stateInfo.textContent = "Downloading firmware...";
+        stateInfo.className = "ota-state-info downloading";
+        stateInfo.style.display = "block";
+        checkBtn.disabled = true;
+        installBtn.disabled = true;
+        progressContainer.style.display = "block";
+        progressBar.style.width = data.progress_percent + "%";
+        progressBar.textContent = data.progress_percent + "%";
+        break;
+
+      case "installing":
+        stateInfo.textContent = "Installing firmware...";
+        stateInfo.className = "ota-state-info installing";
+        stateInfo.style.display = "block";
+        checkBtn.disabled = true;
+        installBtn.disabled = true;
+        progressContainer.style.display = "block";
+        progressBar.style.width = data.progress_percent + "%";
+        progressBar.textContent = data.progress_percent + "%";
+        break;
+
+      case "success":
+        stateInfo.textContent = "Update successful! Device will reboot...";
+        stateInfo.className = "ota-state-info success";
+        stateInfo.style.display = "block";
+        checkBtn.disabled = true;
+        installBtn.disabled = true;
+        progressContainer.style.display = "block";
+        progressBar.style.width = "100%";
+        progressBar.textContent = "100%";
+        break;
+
+      case "error":
+        stateInfo.textContent =
+          "Error: " + (data.error_message || "Update failed");
+        stateInfo.className = "ota-state-info error";
+        stateInfo.style.display = "block";
+        checkBtn.disabled = false;
+        installBtn.style.display = "none";
+        progressContainer.style.display = "none";
+        break;
+    }
+  } catch (error) {
+    console.error("Failed to load OTA status:", error);
+  }
+}
+
+async function checkForUpdate() {
+  const statusDiv = document.getElementById("otaStatus");
+  const checkBtn = document.getElementById("checkUpdateBtn");
+
+  checkBtn.disabled = true;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/ota/check`, {
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Reload status to show results
+    await loadOTAStatus();
+  } catch (error) {
+    statusDiv.textContent = "Failed to check for updates: " + error.message;
+    statusDiv.className = "status-error";
+  } finally {
+    checkBtn.disabled = false;
+    setTimeout(() => {
+      statusDiv.textContent = "";
+      statusDiv.className = "";
+    }, 5000);
+  }
+}
+
+async function installUpdate() {
+  if (
+    !confirm(
+      "Install firmware update? The device will reboot after installation.",
+    )
+  ) {
+    return;
+  }
+
+  const statusDiv = document.getElementById("otaStatus");
+  const installBtn = document.getElementById("installUpdateBtn");
+
+  installBtn.disabled = true;
+  statusDiv.textContent = "Starting update...";
+  statusDiv.className = "status-info";
+
+  try {
+    const response = await fetch(`${API_BASE}/api/ota/update`, {
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.status === "success") {
+      statusDiv.textContent = "Update started";
+      statusDiv.className = "status-success";
+
+      // Start polling for status updates
+      if (otaStatusInterval) {
+        clearInterval(otaStatusInterval);
+      }
+      otaStatusInterval = setInterval(loadOTAStatus, 2000);
+    } else {
+      throw new Error(data.message || "Failed to start update");
+    }
+  } catch (error) {
+    statusDiv.textContent = "Failed to start update: " + error.message;
+    statusDiv.className = "status-error";
+    installBtn.disabled = false;
+
+    setTimeout(() => {
+      statusDiv.textContent = "";
+      statusDiv.className = "";
+    }, 5000);
+  }
+}
+
+// Load OTA status on page load and periodically
+loadOTAStatus();
+setInterval(loadOTAStatus, 10000); // Check every 10 seconds
+
+// Make functions globally available
+window.checkForUpdate = checkForUpdate;
+window.installUpdate = installUpdate;

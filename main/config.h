@@ -58,4 +58,8 @@ typedef enum { ROTATION_MODE_SDCARD = 0, ROTATION_MODE_URL = 1 } rotation_mode_t
 #define NVS_SAVE_DOWNLOADED_KEY "save_dl"
 #define NVS_HA_URL_KEY "ha_url"
 
+// OTA Configuration
+#define GITHUB_API_URL "https://api.github.com/repos/aitjcize/esp32-photoframe/releases/latest"
+#define OTA_CHECK_INTERVAL_MS (24 * 60 * 60 * 1000)  // 24 hours
+
 #endif

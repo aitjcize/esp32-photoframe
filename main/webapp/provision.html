@@ -147,9 +147,9 @@
             // Show submitting state
             submitButton.disabled = true;
             submitButton.textContent = 'Testing...';
-            statusDiv.className = 'status info';
+            statusDiv.className = 'status-info';
             statusDiv.style.display = 'block';
-            statusDiv.innerHTML = '<span class="spinner"></span>Testing WiFi connection...';
+            statusDiv.textContent = 'Testing WiFi connection...';
             
             const formData = new URLSearchParams();
             formData.append('ssid', ssid);
@@ -165,8 +165,8 @@
                 });
                 
                 if (response.ok) {
-                    statusDiv.className = 'status success';
-                    statusDiv.innerHTML = '✓ Credentials saved!<br><br>' +
+                    statusDiv.className = 'status-success';
+                    statusDiv.innerHTML = 'Credentials saved!<br><br>' +
                         '<strong>What happens next:</strong><br>' +
                         '1. Device will restart in 3 seconds<br>' +
                         '2. Device will test connection to "' + ssid + '"<br>' +
@@ -183,26 +183,26 @@
                 } else {
                     submitButton.disabled = false;
                     submitButton.textContent = 'Connect to WiFi';
-                    statusDiv.className = 'status error';
+                    statusDiv.className = 'status-error';
                     
                     // Try to get error message from response
                     const text = await response.text();
                     if (text.includes('Connection Failed') || text.includes('connect')) {
-                        statusDiv.innerHTML = '✗ <strong>WiFi Connection Failed</strong><br>' +
+                        statusDiv.innerHTML = '<strong>WiFi Connection Failed</strong><br>' +
                             'Could not connect to the network. Please check:<br>' +
                             '• Correct password<br>' +
                             '• Correct SSID<br>' +
                             '• 2.4GHz network (5GHz not supported)<br>' +
                             '• Network is in range';
                     } else {
-                        statusDiv.textContent = '✗ An error occurred. Please try again.';
+                        statusDiv.textContent = 'An error occurred. Please try again.';
                     }
                 }
             } catch (error) {
                 submitButton.disabled = false;
                 submitButton.textContent = 'Connect to WiFi';
-                statusDiv.className = 'status error';
-                statusDiv.textContent = '✗ Error: ' + error.message;
+                statusDiv.className = 'status-error';
+                statusDiv.textContent = 'Error: ' + error.message;
             }
         });
     </script>

@@ -299,6 +299,46 @@
         </section>
 
         <section class="card">
+            <h2>Firmware Update</h2>
+            <p class="section-description">
+                Check for and install firmware updates from GitHub releases.
+            </p>
+            
+            <div class="settings-section">
+                <div class="ota-status-container">
+                    <div class="ota-info">
+                        <div class="ota-version-info">
+                            <span class="ota-label">Current Version:</span>
+                            <span id="currentVersion" class="ota-version">Loading...</span>
+                        </div>
+                        <div class="ota-version-info">
+                            <span class="ota-label">Latest Version:</span>
+                            <span id="latestVersion" class="ota-version">-</span>
+                        </div>
+                        <div id="otaStateInfo" class="ota-state-info"></div>
+                    </div>
+                    
+                    <div class="ota-actions">
+                        <button id="checkUpdateBtn" class="btn btn-secondary" onclick="checkForUpdate()">
+                            Check for Updates
+                        </button>
+                        <button id="installUpdateBtn" class="btn btn-primary" onclick="installUpdate()" style="display: none;">
+                            Install Update
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="otaProgress" class="ota-progress-container" style="display: none;">
+                    <div class="progress-bar">
+                        <div id="otaProgressBar" class="progress-bar-fill"></div>
+                    </div>
+                </div>
+                
+                <div id="otaStatus" class="status-message"></div>
+            </div>
+        </section>
+
+        <section class="card">
             <h2>Color Palette Calibration</h2>
             <p class="section-description">
                 Calibrate the measured color palette for your specific E6 display batch. This improves color accuracy during image processing.

@@ -44,7 +44,7 @@ jobs:
     - name: Prepare firmware artifacts
       run: |
         mkdir -p firmware
-        cp build/photoframe-api.bin firmware/
+        cp build/esp32-photoframe.bin firmware/
         cp build/bootloader/bootloader.bin firmware/
         cp build/partition_table/partition-table.bin firmware/
         
@@ -52,13 +52,13 @@ jobs:
         cat > firmware/download.conf << EOF
         0x0 firmware/bootloader.bin
         0x8000 firmware/partition-table.bin
-        0x10000 firmware/photoframe-api.bin
+        0x10000 firmware/esp32-photoframe.bin
         EOF
         
         # Create esptool flash command
         cat > firmware/FLASH.txt << EOF
         Flash using esptool:
-        esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 bootloader.bin 0x8000 partition-table.bin 0x10000 photoframe-api.bin
+        esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 bootloader.bin 0x8000 partition-table.bin 0x10000 esp32-photoframe.bin
         
         Or use ESP Flash Download Tool with download.conf
         EOF
@@ -72,7 +72,7 @@ jobs:
           --flash_mode dio --flash_freq 80m --flash_size 16MB \
           0x0 firmware/bootloader.bin \
           0x8000 firmware/partition-table.bin \
-          0x10000 firmware/photoframe-api.bin
+          0x10000 firmware/esp32-photoframe.bin
     
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
@@ -87,7 +87,7 @@ jobs:
       with:
         files: |
           firmware/photoframe-firmware-merged.bin
-          firmware/photoframe-api.bin
+          firmware/esp32-photoframe.bin
           firmware/bootloader.bin
           firmware/partition-table.bin
           firmware/FLASH.txt

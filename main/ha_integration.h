@@ -26,4 +26,11 @@ esp_err_t ha_post_battery_info(void);
  */
 bool ha_is_configured(void);
 
+/**
+ * @brief Trigger OTA firmware update (for HA integration)
+ *
+ * @return ESP_OK on success, ESP_FAIL on error
+ */
+esp_err_t ha_trigger_ota_update(void);
+
 #endif

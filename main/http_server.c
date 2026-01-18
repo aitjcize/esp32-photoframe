@@ -19,6 +19,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "image_processor.h"
+#include "ota_manager.h"
 #include "power_manager.h"
 #include "processing_settings.h"
 #include "utils.h"
@@ -1374,6 +1375,116 @@ static esp_err_t version_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t ota_status_handler(httpd_req_t *req)
+{
+    ota_status_t status;
+    ota_get_status(&status);
+
+    cJSON *response = cJSON_CreateObject();
+
+    // Add state as string
+    const char *state_str = "idle";
+    switch (status.state) {
+    case OTA_STATE_IDLE:
+        state_str = "idle";
+        break;
+    case OTA_STATE_CHECKING:
+        state_str = "checking";
+        break;
+    case OTA_STATE_UPDATE_AVAILABLE:
+        state_str = "update_available";
+        break;
+    case OTA_STATE_DOWNLOADING:
+        state_str = "downloading";
+        break;
+    case OTA_STATE_INSTALLING:
+        state_str = "installing";
+        break;
+    case OTA_STATE_SUCCESS:
+        state_str = "success";
+        break;
+    case OTA_STATE_ERROR:
+        state_str = "error";
+        break;
+    }
+
+    cJSON_AddStringToObject(response, "state", state_str);
+    cJSON_AddStringToObject(response, "current_version", status.current_version);
+    cJSON_AddStringToObject(response, "latest_version", status.latest_version);
+    cJSON_AddNumberToObject(response, "progress_percent", status.progress_percent);
+
+    if (status.error_message[0] != '\0') {
+        cJSON_AddStringToObject(response, "error_message", status.error_message);
+    }
+
+    char *json_str = cJSON_Print(response);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+
+    free(json_str);
+    cJSON_Delete(response);
+    return ESP_OK;
+}
+
+static esp_err_t ota_check_handler(httpd_req_t *req)
+{
+    if (req->method == HTTP_POST) {
+        bool update_available = false;
+        esp_err_t err = ota_check_for_update(&update_available);
+
+        cJSON *response = cJSON_CreateObject();
+        if (err == ESP_OK) {
+            cJSON_AddBoolToObject(response, "update_available", update_available);
+            cJSON_AddStringToObject(response, "status", "success");
+        } else {
+            cJSON_AddStringToObject(response, "status", "error");
+            cJSON_AddStringToObject(response, "message", "Failed to check for updates");
+        }
+
+        char *json_str = cJSON_Print(response);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, json_str);
+
+        free(json_str);
+        cJSON_Delete(response);
+        return ESP_OK;
+    }
+
+    httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
+    return ESP_FAIL;
+}
+
+static esp_err_t ota_update_handler(httpd_req_t *req)
+{
+    if (req->method == HTTP_POST) {
+        esp_err_t err = ota_start_update();
+
+        cJSON *response = cJSON_CreateObject();
+        if (err == ESP_OK) {
+            cJSON_AddStringToObject(response, "status", "success");
+            cJSON_AddStringToObject(response, "message", "OTA update started");
+        } else if (err == ESP_ERR_INVALID_STATE) {
+            cJSON_AddStringToObject(response, "status", "error");
+            cJSON_AddStringToObject(response, "message",
+                                    "No update available or update already in progress");
+        } else {
+            cJSON_AddStringToObject(response, "status", "error");
+            cJSON_AddStringToObject(response, "message", "Failed to start OTA update");
+        }
+
+        char *json_str = cJSON_Print(response);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, json_str);
+
+        free(json_str);
+        cJSON_Delete(response);
+        return ESP_OK;
+    }
+
+    httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
+    return ESP_FAIL;
+}
+
 static esp_err_t display_calibration_handler(httpd_req_t *req)
 {
     const size_t calibration_bmp_size = (calibration_bmp_end - calibration_bmp_start);
@@ -1761,7 +1872,7 @@ static esp_err_t color_palette_handler(httpd_req_t *req)
 esp_err_t http_server_init(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 32;
+    config.max_uri_handlers = 33;
     config.stack_size = 12288;       // Increased from 8192 to 12KB
     config.max_open_sockets = 10;    // Limit concurrent connections to prevent memory exhaustion
     config.lru_purge_enable = true;  // Enable LRU purging of connections
@@ -1860,6 +1971,24 @@ esp_err_t http_server_init(void)
                                    .handler = version_handler,
                                    .user_ctx = NULL};
         httpd_register_uri_handler(server, &version_uri);
+
+        httpd_uri_t ota_status_uri = {.uri = "/api/ota/status",
+                                      .method = HTTP_GET,
+                                      .handler = ota_status_handler,
+                                      .user_ctx = NULL};
+        httpd_register_uri_handler(server, &ota_status_uri);
+
+        httpd_uri_t ota_check_uri = {.uri = "/api/ota/check",
+                                     .method = HTTP_POST,
+                                     .handler = ota_check_handler,
+                                     .user_ctx = NULL};
+        httpd_register_uri_handler(server, &ota_check_uri);
+
+        httpd_uri_t ota_update_uri = {.uri = "/api/ota/update",
+                                      .method = HTTP_POST,
+                                      .handler = ota_update_handler,
+                                      .user_ctx = NULL};
+        httpd_register_uri_handler(server, &ota_update_uri);
 
         httpd_uri_t albums_get_uri = {
             .uri = "/api/albums", .method = HTTP_GET, .handler = albums_handler, .user_ctx = NULL};

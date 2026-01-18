@@ -27,4 +27,4 @@ add_compile_options(-Wno-missing-field-initializers)
 add_compile_definitions(FIRMWARE_VERSION="${FIRMWARE_VERSION}")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(photoframe-api)
+project(esp32-photoframe)
