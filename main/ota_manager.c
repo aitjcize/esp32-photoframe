@@ -14,6 +14,7 @@
 #include "freertos/event_groups.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "ha_integration.h"
 #include "power_manager.h"
 
 static const char *TAG = "ota_manager";
@@ -290,6 +291,8 @@ static void ota_check_task(void *pvParameter)
         set_ota_state(OTA_STATE_IDLE, NULL);
     }
 
+    ha_post_ota_version_info();
+
     vTaskDelete(NULL);
 }
 
@@ -439,15 +442,10 @@ esp_err_t ota_manager_init(void)
         return err;
     }
 
-    // Perform initial check on startup after a delay to allow network to stabilize
-    ESP_LOGI(TAG, "Initial OTA check will run in 10 seconds");
-    vTaskDelay(pdMS_TO_TICKS(10000));
-    xTaskCreate(&ota_check_task, "ota_check_task", 12288, NULL, 5, NULL);
-
     return ESP_OK;
 }
 
-esp_err_t ota_check_for_update(bool *update_available_out)
+esp_err_t ota_check_for_update(bool *update_available_out, int timeout)
 {
     if (ota_status.state == OTA_STATE_CHECKING || ota_status.state == OTA_STATE_DOWNLOADING ||
         ota_status.state == OTA_STATE_INSTALLING) {
@@ -458,7 +456,6 @@ esp_err_t ota_check_for_update(bool *update_available_out)
     xTaskCreate(&ota_check_task, "ota_check_task", 12288, NULL, 5, NULL);
 
     // Wait for check to complete (with timeout)
-    int timeout = 30;  // 30 seconds
     while (timeout > 0 && ota_status.state == OTA_STATE_CHECKING) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         timeout--;

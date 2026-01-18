@@ -18,12 +18,18 @@ static const char *TAG = "ha_integration";
 static TaskHandle_t battery_push_task_handle = NULL;
 static int64_t next_battery_push_time = 0;  // Use absolute time for battery push
 
+bool ha_is_configured(void)
+{
+    const char *ha_url = config_manager_get_ha_url();
+    return (ha_url != NULL && strlen(ha_url) > 0);
+}
+
 esp_err_t ha_post_battery_info(void)
 {
     const char *ha_url = config_manager_get_ha_url();
 
     // Check if HA URL is configured
-    if (ha_url == NULL || strlen(ha_url) == 0) {
+    if (!ha_is_configured()) {
         ESP_LOGD(TAG, "HA URL not configured, skipping battery post");
         return ESP_OK;  // Not an error, just not configured
     }
@@ -88,12 +94,6 @@ esp_err_t ha_post_battery_info(void)
     return ESP_OK;
 }
 
-bool ha_is_configured(void)
-{
-    const char *ha_url = config_manager_get_ha_url();
-    return (ha_url != NULL && strlen(ha_url) > 0);
-}
-
 static void battery_push_task(void *arg)
 {
     while (1) {
@@ -142,6 +142,17 @@ esp_err_t ha_integration_init(void)
 
     xTaskCreate(battery_push_task, "battery_push", 8192, NULL, 5, &battery_push_task_handle);
     ESP_LOGI(TAG, "HA integration initialized");
+
+    // Do an initial push of battery and OTA data if HA is configured
+    if (ha_is_configured()) {
+        ESP_LOGI(TAG, "Performing initial push to HA");
+
+        esp_err_t err = ha_post_battery_info();
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to push initial battery data to HA");
+        }
+    }
+
     return ESP_OK;
 }
 
@@ -150,7 +161,7 @@ esp_err_t ha_post_ota_version_info(void)
     const char *ha_url = config_manager_get_ha_url();
 
     // Check if HA URL is configured
-    if (ha_url == NULL || strlen(ha_url) == 0) {
+    if (!ha_is_configured()) {
         ESP_LOGD(TAG, "HA URL not configured, skipping OTA version post");
         return ESP_OK;
     }

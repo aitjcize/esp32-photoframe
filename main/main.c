@@ -22,6 +22,7 @@
 #include "http_server.h"
 #include "i2c_bsp.h"
 #include "image_processor.h"
+#include "ota_manager.h"
 #include "mdns_service.h"
 #include "nvs_flash.h"
 #include "ota_manager.h"
@@ -386,6 +387,8 @@ void app_main(void)
         ESP_LOGI(TAG, "Or use: http://photoframe.local");
         ESP_LOGI(TAG, "===========================================");
     }
+
+    ota_check_for_update(NULL, 0);
 
     xTaskCreate(button_task, "button_task", 8192, NULL, 5, NULL);
 
