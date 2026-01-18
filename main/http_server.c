@@ -748,8 +748,8 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
              content_len / 1024.0);
 
     // Use fixed paths for current image and thumbnail
-    const char *temp_jpg_path = "/sdcard/.current.jpg";
-    const char *temp_bmp_path = "/sdcard/.current.bmp";
+    const char *temp_jpg_path = CURRENT_JPG_PATH;
+    const char *temp_bmp_path = CURRENT_BMP_PATH;
 
     // Delete old files to prevent caching issues
     unlink(temp_jpg_path);

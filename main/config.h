@@ -31,6 +31,7 @@ typedef enum { ROTATION_MODE_SDCARD = 0, ROTATION_MODE_URL = 1 } rotation_mode_t
 #define DEFAULT_ALBUM_NAME "Default"
 
 #define CURRENT_JPG_PATH "/sdcard/.current.jpg"
+#define CURRENT_UPLOAD_PATH "/sdcard/.current.tmp"
 #define CURRENT_BMP_PATH "/sdcard/.current.bmp"
 
 #define DISPLAY_WIDTH 800

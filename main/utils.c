@@ -51,8 +51,9 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
 {
     ESP_LOGI(TAG, "Fetching image from URL: %s", url);
 
-    // Use fixed paths for current image and thumbnail
+    // Use fixed paths for current image and upload
     const char *temp_jpg_path = CURRENT_JPG_PATH;
+    const char *temp_upload_path = CURRENT_UPLOAD_PATH;
     const char *temp_bmp_path = CURRENT_BMP_PATH;
 
     esp_err_t err = ESP_FAIL;
@@ -69,9 +70,9 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
             vTaskDelay(pdMS_TO_TICKS(2000));  // 2 second delay between retries
         }
 
-        FILE *file = fopen(temp_jpg_path, "wb");
+        FILE *file = fopen(temp_upload_path, "wb");
         if (!file) {
-            ESP_LOGE(TAG, "Failed to open file for writing: %s", temp_jpg_path);
+            ESP_LOGE(TAG, "Failed to open file for writing: %s", temp_upload_path);
             continue;  // Try again
         }
 
@@ -124,33 +125,36 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
         }
 
         // Clean up failed download
-        unlink(temp_jpg_path);
+        unlink(temp_upload_path);
     }
 
     // Check final result after all retries
     if (err != ESP_OK || status_code != 200 || total_downloaded <= 0) {
         ESP_LOGE(TAG, "Failed to download image after %d attempts", max_retries);
-        unlink(temp_jpg_path);
+        unlink(temp_upload_path);
         return ESP_FAIL;
     }
 
-    // Convert JPG to BMP using image processor
-    if (strcmp(content_type, "image/bmp") == 0) {
-        // just move our temp "jpg" to the bmp file
+    bool upload_is_bmp = strcmp(content_type, "image/bmp") == 0;
+
+    // Convert upload to BMP using image processor
+    if (upload_is_bmp) {
+        // just move our temp "jpg" to the bmp file and remove existing thumbnail
         unlink(temp_bmp_path);
-        if (rename(temp_jpg_path, temp_bmp_path) != 0) {
+        unlink(temp_jpg_path);
+        if (rename(temp_upload_path, temp_bmp_path) != 0) {
             ESP_LOGE(TAG, "Failed to move downloaded BMP to temp location");
-            unlink(temp_jpg_path);
-            unlink(temp_bmp_path);
+            unlink(temp_upload_path);
             return ESP_FAIL;
         }
     } else {
-        err = image_processor_convert_jpg_to_bmp(temp_jpg_path, temp_bmp_path, false);
+        // try to convert the upload from jpg to bmp
+        err = image_processor_convert_jpg_to_bmp(temp_upload_path, temp_bmp_path, false);
     }
     
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to convert JPG to BMP: %s", esp_err_to_name(err));
-        unlink(temp_jpg_path);
+        ESP_LOGE(TAG, "Failed to convert upload to BMP: %s", esp_err_to_name(err));
+        unlink(temp_upload_path);
 
         // Provide specific error messages based on error type
         if (err == ESP_ERR_INVALID_SIZE) {
@@ -178,6 +182,7 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
             if (mkdir(downloads_path, 0755) != 0) {
                 ESP_LOGE(TAG, "Failed to create Downloads directory");
                 unlink(temp_jpg_path);
+                unlink(temp_upload_path);
                 unlink(temp_bmp_path);
                 return ESP_FAIL;
             }
@@ -196,23 +201,27 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
         if (rename(temp_bmp_path, final_bmp_path) != 0) {
             ESP_LOGE(TAG, "Failed to move BMP to Downloads album");
             unlink(temp_jpg_path);
+            unlink(temp_upload_path);
             unlink(temp_bmp_path);
             return ESP_FAIL;
         }
 
-        // Save JPG thumbnail to Downloads album (using original downloaded JPG as thumbnail)
-        char final_jpg_path[512];
-        snprintf(final_jpg_path, sizeof(final_jpg_path), "%s/%s.jpg", downloads_path,
-                 filename_base);
+        if (!upload_is_bmp) { // if it is not bmp at this point, it has to be jpg as conversion succeeded
+            // Save JPG thumbnail to Downloads album (using original downloaded JPG as thumbnail) if upload is not bmp
+            char final_jpg_path[512];
+            snprintf(final_jpg_path, sizeof(final_jpg_path), "%s/%s.jpg", downloads_path,
+                    filename_base);
 
-        if (rename(temp_jpg_path, final_jpg_path) != 0) {
-            ESP_LOGE(TAG, "Failed to move JPG thumbnail to Downloads album");
-            unlink(temp_jpg_path);
-            // BMP is already moved, keep it
-            return ESP_FAIL;
+            if (rename(temp_upload_path, final_jpg_path) != 0) {
+                ESP_LOGE(TAG, "Failed to move JPG thumbnail to Downloads album");
+                unlink(temp_jpg_path);
+                unlink(temp_upload_path);
+                // BMP is already moved, keep it
+                return ESP_FAIL;
+            }
         }
 
-        ESP_LOGI(TAG, "Saved to Downloads album: %s.bmp (with thumbnail)", filename_base);
+        ESP_LOGI(TAG, "Saved to Downloads album: %s.bmp", filename_base);
 
         // Return the saved BMP path via output parameter
         snprintf(saved_bmp_path, path_size, "%s", final_bmp_path);
@@ -221,10 +230,23 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
         ESP_LOGI(TAG, "Displaying image without saving (save_downloaded_images disabled)");
         snprintf(saved_bmp_path, path_size, "%s", temp_bmp_path);
 
-        // Keep both .current.bmp and .current.jpg for HA integration
-        // .current.bmp is referenced by current_image
-        // .current.jpg is the thumbnail served by /api/current_image
-        ESP_LOGI(TAG, "Image and thumbnail saved: %s, %s", temp_bmp_path, temp_jpg_path);
+        if (upload_is_bmp) {
+            // If upload is a bmp, we don't have a separate jpg as thumbnail.
+            // .current.bmp is referenced by current_image, and also served as fallback via /api/current_image
+            ESP_LOGI(TAG, "Image without thumbnail saved: %s", temp_bmp_path);
+        } else { // if it is not bmp at this point, it has to be jpg as conversion succeeded
+            // Keep both .current.bmp and .current.jpg for HA integration
+            // .current.bmp is referenced by current_image
+            // .current.jpg is the thumbnail served by /api/current_image
+            unlink(temp_jpg_path);
+            if (rename(temp_upload_path, temp_jpg_path) != 0) {
+                ESP_LOGE(TAG, "Failed to move upload to current JPG thumbnail");
+                unlink(temp_upload_path);
+                return ESP_FAIL;
+            }
+            ESP_LOGI(TAG, "Image and thumbnail saved: %s, %s", temp_bmp_path, temp_jpg_path);
+        }
+        
     }
 
     return ESP_OK;
