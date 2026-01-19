@@ -36,7 +36,8 @@ esp_err_t config_manager_init(void)
         }
 
         int32_t stored_image_orientation = IMAGE_ORIENTATION_DEG;
-        if (nvs_get_i32(nvs_handle, NVS_IMAGE_ORIENTATION_KEY, &stored_image_orientation) == ESP_OK) {
+        if (nvs_get_i32(nvs_handle, NVS_IMAGE_ORIENTATION_KEY, &stored_image_orientation) ==
+            ESP_OK) {
             image_orientation = stored_image_orientation;
             ESP_LOGI(TAG, "Loaded image orientation from NVS: %d degrees", image_orientation);
         }
