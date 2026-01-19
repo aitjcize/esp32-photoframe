@@ -400,12 +400,13 @@ void app_main(void)
         ESP_LOGI(TAG, "===========================================");
     }
 
-    ota_check_for_update(NULL, 0);
-
     xTaskCreate(button_task, "button_task", 8192, NULL, 5, NULL);
 
     // Mark system as ready for HTTP requests after all initialization is complete
     http_server_set_ready();
+
+    // Perform the initial check on boot
+    ota_check_for_update(NULL, 0);
 
     ESP_LOGI(TAG, "PhotoFrame started successfully");
 }
