@@ -52,7 +52,7 @@ typedef enum { ROTATION_MODE_SDCARD = 0, ROTATION_MODE_URL = 1 } rotation_mode_t
 #define NVS_WIFI_PASS_KEY "wifi_pass"
 #define NVS_ROTATE_INTERVAL_KEY "rotate_int"
 #define NVS_AUTO_ROTATE_KEY "auto_rotate"
-#define NVS_IMAGE_ORIENTATION_KEY "image_orientation"
+#define NVS_IMAGE_ORIENTATION_KEY "image_ori"
 #define NVS_BRIGHTNESS_KEY "brightness"
 #define NVS_CONTRAST_KEY "contrast"
 #define NVS_DEEP_SLEEP_KEY "deep_sleep"
