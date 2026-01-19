@@ -823,6 +823,46 @@ footer {
     font-size: 12px;
 }
 
+/* Details/Summary (Collapsible Sections) */
+details {
+    margin-bottom: 15px;
+}
+
+details summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #667eea;
+    padding: 10px 0;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+details summary::-webkit-details-marker {
+    display: none;
+}
+
+details summary::before {
+    content: '▶';
+    display: inline-block;
+    transition: transform 0.2s ease;
+    font-size: 0.8em;
+}
+
+details[open] summary::before {
+    transform: rotate(90deg);
+}
+
+details[open] summary {
+    margin-bottom: 15px;
+}
+
+details > *:not(summary) {
+    margin-left: 20px;
+}
+
 /* Warning Box */
 .warning-box {
     margin-top: 10px;
