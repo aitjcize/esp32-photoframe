@@ -229,6 +229,10 @@ header h1 {
     margin-bottom: 20px;
 }
 
+.form-group.indented {
+    margin-left: 24px;
+}
+
 .form-group label {
     display: block;
     margin-bottom: 8px;

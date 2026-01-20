@@ -8,6 +8,11 @@
 
 typedef enum { ROTATION_MODE_SDCARD = 0, ROTATION_MODE_URL = 1 } rotation_mode_t;
 
+typedef enum {
+    DISPLAY_ORIENTATION_LANDSCAPE = 0,
+    DISPLAY_ORIENTATION_PORTRAIT = 1
+} display_orientation_t;
+
 #define BOOT_BUTTON_GPIO GPIO_NUM_0
 #define PWR_BUTTON_GPIO GPIO_NUM_5
 #define KEY_BUTTON_GPIO GPIO_NUM_4
@@ -61,6 +66,7 @@ typedef enum { ROTATION_MODE_SDCARD = 0, ROTATION_MODE_URL = 1 } rotation_mode_t
 #define NVS_ROTATION_MODE_KEY "rotation_mode"
 #define NVS_SAVE_DOWNLOADED_KEY "save_dl"
 #define NVS_HA_URL_KEY "ha_url"
+#define NVS_DISPLAY_ORIENTATION_KEY "disp_orient"
 
 // OTA Configuration
 #define GITHUB_API_URL "https://api.github.com/repos/aitjcize/esp32-photoframe/releases/latest"

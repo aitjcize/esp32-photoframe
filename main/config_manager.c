@@ -15,6 +15,7 @@ static char image_url[IMAGE_URL_MAX_LEN] = {0};
 static char ha_url[HA_URL_MAX_LEN] = {0};
 static rotation_mode_t rotation_mode = ROTATION_MODE_SDCARD;
 static bool save_downloaded_images = true;
+static display_orientation_t display_orientation = DISPLAY_ORIENTATION_LANDSCAPE;
 
 esp_err_t config_manager_init(void)
 {
@@ -74,6 +75,14 @@ esp_err_t config_manager_init(void)
             strncpy(ha_url, DEFAULT_HA_URL, HA_URL_MAX_LEN - 1);
             ha_url[HA_URL_MAX_LEN - 1] = '\0';
             ESP_LOGI(TAG, "No HA URL in NVS, using default (empty)");
+        }
+
+        uint8_t stored_orientation = DISPLAY_ORIENTATION_LANDSCAPE;
+        if (nvs_get_u8(nvs_handle, NVS_DISPLAY_ORIENTATION_KEY, &stored_orientation) == ESP_OK) {
+            display_orientation = (display_orientation_t) stored_orientation;
+            ESP_LOGI(
+                TAG, "Loaded display orientation from NVS: %s",
+                display_orientation == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape" : "portrait");
         }
 
         nvs_close(nvs_handle);
@@ -226,4 +235,24 @@ void config_manager_set_ha_url(const char *url)
 const char *config_manager_get_ha_url(void)
 {
     return ha_url;
+}
+
+void config_manager_set_display_orientation(display_orientation_t orientation)
+{
+    display_orientation = orientation;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_DISPLAY_ORIENTATION_KEY, (uint8_t) orientation);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Display orientation set to: %s",
+             orientation == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape" : "portrait");
+}
+
+display_orientation_t config_manager_get_display_orientation(void)
+{
+    return display_orientation;
 }

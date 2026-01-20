@@ -206,8 +206,30 @@
         <section class="card">
             <h2>Settings</h2>
             <form id="configForm">
-                <!-- Auto-Rotate Section -->
+                <!-- Display Orientation Section -->
                 <div class="settings-section">
+                    <div class="form-group">
+                        <label>Display Orientation:</label>
+                    </div>
+                    <div class="form-group indented">
+                        <div class="rotation-mode-group">
+                            <label class="radio-label">
+                                <input type="radio" name="displayOrientation" value="landscape" id="displayOrientationLandscape" checked>
+                                <span>Landscape (800×480)</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="displayOrientation" value="portrait" id="displayOrientationPortrait">
+                                <span>Portrait (480×800)</span>
+                            </label>
+                            <small class="helper-text">
+                                📐 Set the physical orientation of your display.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Auto-Rotate Section -->
+                <div class="settings-section-divider">
                     <div class="form-group">
                         <label class="checkbox-label">
                             <input type="checkbox" id="autoRotate">
@@ -215,12 +237,12 @@
                         </label>
                     </div>
                     
-                    <div class="form-group">
+                    <div class="form-group indented">
                         <label for="rotateInterval">Rotation Interval (seconds):</label>
                         <input type="number" id="rotateInterval" min="10" max="86400" value="3600">
                     </div>
                     
-                    <div class="form-group">
+                    <div class="form-group indented">
                         <label>Rotation Mode:</label>
                         <div class="rotation-mode-group">
                             <label class="radio-label">
@@ -270,9 +292,13 @@
                             <input type="checkbox" id="deepSleepEnabled" checked>
                             <span>Enable Deep Sleep</span>
                         </label>
-                        <small class="helper-text">
-                            When disabled, webapp stays accessible even if device is battery-powered. This will consume more power.
-                        </small>
+                        <div class="form-group indented">
+                            <small class="helper-text">
+                                💡 When disabled, webapp stays accessible even if device is battery-powered. This will consume more power.
+                            </small>
+                        </div>
+                    </div>
+                    <div class="form-group indented">
                         <div id="deepSleepWarning" class="warning-box" style="display: none;">
                             <div class="warning-box-title">⚠️ Power Consumption Notice</div>
                             <small class="warning-box-text">
@@ -286,6 +312,8 @@
                 <div class="settings-section-divider">
                     <div class="form-group">
                         <label for="haUrl">Home Assistant URL:</label>
+                    </div>
+                    <div class="form-group indented">
                         <input type="url" id="haUrl" placeholder="http://homeassistant.local:8123">
                         <small class="helper-text">
                             🏠 Optional: Configure Home Assistant integration for dynamic image serving and reporting battery level.

@@ -29,4 +29,7 @@ bool config_manager_get_save_downloaded_images(void);
 void config_manager_set_ha_url(const char *url);
 const char *config_manager_get_ha_url(void);
 
+void config_manager_set_display_orientation(display_orientation_t orientation);
+display_orientation_t config_manager_get_display_orientation(void);
+
 #endif

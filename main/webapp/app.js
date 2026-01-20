@@ -1367,6 +1367,14 @@ async function loadConfig() {
     document.getElementById("saveDownloadedImages").checked =
       data.save_downloaded_images !== false;
 
+    // Set display orientation based on backend config
+    const displayOrientation = data.display_orientation || "landscape";
+    if (displayOrientation === "portrait") {
+      document.getElementById("displayOrientationPortrait").checked = true;
+    } else {
+      document.getElementById("displayOrientationLandscape").checked = true;
+    }
+
     // Set rotation mode based on backend config
     const rotationMode = data.rotation_mode || "sdcard";
     if (rotationMode === "url") {
@@ -1430,6 +1438,9 @@ document.getElementById("configForm").addEventListener("submit", async (e) => {
   const saveDownloadedImages = document.getElementById(
     "saveDownloadedImages",
   ).checked;
+  const displayOrientation = document.querySelector(
+    'input[name="displayOrientation"]:checked',
+  ).value;
 
   try {
     const response = await fetch(`${API_BASE}/api/config`, {
@@ -1446,6 +1457,7 @@ document.getElementById("configForm").addEventListener("submit", async (e) => {
         ha_url: haUrl,
         deep_sleep_enabled: deepSleepEnabled,
         save_downloaded_images: saveDownloadedImages,
+        display_orientation: displayOrientation,
       }),
     });
 

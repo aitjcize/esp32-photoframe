@@ -1067,6 +1067,7 @@ static esp_err_t config_handler(httpd_req_t *req)
         const char *ha_url = config_manager_get_ha_url();
         rotation_mode_t rotation_mode = config_manager_get_rotation_mode();
         bool save_downloaded_images = config_manager_get_save_downloaded_images();
+        display_orientation_t display_orientation = config_manager_get_display_orientation();
 
         cJSON *root = cJSON_CreateObject();
         cJSON_AddNumberToObject(root, "rotate_interval", rotate_interval);
@@ -1078,6 +1079,9 @@ static esp_err_t config_handler(httpd_req_t *req)
         cJSON_AddStringToObject(root, "rotation_mode",
                                 rotation_mode == ROTATION_MODE_URL ? "url" : "sdcard");
         cJSON_AddBoolToObject(root, "save_downloaded_images", save_downloaded_images);
+        cJSON_AddStringToObject(
+            root, "display_orientation",
+            display_orientation == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape" : "portrait");
 
         char *json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");
@@ -1148,6 +1152,16 @@ static esp_err_t config_handler(httpd_req_t *req)
         if (save_dl_obj && cJSON_IsBool(save_dl_obj)) {
             bool save_dl = cJSON_IsTrue(save_dl_obj);
             config_manager_set_save_downloaded_images(save_dl);
+        }
+
+        cJSON *display_orient_obj = cJSON_GetObjectItem(root, "display_orientation");
+        if (display_orient_obj && cJSON_IsString(display_orient_obj)) {
+            const char *orient_str = cJSON_GetStringValue(display_orient_obj);
+            if (strcmp(orient_str, "portrait") == 0) {
+                config_manager_set_display_orientation(DISPLAY_ORIENTATION_PORTRAIT);
+            } else {
+                config_manager_set_display_orientation(DISPLAY_ORIENTATION_LANDSCAPE);
+            }
         }
 
         cJSON_Delete(root);
