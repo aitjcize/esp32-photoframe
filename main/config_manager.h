@@ -32,4 +32,15 @@ const char *config_manager_get_ha_url(void);
 void config_manager_set_display_orientation(display_orientation_t orientation);
 display_orientation_t config_manager_get_display_orientation(void);
 
+void config_manager_set_sleep_schedule_enabled(bool enabled);
+bool config_manager_get_sleep_schedule_enabled(void);
+
+void config_manager_set_sleep_schedule_start(int minutes);
+int config_manager_get_sleep_schedule_start(void);
+
+void config_manager_set_sleep_schedule_end(int minutes);
+int config_manager_get_sleep_schedule_end(void);
+
+bool config_manager_is_in_sleep_schedule(void);
+
 #endif

@@ -10,13 +10,12 @@
 #include <freertos/task.h>
 #include <nvs.h>
 #include <nvs_flash.h>
+#include <time.h>
 
 #include "axp_prot.h"
 #include "config.h"
 #include "config_manager.h"
-#include "display_manager.h"
 #include "ha_integration.h"
-#include "http_server.h"
 #include "utils.h"
 
 static const char *TAG = "power_manager";
@@ -46,15 +45,24 @@ static void rotation_timer_task(void *arg)
 
         // Handle active rotation when device stays awake and auto-rotate enabled
         if (config_manager_get_auto_rotate()) {
+            // Check if we're in sleep schedule
+            if (config_manager_is_in_sleep_schedule()) {
+                // During sleep schedule, don't rotate
+                next_rotation_time = 0;  // Reset timer
+                continue;
+            }
+
             int64_t now = esp_timer_get_time();  // Get absolute time in microseconds
 
             if (next_rotation_time == 0) {
-                // Initialize next rotation time
+                // Initialize next rotation time with clock alignment
                 int rotate_interval = config_manager_get_rotate_interval();
-                next_rotation_time = now + (rotate_interval * 1000000LL);
+                int seconds_until_next = calculate_next_aligned_wakeup(rotate_interval);
+
+                next_rotation_time = now + (seconds_until_next * 1000000LL);
                 const char *reason = axp_is_usb_connected() ? "USB powered" : "deep sleep disabled";
-                ESP_LOGI(TAG, "Active rotation scheduled in %d seconds (%s)", rotate_interval,
-                         reason);
+                ESP_LOGI(TAG, "Active rotation scheduled in %d seconds (clock-aligned, %s)",
+                         seconds_until_next, reason);
             } else if (now >= next_rotation_time) {
                 // Time to rotate
                 const char *reason = axp_is_usb_connected() ? "USB powered" : "deep sleep disabled";
@@ -63,10 +71,13 @@ static void rotation_timer_task(void *arg)
                 trigger_image_rotation();
                 ha_notify_update();
 
-                // Schedule next rotation
+                // Schedule next rotation with clock alignment
                 int rotate_interval = config_manager_get_rotate_interval();
-                next_rotation_time = now + (rotate_interval * 1000000LL);
-                ESP_LOGI(TAG, "Next rotation scheduled in %d seconds", rotate_interval);
+                int seconds_until_next = calculate_next_aligned_wakeup(rotate_interval);
+
+                next_rotation_time = now + (seconds_until_next * 1000000LL);
+                ESP_LOGI(TAG, "Next rotation scheduled in %d seconds (clock-aligned)",
+                         seconds_until_next);
             }
         } else {
             next_rotation_time = 0;  // Reset if auto-rotate disabled
@@ -260,8 +271,10 @@ void power_manager_enter_sleep(void)
     if (config_manager_get_auto_rotate()) {
         // Use timer-based sleep for auto-rotate
         int rotate_interval = config_manager_get_rotate_interval();
-        ESP_LOGI(TAG, "Auto-rotate enabled, setting timer wake-up for %d seconds", rotate_interval);
-        esp_sleep_enable_timer_wakeup(rotate_interval * 1000000ULL);
+        int wake_seconds = calculate_next_aligned_wakeup(rotate_interval);
+
+        ESP_LOGI(TAG, "Auto-rotate enabled, setting timer wake-up for %d seconds", wake_seconds);
+        esp_sleep_enable_timer_wakeup(wake_seconds * 1000000ULL);
     }
 
     // Enable boot button and key button wake-up (ESP32-S3 only supports EXT1)

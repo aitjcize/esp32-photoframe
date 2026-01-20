@@ -371,9 +371,9 @@ void app_main(void)
     bool is_timer = power_manager_is_timer_wakeup();
     bool is_key = power_manager_is_key_button_wakeup();
     bool is_boot = power_manager_is_boot_button_wakeup();
-    
+
     ESP_LOGI(TAG, "Wake-up detection: timer=%d, key=%d, boot=%d", is_timer, is_key, is_boot);
-    
+
     if (is_timer || is_key) {
         ESP_LOGI(TAG, "Entering deep sleep wake path (timer or key button)");
         deep_sleep_wake_main();
@@ -470,7 +470,6 @@ void app_main(void)
         ESP_LOGI(TAG, "Or use: http://photoframe.local");
         ESP_LOGI(TAG, "===========================================");
     }
-
 
     // Notify HA that device is online (HA will poll for all data via REST API)
     ESP_LOGI(TAG, "Sending online notification to Home Assistant");

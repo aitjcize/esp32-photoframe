@@ -1,4 +1,4 @@
-.PHONY: format format-check format-diff help
+.PHONY: format format-check format-diff test help
 
 # Find all C and H files in main/ directory only
 # Exclude components/ (vendor library code), build/, managed_components/, etc.
@@ -16,6 +16,7 @@ help:
 	@echo "  format        - Format all C/H/JS/Python files with clang-format, prettier, black, and isort"
 	@echo "  format-check  - Check if files need formatting (non-zero exit if changes needed)"
 	@echo "  format-diff   - Show what would change without modifying files"
+	@echo "  test          - Build and run unit tests (requires ESP-IDF environment)"
 
 format:
 	@echo "Formatting C/H files..."
@@ -62,3 +63,13 @@ format-diff:
 			python3 -m black --diff "$$file" || true; \
 		done; \
 	fi
+
+test:
+	@echo "Building and running host-based unit tests..."
+	@mkdir -p host_tests/build
+	@cd host_tests/build && cmake .. && make
+	@echo ""
+	@echo "Running tests..."
+	@./host_tests/build/utils_test
+	@echo ""
+	@echo "✓ All tests passed!"

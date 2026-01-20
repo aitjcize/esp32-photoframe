@@ -1068,6 +1068,9 @@ static esp_err_t config_handler(httpd_req_t *req)
         rotation_mode_t rotation_mode = config_manager_get_rotation_mode();
         bool save_downloaded_images = config_manager_get_save_downloaded_images();
         display_orientation_t display_orientation = config_manager_get_display_orientation();
+        bool sleep_schedule_enabled = config_manager_get_sleep_schedule_enabled();
+        int sleep_schedule_start = config_manager_get_sleep_schedule_start();
+        int sleep_schedule_end = config_manager_get_sleep_schedule_end();
 
         cJSON *root = cJSON_CreateObject();
         cJSON_AddNumberToObject(root, "rotate_interval", rotate_interval);
@@ -1082,6 +1085,9 @@ static esp_err_t config_handler(httpd_req_t *req)
         cJSON_AddStringToObject(
             root, "display_orientation",
             display_orientation == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape" : "portrait");
+        cJSON_AddBoolToObject(root, "sleep_schedule_enabled", sleep_schedule_enabled);
+        cJSON_AddNumberToObject(root, "sleep_schedule_start", sleep_schedule_start);
+        cJSON_AddNumberToObject(root, "sleep_schedule_end", sleep_schedule_end);
 
         char *json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");
@@ -1162,6 +1168,24 @@ static esp_err_t config_handler(httpd_req_t *req)
             } else {
                 config_manager_set_display_orientation(DISPLAY_ORIENTATION_LANDSCAPE);
             }
+        }
+
+        cJSON *sleep_sched_enabled_obj = cJSON_GetObjectItem(root, "sleep_schedule_enabled");
+        if (sleep_sched_enabled_obj && cJSON_IsBool(sleep_sched_enabled_obj)) {
+            bool enabled = cJSON_IsTrue(sleep_sched_enabled_obj);
+            config_manager_set_sleep_schedule_enabled(enabled);
+        }
+
+        cJSON *sleep_sched_start_obj = cJSON_GetObjectItem(root, "sleep_schedule_start");
+        if (sleep_sched_start_obj && cJSON_IsNumber(sleep_sched_start_obj)) {
+            int start_minutes = sleep_sched_start_obj->valueint;
+            config_manager_set_sleep_schedule_start(start_minutes);
+        }
+
+        cJSON *sleep_sched_end_obj = cJSON_GetObjectItem(root, "sleep_schedule_end");
+        if (sleep_sched_end_obj && cJSON_IsNumber(sleep_sched_end_obj)) {
+            int end_minutes = sleep_sched_end_obj->valueint;
+            config_manager_set_sleep_schedule_end(end_minutes);
         }
 
         cJSON_Delete(root);

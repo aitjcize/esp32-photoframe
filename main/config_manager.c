@@ -1,6 +1,7 @@
 #include "config_manager.h"
 
 #include <string.h>
+#include <time.h>
 
 #include "config.h"
 #include "esp_log.h"
@@ -16,6 +17,9 @@ static char ha_url[HA_URL_MAX_LEN] = {0};
 static rotation_mode_t rotation_mode = ROTATION_MODE_SDCARD;
 static bool save_downloaded_images = true;
 static display_orientation_t display_orientation = DISPLAY_ORIENTATION_LANDSCAPE;
+static bool sleep_schedule_enabled = false;
+static int sleep_schedule_start = 1380;  // Minutes since midnight (23:00 = 23*60)
+static int sleep_schedule_end = 420;     // Minutes since midnight (07:00 = 7*60)
 
 esp_err_t config_manager_init(void)
 {
@@ -83,6 +87,28 @@ esp_err_t config_manager_init(void)
             ESP_LOGI(
                 TAG, "Loaded display orientation from NVS: %s",
                 display_orientation == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape" : "portrait");
+        }
+
+        uint8_t stored_sleep_sched_enabled = 0;
+        if (nvs_get_u8(nvs_handle, NVS_SLEEP_SCHEDULE_ENABLED_KEY, &stored_sleep_sched_enabled) ==
+            ESP_OK) {
+            sleep_schedule_enabled = (stored_sleep_sched_enabled != 0);
+            ESP_LOGI(TAG, "Loaded sleep schedule enabled from NVS: %s",
+                     sleep_schedule_enabled ? "yes" : "no");
+        }
+
+        int32_t stored_start = 1380;  // Default 23:00
+        if (nvs_get_i32(nvs_handle, NVS_SLEEP_SCHEDULE_START_KEY, &stored_start) == ESP_OK) {
+            sleep_schedule_start = stored_start;
+            ESP_LOGI(TAG, "Loaded sleep schedule start from NVS: %d minutes (%02d:%02d)",
+                     sleep_schedule_start, sleep_schedule_start / 60, sleep_schedule_start % 60);
+        }
+
+        int32_t stored_end = 420;  // Default 07:00
+        if (nvs_get_i32(nvs_handle, NVS_SLEEP_SCHEDULE_END_KEY, &stored_end) == ESP_OK) {
+            sleep_schedule_end = stored_end;
+            ESP_LOGI(TAG, "Loaded sleep schedule end from NVS: %d minutes (%02d:%02d)",
+                     sleep_schedule_end, sleep_schedule_end / 60, sleep_schedule_end % 60);
         }
 
         nvs_close(nvs_handle);
@@ -255,4 +281,87 @@ void config_manager_set_display_orientation(display_orientation_t orientation)
 display_orientation_t config_manager_get_display_orientation(void)
 {
     return display_orientation;
+}
+
+void config_manager_set_sleep_schedule_enabled(bool enabled)
+{
+    sleep_schedule_enabled = enabled;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_SLEEP_SCHEDULE_ENABLED_KEY, enabled ? 1 : 0);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Sleep schedule %s", enabled ? "enabled" : "disabled");
+}
+
+bool config_manager_get_sleep_schedule_enabled(void)
+{
+    return sleep_schedule_enabled;
+}
+
+void config_manager_set_sleep_schedule_start(int minutes)
+{
+    sleep_schedule_start = minutes;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_i32(nvs_handle, NVS_SLEEP_SCHEDULE_START_KEY, minutes);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Sleep schedule start set to: %d minutes (%02d:%02d)", minutes, minutes / 60,
+             minutes % 60);
+}
+
+int config_manager_get_sleep_schedule_start(void)
+{
+    return sleep_schedule_start;
+}
+
+void config_manager_set_sleep_schedule_end(int minutes)
+{
+    sleep_schedule_end = minutes;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_i32(nvs_handle, NVS_SLEEP_SCHEDULE_END_KEY, minutes);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Sleep schedule end set to: %d minutes (%02d:%02d)", minutes, minutes / 60,
+             minutes % 60);
+}
+
+int config_manager_get_sleep_schedule_end(void)
+{
+    return sleep_schedule_end;
+}
+
+bool config_manager_is_in_sleep_schedule(void)
+{
+    if (!sleep_schedule_enabled) {
+        return false;
+    }
+
+    // Get current time
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+
+    int current_minutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
+
+    // Handle overnight schedules (e.g., 23:00 - 07:00)
+    if (sleep_schedule_start > sleep_schedule_end) {
+        // Schedule crosses midnight
+        return current_minutes >= sleep_schedule_start || current_minutes < sleep_schedule_end;
+    } else {
+        // Schedule within same day
+        return current_minutes >= sleep_schedule_start && current_minutes < sleep_schedule_end;
+    }
 }

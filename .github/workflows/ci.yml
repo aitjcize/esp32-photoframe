@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  format-check:
+    name: Code Formatting Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install formatting tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+          pip install black isort
+
+      - name: Check code formatting
+        run: make format-check
+
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Set up ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.3
+          target: esp32s3
+
+      - name: Build firmware
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py build
+
+      - name: Build unit tests
+        run: |
+          . $IDF_PATH/export.sh
+          make test
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            build/esp32-photoframe.bin
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+          retention-days: 7
+
+  build-webapp:
+    name: Build Web Application
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        working-directory: process-cli
+        run: npm install
+
+      - name: Check webapp formatting
+        run: |
+          npx prettier --check main/webapp/*.js main/webapp/*.html main/webapp/*.css

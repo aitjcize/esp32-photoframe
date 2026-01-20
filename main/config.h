@@ -67,6 +67,9 @@ typedef enum {
 #define NVS_SAVE_DOWNLOADED_KEY "save_dl"
 #define NVS_HA_URL_KEY "ha_url"
 #define NVS_DISPLAY_ORIENTATION_KEY "disp_orient"
+#define NVS_SLEEP_SCHEDULE_ENABLED_KEY "sleep_sched_en"
+#define NVS_SLEEP_SCHEDULE_START_KEY "sleep_start"
+#define NVS_SLEEP_SCHEDULE_END_KEY "sleep_end"
 
 // OTA Configuration
 #define GITHUB_API_URL "https://api.github.com/repos/aitjcize/esp32-photoframe/releases/latest"
