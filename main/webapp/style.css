@@ -260,6 +260,28 @@ header h1 {
     margin-left: 24px;
 }
 
+.time-input-group {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.time-input-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.time-input-field input {
+    width: 80px;
+}
+
+.time-input-label {
+    color: #666;
+    font-size: 0.95rem;
+}
+
 .form-group label {
     display: block;
     margin-bottom: 8px;

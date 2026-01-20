@@ -243,8 +243,20 @@
                     </div>
                     
                     <div class="form-group indented">
-                        <label for="rotateInterval">Rotation Interval (seconds):</label>
-                        <input type="number" id="rotateInterval" min="10" max="86400" value="3600">
+                        <label>Rotation Interval:</label>
+                        <div class="time-input-group">
+                            <div class="time-input-field">
+                                <input type="number" id="rotateHours" min="0" max="23" value="1">
+                                <span class="time-input-label">hours</span>
+                            </div>
+                            <div class="time-input-field">
+                                <input type="number" id="rotateMinutes" min="0" max="59" value="0">
+                                <span class="time-input-label">minutes</span>
+                            </div>
+                        </div>
+                        <small class="helper-text">
+                            ⏰ Rotation will be aligned to clock boundaries. For example, 1 hour will rotate at 1:00, 2:00, 3:00, etc.
+                        </small>
                     </div>
                     
                     <div class="form-group indented">
@@ -287,6 +299,33 @@
                             Rotate Now
                         </button>
                         <div id="rotateStatus" class="status-spacing"></div>
+                    </div>
+                </div>
+                
+                <!-- Sleep Schedule Section -->
+                <div class="settings-section-divider">
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="sleepScheduleEnabled">
+                            <span>Enable Sleep Schedule</span>
+                        </label>
+                    </div>
+                    
+                    <div class="form-group indented">
+                        <label>Pause rotation during:</label>
+                        <div class="time-input-group">
+                            <div class="time-input-field">
+                                <label for="sleepScheduleStart">From</label>
+                                <input type="time" id="sleepScheduleStart" value="23:00">
+                            </div>
+                            <div class="time-input-field">
+                                <label for="sleepScheduleEnd">To</label>
+                                <input type="time" id="sleepScheduleEnd" value="07:00">
+                            </div>
+                        </div>
+                        <small class="helper-text">
+                            🌙 Images won't rotate during this time period. Useful for night hours when no one is looking at the display.
+                        </small>
                     </div>
                 </div>
                 

@@ -1355,15 +1355,21 @@ async function loadConfig() {
     const data = await response.json();
 
     document.getElementById("autoRotate").checked = data.auto_rotate || false;
-    document.getElementById("rotateInterval").value =
-      data.rotate_interval || 3600;
+
+    // Convert seconds to hours and minutes
+    const rotateIntervalSeconds = data.rotate_interval || 3600;
+    const hours = Math.floor(rotateIntervalSeconds / 3600);
+    const minutes = Math.floor((rotateIntervalSeconds % 3600) / 60);
+    document.getElementById("rotateHours").value = hours;
+    document.getElementById("rotateMinutes").value = minutes;
+
     document.getElementById("imageOrientation").value =
       data.image_orientation || 180;
     document.getElementById("imageUrl").value =
-      data.image_url || "https://picsum.photos/800/480";
-    document.getElementById("haUrl").value = data.ha_url || "";
+      data.image_url || "https://loremflickr.com/800/480";
     document.getElementById("deepSleepEnabled").checked =
       data.deep_sleep_enabled !== false;
+    document.getElementById("haUrl").value = data.ha_url || "";
     document.getElementById("saveDownloadedImages").checked =
       data.save_downloaded_images !== false;
 
@@ -1374,6 +1380,23 @@ async function loadConfig() {
     } else {
       document.getElementById("displayOrientationLandscape").checked = true;
     }
+
+    // Load sleep schedule settings
+    document.getElementById("sleepScheduleEnabled").checked =
+      data.sleep_schedule_enabled || false;
+
+    // Convert minutes to HH:MM format
+    const startMinutes = data.sleep_schedule_start || 1380; // Default 23:00
+    const startHours = Math.floor(startMinutes / 60);
+    const startMins = startMinutes % 60;
+    document.getElementById("sleepScheduleStart").value =
+      `${String(startHours).padStart(2, "0")}:${String(startMins).padStart(2, "0")}`;
+
+    const endMinutes = data.sleep_schedule_end || 420; // Default 07:00
+    const endHours = Math.floor(endMinutes / 60);
+    const endMins = endMinutes % 60;
+    document.getElementById("sleepScheduleEnd").value =
+      `${String(endHours).padStart(2, "0")}:${String(endMins).padStart(2, "0")}`;
 
     // Set rotation mode based on backend config
     const rotationMode = data.rotation_mode || "sdcard";
@@ -1423,9 +1446,14 @@ document.getElementById("configForm").addEventListener("submit", async (e) => {
 
   const statusDiv = document.getElementById("configStatus");
   const autoRotate = document.getElementById("autoRotate").checked;
-  const rotateInterval = parseInt(
-    document.getElementById("rotateInterval").value,
-  );
+
+  // Convert hours and minutes to seconds
+  const rotateHours =
+    parseInt(document.getElementById("rotateHours").value) || 0;
+  const rotateMinutes =
+    parseInt(document.getElementById("rotateMinutes").value) || 0;
+  const rotateInterval = rotateHours * 3600 + rotateMinutes * 60;
+
   const imageOrientation = parseInt(
     document.getElementById("imageOrientation").value,
   );
@@ -1441,6 +1469,22 @@ document.getElementById("configForm").addEventListener("submit", async (e) => {
   const displayOrientation = document.querySelector(
     'input[name="displayOrientation"]:checked',
   ).value;
+
+  // Get sleep schedule settings and convert HH:MM to minutes
+  const sleepScheduleEnabled = document.getElementById(
+    "sleepScheduleEnabled",
+  ).checked;
+  const sleepScheduleStartTime =
+    document.getElementById("sleepScheduleStart").value;
+  const sleepScheduleEndTime =
+    document.getElementById("sleepScheduleEnd").value;
+
+  // Convert HH:MM to minutes since midnight
+  const [startHours, startMins] = sleepScheduleStartTime.split(":").map(Number);
+  const sleepScheduleStart = startHours * 60 + startMins;
+
+  const [endHours, endMins] = sleepScheduleEndTime.split(":").map(Number);
+  const sleepScheduleEnd = endHours * 60 + endMins;
 
   try {
     const response = await fetch(`${API_BASE}/api/config`, {
@@ -1458,6 +1502,9 @@ document.getElementById("configForm").addEventListener("submit", async (e) => {
         deep_sleep_enabled: deepSleepEnabled,
         save_downloaded_images: saveDownloadedImages,
         display_orientation: displayOrientation,
+        sleep_schedule_enabled: sleepScheduleEnabled,
+        sleep_schedule_start: sleepScheduleStart,
+        sleep_schedule_end: sleepScheduleEnd,
       }),
     });
 
