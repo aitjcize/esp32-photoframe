@@ -2441,6 +2441,36 @@ document.getElementById("rotateBtn").addEventListener("click", async () => {
   }
 });
 
+// Sleep button handler
+document.getElementById("sleepBtn").addEventListener("click", async () => {
+  if (
+    !confirm(
+      "Are you sure you want to put the device into deep sleep? The device will wake up on the next scheduled rotation or when the boot button is pressed.",
+    )
+  ) {
+    return;
+  }
+
+  const btn = document.getElementById("sleepBtn");
+  btn.disabled = true;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/sleep`, {
+      method: "POST",
+    });
+
+    if (response.ok) {
+      alert("Device is entering deep sleep mode");
+    } else {
+      throw new Error(`HTTP ${response.status}`);
+    }
+  } catch (error) {
+    alert("Failed to enter sleep mode: " + error.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // OTA Update Functions
 let otaStatusInterval = null;
 

@@ -939,7 +939,7 @@ static esp_err_t sleep_handler(httpd_req_t *req)
     cJSON_Delete(response);
 
     // Create a task to enter sleep after HTTP response completes
-    xTaskCreate(delayed_sleep_task, "delayed_sleep", 2048, NULL, 5, NULL);
+    xTaskCreate(delayed_sleep_task, "delayed_sleep", 4096, NULL, 5, NULL);
 
     return ESP_OK;
 }
@@ -1092,7 +1092,7 @@ static esp_err_t config_handler(httpd_req_t *req)
 
         return ESP_OK;
     } else if (req->method == HTTP_POST) {
-        char buf[256];
+        char buf[512];
         int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
         if (ret <= 0) {
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No data received");
