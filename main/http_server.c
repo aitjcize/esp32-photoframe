@@ -1651,7 +1651,7 @@ static esp_err_t processing_settings_handler(httpd_req_t *req)
         return ESP_OK;
 
     } else if (req->method == HTTP_POST) {
-        char *buf = malloc(req->content_len + 1);
+        char *buf = heap_caps_malloc(req->content_len + 1, MALLOC_CAP_SPIRAM);
         if (!buf) {
             httpd_resp_send_500(req);
             return ESP_FAIL;
@@ -1659,14 +1659,14 @@ static esp_err_t processing_settings_handler(httpd_req_t *req)
 
         int ret = httpd_req_recv(req, buf, req->content_len);
         if (ret <= 0) {
-            free(buf);
+            heap_caps_free(buf);
             httpd_resp_send_500(req);
             return ESP_FAIL;
         }
         buf[ret] = '\0';
 
         cJSON *json = cJSON_Parse(buf);
-        free(buf);
+        heap_caps_free(buf);
 
         if (!json) {
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");

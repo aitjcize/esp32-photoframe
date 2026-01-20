@@ -177,7 +177,7 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
         goto cleanup;
     }
 
-    response_buffer = malloc(content_length + 1);
+    response_buffer = heap_caps_malloc(content_length + 1, MALLOC_CAP_SPIRAM);
     if (response_buffer == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for response");
         err = ESP_ERR_NO_MEM;
