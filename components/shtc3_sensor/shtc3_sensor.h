@@ -32,6 +32,20 @@ esp_err_t shtc3_read(float *temperature, float *humidity);
  */
 bool shtc3_is_available(void);
 
+/**
+ * @brief Put SHTC3 sensor into sleep mode to save power
+ *
+ * @return ESP_OK on success, error code on failure
+ */
+esp_err_t shtc3_sleep(void);
+
+/**
+ * @brief Wake up SHTC3 sensor from sleep mode
+ *
+ * @return ESP_OK on success, error code on failure
+ */
+esp_err_t shtc3_wakeup(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -16,6 +16,7 @@
 #include "config.h"
 #include "config_manager.h"
 #include "ha_integration.h"
+#include "shtc3_sensor.h"
 #include "utils.h"
 
 static const char *TAG = "power_manager";
@@ -280,6 +281,12 @@ void power_manager_enter_sleep(void)
     // Enable boot button and key button wake-up (ESP32-S3 only supports EXT1)
     esp_sleep_enable_ext1_wakeup((1ULL << BOOT_BUTTON_GPIO) | (1ULL << KEY_BUTTON_GPIO),
                                  ESP_EXT1_WAKEUP_ANY_LOW);
+
+    // Put SHTC3 sensor to sleep to save power
+    if (shtc3_is_available()) {
+        shtc3_sleep();
+        ESP_LOGI(TAG, "SHTC3 sensor put to sleep");
+    }
 
     ESP_LOGI(TAG, "Configuring AXP2101 for deep sleep");
     axp_basic_sleep_start();

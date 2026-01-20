@@ -169,3 +169,56 @@ bool shtc3_is_available(void)
 {
     return sensor_available;
 }
+
+esp_err_t shtc3_sleep(void)
+{
+    if (!sensor_initialized) {
+        ESP_LOGD(TAG, "SHTC3 not initialized, skip sleep");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!sensor_available) {
+        ESP_LOGD(TAG, "SHTC3 not available, skip sleep");
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    uint8_t cmd[2];
+    cmd[0] = (SHTC3_CMD_SLEEP >> 8) & 0xFF;
+    cmd[1] = SHTC3_CMD_SLEEP & 0xFF;
+    esp_err_t ret = i2c_write_buff(shtc3_handle, -1, cmd, 2);
+
+    if (ret == ESP_OK) {
+        ESP_LOGD(TAG, "SHTC3 put to sleep");
+    } else {
+        ESP_LOGW(TAG, "Failed to put SHTC3 to sleep: %s", esp_err_to_name(ret));
+    }
+
+    return ret;
+}
+
+esp_err_t shtc3_wakeup(void)
+{
+    if (!sensor_initialized) {
+        ESP_LOGD(TAG, "SHTC3 not initialized, skip wakeup");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!sensor_available) {
+        ESP_LOGD(TAG, "SHTC3 not available, skip wakeup");
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    uint8_t cmd[2];
+    cmd[0] = (SHTC3_CMD_WAKEUP >> 8) & 0xFF;
+    cmd[1] = SHTC3_CMD_WAKEUP & 0xFF;
+    esp_err_t ret = i2c_write_buff(shtc3_handle, -1, cmd, 2);
+
+    if (ret == ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(1));  // Wait for wake-up
+        ESP_LOGD(TAG, "SHTC3 woken up");
+    } else {
+        ESP_LOGW(TAG, "Failed to wake up SHTC3: %s", esp_err_to_name(ret));
+    }
+
+    return ret;
+}
