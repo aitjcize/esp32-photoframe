@@ -32,17 +32,32 @@ static esp_err_t ha_send_notification(const char *state, const char *log_message
         return ESP_OK;  // Not an error, just not configured
     }
 
-    // Build the API endpoint URL with state parameter
+    // Build the API endpoint URL (no query parameters)
     char url[512];
-    if (state && strlen(state) > 0) {
-        snprintf(url, sizeof(url), "%s/api/esp32_photoframe/notify?state=%s", ha_url, state);
-    } else {
-        snprintf(url, sizeof(url), "%s/api/esp32_photoframe/notify", ha_url);
-    }
+    snprintf(url, sizeof(url), "%s/api/esp32_photoframe/notify", ha_url);
 
     ESP_LOGI(TAG, "%s", log_message);
 
-    // Configure HTTP client for simple POST
+    // Create JSON payload with device name and state
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        ESP_LOGE(TAG, "Failed to create JSON object");
+        return ESP_FAIL;
+    }
+
+    const char *device_name = config_manager_get_device_name();
+    cJSON_AddStringToObject(root, "device_name", device_name ? device_name : "ESP32-PhotoFrame");
+    cJSON_AddStringToObject(root, "state", state);
+
+    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (json_str == NULL) {
+        ESP_LOGE(TAG, "Failed to serialize JSON");
+        return ESP_FAIL;
+    }
+
+    // Configure HTTP client for JSON POST
     esp_http_client_config_t config = {
         .url = url,
         .method = HTTP_METHOD_POST,
@@ -53,17 +68,20 @@ static esp_err_t ha_send_notification(const char *state, const char *log_message
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) {
         ESP_LOGE(TAG, "Failed to initialize HTTP client");
+        free(json_str);
         return ESP_FAIL;
     }
 
-    // Send empty POST to notify HA
-    esp_http_client_set_post_field(client, "", 0);
+    // Set JSON content type and body
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(client, json_str, strlen(json_str));
 
     // Perform request
     esp_err_t err = esp_http_client_perform(client);
     int status_code = esp_http_client_get_status_code(client);
 
     esp_http_client_cleanup(client);
+    free(json_str);
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP POST failed: %s", esp_err_to_name(err));
@@ -75,13 +93,14 @@ static esp_err_t ha_send_notification(const char *state, const char *log_message
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "%s notification sent to HA successfully", state ? state : "online");
+    ESP_LOGI(TAG, "%s notification sent to HA successfully",
+             state && strlen(state) > 0 ? state : "online");
     return ESP_OK;
 }
 
 esp_err_t ha_notify_online(void)
 {
-    return ha_send_notification("", "Sending online notification to HA", 5000);
+    return ha_send_notification("online", "Sending online notification to HA", 5000);
 }
 
 esp_err_t ha_notify_offline(void)
