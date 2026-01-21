@@ -1296,23 +1296,25 @@
         // Load version info for both manifests
         async function loadVersionInfo() {
             const select = document.getElementById('version-select');
+            // Add timestamp to bypass cache
+            const timestamp = new Date().getTime();
             
             try {
-                // Fetch stable version
-                const stableResponse = await fetch('./manifest.json');
+                // Fetch stable version with cache-busting
+                const stableResponse = await fetch(`./manifest.json?t=${timestamp}`);
                 const stableData = await stableResponse.json();
                 select.options[0].text = `Stable Release (${stableData.version})`;
             } catch (e) {
-                select.options[0].text = 'Stable Release (unavailable)';
+                console.error('Failed to load stable version:', e);
             }
             
             try {
-                // Fetch dev version
-                const devResponse = await fetch('./manifest-dev.json');
+                // Fetch dev version with cache-busting
+                const devResponse = await fetch(`./manifest-dev.json?t=${timestamp}`);
                 const devData = await devResponse.json();
                 select.options[1].text = `Development (${devData.version})`;
             } catch (e) {
-                select.options[1].text = 'Development (unavailable)';
+                console.error('Failed to load dev version:', e);
             }
         }
         
