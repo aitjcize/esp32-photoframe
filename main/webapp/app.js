@@ -1386,13 +1386,14 @@ async function loadConfig() {
       data.sleep_schedule_enabled || false;
 
     // Convert minutes to HH:MM format
-    const startMinutes = data.sleep_schedule_start || 1380; // Default 23:00
+    // Use ?? instead of || to handle 0 (midnight) correctly
+    const startMinutes = data.sleep_schedule_start ?? 1380; // Default 23:00
     const startHours = Math.floor(startMinutes / 60);
     const startMins = startMinutes % 60;
     document.getElementById("sleepScheduleStart").value =
       `${String(startHours).padStart(2, "0")}:${String(startMins).padStart(2, "0")}`;
 
-    const endMinutes = data.sleep_schedule_end || 420; // Default 07:00
+    const endMinutes = data.sleep_schedule_end ?? 420; // Default 07:00
     const endHours = Math.floor(endMinutes / 60);
     const endMins = endMinutes % 60;
     document.getElementById("sleepScheduleEnd").value =
