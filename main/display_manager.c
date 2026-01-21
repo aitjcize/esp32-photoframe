@@ -16,14 +16,52 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "nvs.h"
 
 static const char *TAG = "display_manager";
+#define NVS_LAST_IMAGE_KEY "last_image"
 
 static SemaphoreHandle_t display_mutex = NULL;
 static char current_image[64] = {0};
+static char last_displayed_image[256] = {0};  // Internal state: last displayed image path
 
 static uint8_t *epd_image_buffer = NULL;
 static uint32_t image_buffer_size;
+
+// Load last displayed image from NVS
+static void load_last_displayed_image(void)
+{
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {
+        size_t len = sizeof(last_displayed_image);
+        if (nvs_get_str(nvs_handle, NVS_LAST_IMAGE_KEY, last_displayed_image, &len) == ESP_OK) {
+            ESP_LOGI(TAG, "Loaded last displayed image: %s", last_displayed_image);
+        } else {
+            last_displayed_image[0] = '\0';
+        }
+        nvs_close(nvs_handle);
+    }
+}
+
+// Save last displayed image to NVS
+static void save_last_displayed_image(const char *filename)
+{
+    if (filename == NULL) {
+        return;
+    }
+
+    strncpy(last_displayed_image, filename, sizeof(last_displayed_image) - 1);
+    last_displayed_image[sizeof(last_displayed_image) - 1] = '\0';
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_str(nvs_handle, NVS_LAST_IMAGE_KEY, last_displayed_image);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Saved last displayed image: %s", last_displayed_image);
+}
 
 // Helper function to create link file pointing to current image
 static void create_image_link(const char *target_path)
@@ -258,13 +296,37 @@ void display_manager_rotate_from_sdcard(void)
 
     album_manager_free_album_list(enabled_albums, album_count);
 
-    // Select random image
+    // Load last displayed image if not already loaded
+    if (last_displayed_image[0] == '\0') {
+        load_last_displayed_image();
+    }
+
+    // Select random image, avoiding the last displayed image if possible
     int random_index = esp_random() % total_image_count;
+
+    // If we have more than one image and the random selection matches the last image,
+    // try to pick a different one (up to 10 attempts)
+    if (total_image_count > 1 && last_displayed_image[0] != '\0') {
+        int attempts = 0;
+        while (attempts < 10 && strcmp(image_list[random_index], last_displayed_image) == 0) {
+            random_index = esp_random() % total_image_count;
+            attempts++;
+        }
+
+        if (strcmp(image_list[random_index], last_displayed_image) == 0) {
+            ESP_LOGW(TAG, "Could not avoid repeating last image after 10 attempts");
+        } else {
+            ESP_LOGI(TAG, "Successfully avoided repeating last image");
+        }
+    }
 
     // Display random image
     ESP_LOGI(TAG, "Auto-rotate: Displaying random image %d/%d: %s", random_index + 1,
              total_image_count, image_list[random_index]);
     display_manager_show_image(image_list[random_index]);
+
+    // Store the displayed image filename in NVS
+    save_last_displayed_image(image_list[random_index]);
 
     // Free image list
     for (int i = 0; i < total_image_count; i++) {
