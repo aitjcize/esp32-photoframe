@@ -379,36 +379,15 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
     char final_png_path[512];
     char final_thumb_path[512];
 
-    // Handle duplicates by adding numeric suffix
-    int suffix = 0;
-    while (1) {
-        if (suffix == 0) {
-            snprintf(png_filename, sizeof(png_filename), "%s.png", filename_base);
-            snprintf(jpg_filename, sizeof(jpg_filename), "%s.jpg", filename_base);
-        } else {
-            snprintf(png_filename, sizeof(png_filename), "%s_%d.png", filename_base, suffix);
-            snprintf(jpg_filename, sizeof(jpg_filename), "%s_%d.jpg", filename_base, suffix);
-        }
+    // Use original filename (will overwrite if exists)
+    snprintf(png_filename, sizeof(png_filename), "%s.png", filename_base);
+    snprintf(jpg_filename, sizeof(jpg_filename), "%s.jpg", filename_base);
+    snprintf(final_png_path, sizeof(final_png_path), "%s/%s", album_path, png_filename);
+    snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s", album_path, jpg_filename);
 
-        snprintf(final_png_path, sizeof(final_png_path), "%s/%s", album_path, png_filename);
-        snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s", album_path, jpg_filename);
-
-        // Check if either file exists
-        if (stat(final_png_path, &st) != 0 && stat(final_thumb_path, &st) != 0) {
-            // Neither file exists, we can use this name
-            break;
-        }
-
-        suffix++;
-        if (suffix > 999) {
-            // Safety limit to prevent infinite loop
-            ESP_LOGE(TAG, "Too many duplicate files");
-            unlink(result.image_path);
-            unlink(result.thumbnail_path);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Too many duplicate files");
-            return ESP_FAIL;
-        }
-    }
+    // Remove old files
+    unlink(final_png_path);
+    unlink(final_thumb_path);
 
     // Move PNG to final location
     ESP_LOGI(TAG, "Saving PNG: %s -> %s", result.image_path, final_png_path);
