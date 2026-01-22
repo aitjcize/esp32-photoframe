@@ -132,8 +132,8 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
 
         // Check if download was successful
         if (err == ESP_OK && status_code == 200 && total_downloaded > 0) {
-            ESP_LOGI(TAG, "Downloaded %d bytes (content_length: %d), converting JPG to BMP...",
-                     total_downloaded, content_length);
+            ESP_LOGI(TAG, "Downloaded %d bytes (content_length: %d), content_type: %s",
+                     total_downloaded, content_length, content_type);
             break;  // Success, exit retry loop
         }
 
@@ -218,8 +218,11 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
 
         FILE *thumb_file = fopen(temp_jpg_path, "wb");
         if (thumb_file) {
-            download_context_t thumb_ctx = {
-                .file = thumb_file, .total_read = 0, .content_type = NULL, .thumbnail_url = NULL};
+            char thumb_content_type[128] = {0};
+            download_context_t thumb_ctx = {.file = thumb_file,
+                                            .total_read = 0,
+                                            .content_type = thumb_content_type,
+                                            .thumbnail_url = NULL};
 
             esp_http_client_config_t thumb_config = {
                 .url = thumbnail_url_buffer,
