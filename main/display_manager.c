@@ -262,7 +262,8 @@ void display_manager_rotate_from_sdcard(void)
                     continue;
                 }
                 const char *ext = strrchr(entry->d_name, '.');
-                if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0)) {
+                if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
+                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
                     total_image_count++;
                 }
             }
@@ -297,7 +298,8 @@ void display_manager_rotate_from_sdcard(void)
                 }
 
                 const char *ext = strrchr(entry->d_name, '.');
-                if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0)) {
+                if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
+                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
                     char *fullpath = malloc(512);
                     snprintf(fullpath, 512, "%s/%s", album_path, entry->d_name);
                     image_list[idx] = fullpath;
