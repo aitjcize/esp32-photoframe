@@ -431,7 +431,7 @@ async function selectImage(filename, element) {
 
   // Show confirmation dialog
   const confirmed = confirm(
-    `Display "${filename}" on the e-paper screen?\n\nThis will take approximately 40 seconds to update.`,
+    `Display "${filename}" on the e-paper screen?\n\nThis will take approximately 30 seconds to update.`,
   );
   if (!confirmed) {
     return;

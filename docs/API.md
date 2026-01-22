@@ -223,7 +223,7 @@ Display a specific image on the e-paper.
 ```
 HTTP Status: `503 Service Unavailable`
 
-**Note:** Display operation takes ~30-40 seconds. Concurrent requests are rejected.
+**Note:** Display operation takes ~30 seconds. Concurrent requests are rejected.
 
 ---
 
@@ -300,7 +300,7 @@ rest_command:
 **Note:** 
 - This endpoint is designed for automation and integration use cases
 - Image is processed with the enhanced algorithm (S-curve tone mapping, dithering)
-- Display operation takes ~30-40 seconds
+- Display operation takes ~30 seconds
 - Concurrent requests are rejected while display is busy
 
 ---
