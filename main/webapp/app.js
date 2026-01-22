@@ -1275,30 +1275,13 @@ document
       const originalName = currentImageFile.name.replace(/\.[^/.]+$/, "");
       const pngFilename = `${originalName}.png`;
 
-      // Create thumbnail (320x192 or 192x320) from original using shared function
+      // Create thumbnail (400x240 or 240x400) from EXIF-corrected original using shared function
       const thumbnailBlob = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const img = new Image();
-          img.onload = () => {
-            // Load image into a canvas first
-            const tempCanvas = document.createElement("canvas");
-            tempCanvas.width = img.width;
-            tempCanvas.height = img.height;
-            const tempCtx = tempCanvas.getContext("2d");
-            tempCtx.drawImage(img, 0, 0);
+        // Use originalCanvas which already has EXIF orientation applied
+        const thumbCanvas = generateThumbnail(originalCanvas, 400, 240);
 
-            // Generate thumbnail using shared function
-            const thumbCanvas = generateThumbnail(tempCanvas, 400, 240);
-
-            // Convert to blob
-            thumbCanvas.toBlob(resolve, "image/jpeg", 0.85);
-          };
-          img.onerror = reject;
-          img.src = e.target.result;
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(currentImageFile);
+        // Convert to blob
+        thumbCanvas.toBlob(resolve, "image/jpeg", 0.85);
       });
 
       const formData = new FormData();
