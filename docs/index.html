@@ -1103,19 +1103,57 @@
 
             drawCurveVisualization();
 
-            const enhancedCanvas = document.getElementById('enhancedCanvas');
-            const enhancedCtx = enhancedCanvas.getContext('2d', { willReadFrequently: true });
-            const enhancedData = enhancedCtx.createImageData(originalImageData.width, originalImageData.height);
-            enhancedData.data.set(originalImageData.data);
-            processImage(enhancedData, enhancedParams);
-            enhancedCtx.putImageData(enhancedData, 0, 0);
+            // Create a temporary canvas with the original image data
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = originalImageData.width;
+            tempCanvas.height = originalImageData.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.putImageData(originalImageData, 0, 0);
 
+            // Determine target dimensions based on orientation
+            const isPortrait = tempCanvas.height > tempCanvas.width;
+            const targetWidth = isPortrait ? 480 : 800;
+            const targetHeight = isPortrait ? 800 : 480;
+
+            // Process enhanced version (with tone mapping and measured palette)
+            const { canvas: enhancedProcessed } = processImage(
+                tempCanvas,
+                enhancedParams,
+                null, // no custom palette
+                {
+                    verbose: false,
+                    skipRotation: true, // Don't rotate in browser preview
+                    targetWidth: targetWidth,
+                    targetHeight: targetHeight,
+                }
+            );
+
+            // Update enhanced canvas dimensions and draw
+            const enhancedCanvas = document.getElementById('enhancedCanvas');
+            enhancedCanvas.width = enhancedProcessed.width;
+            enhancedCanvas.height = enhancedProcessed.height;
+            const enhancedCtx = enhancedCanvas.getContext('2d');
+            enhancedCtx.drawImage(enhancedProcessed, 0, 0);
+
+            // Process stock version (no tone mapping, theoretical palette)
+            const { canvas: stockProcessed } = processImage(
+                tempCanvas,
+                stockParams,
+                null, // no custom palette
+                {
+                    verbose: false,
+                    skipRotation: true, // Don't rotate in browser preview
+                    targetWidth: targetWidth,
+                    targetHeight: targetHeight,
+                }
+            );
+
+            // Update stock canvas dimensions and draw
             const stockCanvas = document.getElementById('stockCanvas');
-            const stockCtx = stockCanvas.getContext('2d', { willReadFrequently: true });
-            const stockData = stockCtx.createImageData(originalImageData.width, originalImageData.height);
-            stockData.data.set(originalImageData.data);
-            processImage(stockData, stockParams);
-            stockCtx.putImageData(stockData, 0, 0);
+            stockCanvas.width = stockProcessed.width;
+            stockCanvas.height = stockProcessed.height;
+            const stockCtx = stockCanvas.getContext('2d');
+            stockCtx.drawImage(stockProcessed, 0, 0);
 
             // Set initial slider position to 30%
             sliderContainer.style.left = `${sliderPosition * 100}%`;

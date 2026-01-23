@@ -887,8 +887,8 @@ function updatePreview() {
     {
       verbose: false,
       skipRotation: true,
-      targetWidth: 800,
-      targetHeight: 480,
+      targetWidth: naturalWidth,
+      targetHeight: naturalHeight,
     },
   );
 

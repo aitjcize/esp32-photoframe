@@ -705,8 +705,8 @@ function processImage(
   // If portrait and skipRotation, use portrait dimensions; otherwise landscape
   let finalWidth, finalHeight;
   if (isPortrait && skipRotation) {
-    finalWidth = targetHeight; // 480 for portrait
-    finalHeight = targetWidth; // 800 for portrait
+    finalWidth = targetWidth; // 480 for portrait
+    finalHeight = targetHeight; // 800 for portrait
   } else {
     finalWidth = targetWidth; // 800 for landscape
     finalHeight = targetHeight; // 480 for landscape
