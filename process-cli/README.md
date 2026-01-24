@@ -1,6 +1,6 @@
-# PhotoFrame CLI Image Processor
+# ESP32 PhotoFrame CLI
 
-Node.js CLI tool that shares the exact same image processing code (`image-processor.js`) with the webapp for consistent results.
+Node.js CLI tool for processing images for ESP32 PhotoFrame. Shares the exact same image processing code (`image-processor.js`) with the webapp for consistent results.
 
 ## Features
 
@@ -13,10 +13,16 @@ Node.js CLI tool that shares the exact same image processing code (`image-proces
 
 ## Installation
 
+### From source (recommended)
+
 ```bash
-cd process-cli
+git clone https://github.com/aitjcize/esp32-photoframe.git
+cd esp32-photoframe/esp32-photoframe/process-cli
 npm install
+npm link  # Makes photoframe-process command available globally
 ```
+
+After installation, the `photoframe-process` command will be available globally.
 
 **System Requirements:**
 - Node.js 14+ up to Node.js 20 (dependencies are no longer supported for higher versions)
@@ -34,24 +40,26 @@ sudo apt-get install build-essential libcairo2-dev libpango1.0-dev libjpeg-dev l
 
 ## Usage
 
+> **Note:** If installed globally via npm, use `photoframe-process` command. If running from source, use `node cli.js`.
+
 ### Single File Processing
 
 ```bash
 # Basic usage
-node cli.js input.jpg
+photoframe-process input.jpg
 
 # With output directory
-node cli.js input.jpg -o /path/to/output
+photoframe-process input.jpg -o /path/to/output
 
 # Custom parameters
-node cli.js input.jpg --scurve-strength 0.8 --saturation 1.5
+photoframe-process input.jpg --scurve-strength 0.8 --saturation 1.5
 ```
 
 ### Folder Processing
 
 ```bash
 # Process entire album directory
-node cli.js ~/Photos/Albums -o output/
+photoframe-process ~/Photos/Albums -o output/
 ```
 
 Automatically processes subdirectories as albums, preserving folder structure.
@@ -60,17 +68,17 @@ Automatically processes subdirectories as albums, preserving folder structure.
 
 ```bash
 # Fetch settings and palette from device
-node cli.js input.jpg --device-parameters
-node cli.js ~/Photos/Albums --device-parameters -o output/
-node cli.js input.jpg --device-parameters --host 192.168.1.100
+photoframe-process input.jpg --device-parameters
+photoframe-process ~/Photos/Albums --device-parameters -o output/
+photoframe-process input.jpg --device-parameters --host 192.168.1.100
 ```
 
 ### Direct Upload
 
 ```bash
 # Upload to device (no disk output)
-node cli.js input.jpg --upload --host photoframe.local
-node cli.js ~/Photos/Albums --upload --device-parameters --host photoframe.local
+photoframe-process input.jpg --upload --host photoframe.local
+photoframe-process ~/Photos/Albums --upload --device-parameters --host photoframe.local
 ```
 
 Processes in temp directory, uploads via HTTP API, auto-cleans up.
@@ -79,10 +87,10 @@ Processes in temp directory, uploads via HTTP API, auto-cleans up.
 
 ```bash
 # Serve images over HTTP (no SD card needed)
-node cli.js --serve ~/Photos/Albums --serve-port 9000 --device-parameters --host photoframe.local
+photoframe-process --serve ~/Photos/Albums --serve-port 9000 --device-parameters --host photoframe.local
 
 # Different formats: png (smaller), bmp (faster), jpg (smallest)
-node cli.js --serve ~/Photos --serve-port 9000 --serve-format png
+photoframe-process --serve ~/Photos --serve-port 9000 --serve-format png
 ```
 
 Serves random images on each request. Configure ESP32: **Rotation Mode** → URL, **Image URL** → `http://your-ip:9000/image`
@@ -134,17 +142,49 @@ Options:
 
 ```bash
 # Basic processing
-node cli.js photo.jpg -o output/
+photoframe-process photo.jpg -o output/
 
 # With device parameters (recommended)
-node cli.js photo.jpg --device-parameters -o output/
+photoframe-process photo.jpg --device-parameters -o output/
 
 # Batch folder upload
-node cli.js ~/Photos/Albums --upload --device-parameters --host photoframe.local
+photoframe-process ~/Photos/Albums --upload --device-parameters --host photoframe.local
 
 # Custom tone mapping
-node cli.js photo.jpg --scurve-strength 1.0 --saturation 1.5 -o output/
+photoframe-process photo.jpg --scurve-strength 1.0 --saturation 1.5 -o output/
 
 # Preview mode (darker, matches e-paper)
-node cli.js photo.jpg --render-measured -o preview/
+photoframe-process photo.jpg --render-measured -o preview/
+```
+
+## Publishing to npm
+
+To publish this package to npm (maintainers only):
+
+```bash
+cd process-cli
+
+# Login to npm (first time only)
+npm login
+
+# Publish the package
+npm publish
+
+# For updates, bump version first
+npm version patch  # or minor, or major
+npm publish
+```
+
+## Development
+
+```bash
+# Run tests
+npm test
+
+# Run specific test
+npm run test:orientation
+
+# Link for local development
+npm link
+photoframe-process input.jpg  # Test global command
 ```

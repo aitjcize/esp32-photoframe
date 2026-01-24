@@ -1,8 +1,8 @@
 {
-  "name": "photoframe-cli",
+  "name": "esp32-photoframe-cli",
   "version": "1.0.0",
-  "description": "ESP32 PhotoFrame image processing CLI",
-  "main": "cli.js",
+  "description": "CLI tool for processing images for ESP32 PhotoFrame - converts images to optimized BMP format with dithering",
+  "main": "image-processor.js",
   "type": "module",
   "bin": {
     "photoframe-process": "./cli.js"
@@ -25,8 +25,32 @@
   "keywords": [
     "esp32",
     "photoframe",
-    "image-processing"
+    "image-processing",
+    "dithering",
+    "e-ink",
+    "e-paper",
+    "bmp",
+    "image-conversion"
   ],
-  "author": "",
-  "license": "MIT"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aitjcize/esp32-photoframe.git",
+    "directory": "esp32-photoframe/process-cli"
+  },
+  "homepage": "https://github.com/aitjcize/esp32-photoframe#readme",
+  "bugs": {
+    "url": "https://github.com/aitjcize/esp32-photoframe/issues"
+  },
+  "author": "aitjcize",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "cli.js",
+    "image-processor.js",
+    "utils.js",
+    "server.js",
+    "README.md"
+  ]
 }
