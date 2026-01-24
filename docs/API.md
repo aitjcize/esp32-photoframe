@@ -229,23 +229,31 @@ HTTP Status: `503 Service Unavailable`
 
 ### `POST /api/display-image`
 
-Upload and display a JPEG image directly (for automation/integration).
+Upload and display an image directly (for automation/integration). Supports both single file upload and multipart upload with optional thumbnail.
 
-**Request:** 
-- Content-Type: `image/jpeg`
-- Body: Raw JPEG image data (max 5MB)
+**Request Format 1: Single File Upload**
+- Content-Type: `image/jpeg`, `image/png`, or `image/bmp`
+- Body: Raw image data (max 5MB)
+
+**Request Format 2: Multipart Upload (with optional thumbnail)**
+- Content-Type: `multipart/form-data`
+- Fields:
+  - `image`: Image file (JPEG, PNG, or BMP)
+  - `thumbnail`: (Optional) Thumbnail JPEG for gallery/HA integration
 
 **Processing:**
-1. Receives raw JPEG data
+1. Receives image data (JPEG, PNG, or BMP)
 2. Saves to temporary file
-3. Decodes JPEG and validates dimensions
-4. If portrait (height > width): rotates 90° clockwise
-5. If dimensions don't match 800×480: applies cover mode scaling
-   - Scales to fill entire display (maintains aspect ratio)
-   - Center-crops any excess
-6. Applies enhanced processing (S-curve tone mapping, dithering)
-7. Displays on e-paper immediately
-8. Cleans up temporary files
+3. **For JPEG:**
+   - Decodes JPEG
+   - If portrait (height > width): rotates 90° clockwise
+   - If dimensions don't match 800×480: applies cover mode scaling (scales to fill, center-crops excess)
+   - Applies Floyd-Steinberg dithering to 7-color palette
+   - Converts to BMP
+4. **For PNG/BMP:** Uses directly without any processing (must be pre-processed to correct dimensions and format)
+5. Displays on e-paper immediately
+6. If thumbnail provided in multipart: saves as `.current.jpg` for HA integration
+7. Cleans up temporary files
 
 **Response (Success):**
 ```json
@@ -266,11 +274,32 @@ HTTP Status: `503 Service Unavailable`
 
 **Example Usage:**
 
-**curl:**
+**curl (single file):**
 ```bash
+# JPEG
 curl -X POST \
   -H "Content-Type: image/jpeg" \
   --data-binary @photo.jpg \
+  http://photoframe.local/api/display-image
+
+# PNG
+curl -X POST \
+  -H "Content-Type: image/png" \
+  --data-binary @photo.png \
+  http://photoframe.local/api/display-image
+
+# BMP
+curl -X POST \
+  -H "Content-Type: image/bmp" \
+  --data-binary @photo.bmp \
+  http://photoframe.local/api/display-image
+```
+
+**curl (multipart with thumbnail):**
+```bash
+curl -X POST \
+  -F "image=@photo.jpg" \
+  -F "thumbnail=@thumb.jpg" \
   http://photoframe.local/api/display-image
 ```
 
@@ -299,9 +328,14 @@ rest_command:
 
 **Note:** 
 - This endpoint is designed for automation and integration use cases
-- Image is processed with the enhanced algorithm (S-curve tone mapping, dithering)
+- Supports JPEG, PNG, and BMP formats
+- JPEG images are decoded and dithered (Floyd-Steinberg) to 7-color palette
+- PNG/BMP images are used directly without additional processing
+- For tone mapping and advanced processing, use the webapp or CLI tool to pre-process images
+- Multipart upload allows providing a pre-generated thumbnail for gallery/HA integration
 - Display operation takes ~30 seconds
 - Concurrent requests are rejected while display is busy
+- Sends Home Assistant update notification after successful display
 
 ---
 
@@ -522,6 +556,296 @@ automation:
 - Can be integrated with home automation to sleep during certain hours
 - Device will disconnect from WiFi during sleep
 - To control wake-up timing, configure auto-rotate settings via `/api/config`
+
+---
+
+### `POST /api/rotate`
+
+Manually trigger image rotation (respects rotation mode setting).
+
+**Request:**
+```json
+{}
+```
+
+No request body required (can be empty JSON or omitted).
+
+**Response:**
+```json
+{
+  "status": "success"
+}
+```
+
+**Behavior:**
+- Respects the configured rotation mode (`sdcard` or `url`)
+- If `rotation_mode` is `"sdcard"`: Rotates to next random image from enabled albums
+- If `rotation_mode` is `"url"`: Downloads and displays image from configured URL
+- Resets sleep timer
+- Sends Home Assistant update notification
+
+**Example Usage:**
+
+**curl:**
+```bash
+curl -X POST http://photoframe.local/api/rotate
+```
+
+---
+
+### `GET /api/current_image`
+
+Get the currently displayed image (thumbnail or fallback to full image).
+
+**Response:** Image file (JPEG, PNG, or BMP)
+
+**Behavior:**
+- Returns `.current.jpg` thumbnail if available (for HA integration)
+- Falls back to `.current.png` if PNG was uploaded
+- Falls back to `.current.bmp` if no thumbnail exists
+- Content-Type header set appropriately based on file type
+
+**Example Usage:**
+
+**curl:**
+```bash
+curl http://photoframe.local/api/current_image -o current.jpg
+```
+
+**Home Assistant (Camera):**
+```yaml
+camera:
+  - platform: generic
+    name: "PhotoFrame Current Image"
+    still_image_url: "http://photoframe.local/api/current_image"
+    verify_ssl: false
+```
+
+---
+
+### `GET /api/version`
+
+Get firmware version information.
+
+**Response:**
+```json
+{
+  "version": "2.1.0",
+  "build_date": "2026-01-24",
+  "git_hash": "abc123def"
+}
+```
+
+**Fields:**
+- `version`: Semantic version string
+- `build_date`: Build date in YYYY-MM-DD format
+- `git_hash`: Git commit hash (first 9 characters)
+
+---
+
+### `GET /api/ota/status`
+
+Get current OTA (Over-The-Air update) status.
+
+**Response:**
+```json
+{
+  "status": "idle",
+  "current_version": "2.1.0",
+  "latest_version": "2.1.0",
+  "update_available": false
+}
+```
+
+**Status Values:**
+- `"idle"`: No update in progress
+- `"checking"`: Checking for updates
+- `"downloading"`: Downloading update
+- `"installing"`: Installing update
+- `"error"`: Update failed
+
+---
+
+### `POST /api/ota/check`
+
+Check for available firmware updates.
+
+**Request:**
+```json
+{}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "current_version": "2.1.0",
+  "latest_version": "2.2.0",
+  "update_available": true,
+  "release_notes": "Bug fixes and improvements"
+}
+```
+
+---
+
+### `POST /api/ota/update`
+
+Start firmware update process.
+
+**Request:**
+```json
+{}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Update started"
+}
+```
+
+**Note:** Device will download and install the update, then automatically reboot.
+
+---
+
+### `GET /api/settings/processing`
+
+Get current image processing settings.
+
+**Response:**
+```json
+{
+  "exposure": 1.0,
+  "saturation": 1.3,
+  "tone_mode": "scurve",
+  "contrast": 1.0,
+  "scurve_strength": 0.9,
+  "scurve_shadow": 0.0,
+  "scurve_highlight": 1.5,
+  "scurve_midpoint": 0.5,
+  "color_method": "rgb",
+  "processing_mode": "enhanced"
+}
+```
+
+**Fields:**
+- `exposure`: Exposure multiplier (0.5-2.0, 1.0=normal)
+- `saturation`: Saturation multiplier (0.5-2.0, 1.0=normal)
+- `tone_mode`: Tone mapping mode - `"scurve"` or `"contrast"`
+- `contrast`: Contrast multiplier for simple mode (0.5-2.0, 1.0=normal)
+- `scurve_strength`: S-curve overall strength (0.0-1.0)
+- `scurve_shadow`: S-curve shadow boost (0.0-1.0)
+- `scurve_highlight`: S-curve highlight compress (0.5-5.0)
+- `scurve_midpoint`: S-curve midpoint (0.3-0.7)
+- `color_method`: Color matching - `"rgb"` or `"lab"`
+- `processing_mode`: Processing algorithm - `"enhanced"` or `"stock"`
+
+---
+
+### `POST /api/settings/processing`
+
+Update image processing settings.
+
+**Request:**
+```json
+{
+  "exposure": 1.2,
+  "saturation": 1.5,
+  "tone_mode": "scurve",
+  "scurve_strength": 1.0
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success"
+}
+```
+
+**Note:** Only include fields you want to update. Omitted fields retain current values.
+
+---
+
+### `DELETE /api/settings/processing`
+
+Reset image processing settings to defaults.
+
+**Request:**
+```json
+{}
+```
+
+**Response:**
+```json
+{
+  "status": "success"
+}
+```
+
+---
+
+### `GET /api/settings/palette`
+
+Get current color palette calibration.
+
+**Response:**
+```json
+{
+  "black": [0, 0, 0],
+  "white": [255, 255, 255],
+  "green": [0, 255, 0],
+  "blue": [0, 0, 255],
+  "red": [255, 0, 0],
+  "yellow": [255, 255, 0],
+  "orange": [255, 128, 0]
+}
+```
+
+**Note:** Returns RGB values for each of the 7 e-paper colors.
+
+---
+
+### `POST /api/settings/palette`
+
+Update color palette calibration.
+
+**Request:**
+```json
+{
+  "black": [10, 10, 10],
+  "white": [245, 245, 245],
+  "red": [220, 0, 0]
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success"
+}
+```
+
+**Note:** Only include colors you want to update. Omitted colors retain current values.
+
+---
+
+### `DELETE /api/settings/palette`
+
+Reset color palette to factory defaults.
+
+**Request:**
+```json
+{}
+```
+
+**Response:**
+```json
+{
+  "status": "success"
+}
+```
 
 ---
 
