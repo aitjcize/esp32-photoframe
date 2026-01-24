@@ -219,7 +219,7 @@ static void button_task(void *arg)
             if (duration > 50 && duration < 3000) {
                 ESP_LOGI(TAG, "Key button pressed, triggering rotation");
                 power_manager_reset_sleep_timer();
-                display_manager_rotate_from_sdcard();
+                trigger_image_rotation();
             }
         }
 
