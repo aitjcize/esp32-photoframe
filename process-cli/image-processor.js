@@ -285,11 +285,13 @@ function findClosestColor(r, g, b, method = "rgb", palette = PALETTE_MEASURED) {
     : findClosestColorRGB(r, g, b, palette);
 }
 
-function applyFloydSteinbergDither(
+// Error diffusion dithering with configurable algorithm
+function applyErrorDiffusionDither(
   imageData,
   method = "rgb",
   outputPalette = PALETTE_MEASURED,
   ditherPalette = PALETTE_MEASURED,
+  algorithm = "floyd-steinberg",
 ) {
   const width = imageData.width;
   const height = imageData.height;
@@ -297,6 +299,55 @@ function applyFloydSteinbergDither(
 
   // Create error buffer
   const errors = new Array(width * height * 3).fill(0);
+
+  // Define error diffusion matrices for different algorithms
+  // Format: [dx, dy, weight]
+  const diffusionMatrices = {
+    "floyd-steinberg": [
+      [1, 0, 7 / 16],
+      [-1, 1, 3 / 16],
+      [0, 1, 5 / 16],
+      [1, 1, 1 / 16],
+    ],
+    stucki: [
+      [1, 0, 8 / 42],
+      [2, 0, 4 / 42],
+      [-2, 1, 2 / 42],
+      [-1, 1, 4 / 42],
+      [0, 1, 8 / 42],
+      [1, 1, 4 / 42],
+      [2, 1, 2 / 42],
+      [-2, 2, 1 / 42],
+      [-1, 2, 2 / 42],
+      [0, 2, 4 / 42],
+      [1, 2, 2 / 42],
+      [2, 2, 1 / 42],
+    ],
+    burkes: [
+      [1, 0, 8 / 32],
+      [2, 0, 4 / 32],
+      [-2, 1, 2 / 32],
+      [-1, 1, 4 / 32],
+      [0, 1, 8 / 32],
+      [1, 1, 4 / 32],
+      [2, 1, 2 / 32],
+    ],
+    sierra: [
+      [1, 0, 5 / 32],
+      [2, 0, 3 / 32],
+      [-2, 1, 2 / 32],
+      [-1, 1, 4 / 32],
+      [0, 1, 5 / 32],
+      [1, 1, 4 / 32],
+      [2, 1, 2 / 32],
+      [-1, 2, 2 / 32],
+      [0, 2, 3 / 32],
+      [1, 2, 2 / 32],
+    ],
+  };
+
+  const diffusionMatrix =
+    diffusionMatrices[algorithm] || diffusionMatrices["floyd-steinberg"];
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -334,32 +385,16 @@ function applyFloydSteinbergDither(
       const errG = oldG - ditherG;
       const errB = oldB - ditherB;
 
-      // Distribute error to neighboring pixels (Floyd-Steinberg)
-      if (x + 1 < width) {
-        const nextIdx = (y * width + (x + 1)) * 3;
-        errors[nextIdx] += (errR * 7) / 16;
-        errors[nextIdx + 1] += (errG * 7) / 16;
-        errors[nextIdx + 2] += (errB * 7) / 16;
-      }
+      // Distribute error to neighboring pixels using selected algorithm
+      for (const [dx, dy, weight] of diffusionMatrix) {
+        const nx = x + dx;
+        const ny = y + dy;
 
-      if (y + 1 < height) {
-        if (x > 0) {
-          const nextIdx = ((y + 1) * width + (x - 1)) * 3;
-          errors[nextIdx] += (errR * 3) / 16;
-          errors[nextIdx + 1] += (errG * 3) / 16;
-          errors[nextIdx + 2] += (errB * 3) / 16;
-        }
-
-        const nextIdx = ((y + 1) * width + x) * 3;
-        errors[nextIdx] += (errR * 5) / 16;
-        errors[nextIdx + 1] += (errG * 5) / 16;
-        errors[nextIdx + 2] += (errB * 5) / 16;
-
-        if (x + 1 < width) {
-          const nextIdx = ((y + 1) * width + (x + 1)) * 3;
-          errors[nextIdx] += (errR * 1) / 16;
-          errors[nextIdx + 1] += (errG * 1) / 16;
-          errors[nextIdx + 2] += (errB * 1) / 16;
+        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+          const nextIdx = (ny * width + nx) * 3;
+          errors[nextIdx] += errR * weight;
+          errors[nextIdx + 1] += errG * weight;
+          errors[nextIdx + 2] += errB * weight;
         }
       }
     }
@@ -817,28 +852,31 @@ function processImage(
   if (!skipDithering) {
     const mode = params.processingMode || "enhanced";
     const ditherPalette = customPalette || PALETTE_MEASURED;
+    const ditherAlgorithm = params.ditherAlgorithm || "floyd-steinberg";
 
     if (mode === "stock") {
       // Stock Waveshare algorithm: theoretical palette for dithering
       const outputPalette = params.renderMeasured
         ? ditherPalette
         : PALETTE_THEORETICAL;
-      applyFloydSteinbergDither(
+      applyErrorDiffusionDither(
         imageData,
         "rgb",
         outputPalette,
         PALETTE_THEORETICAL,
+        ditherAlgorithm,
       );
     } else {
       // Enhanced algorithm: use color method and measured palette
       const outputPalette = params.renderMeasured
         ? ditherPalette
         : PALETTE_THEORETICAL;
-      applyFloydSteinbergDither(
+      applyErrorDiffusionDither(
         imageData,
         params.colorMethod,
         outputPalette,
         ditherPalette,
+        ditherAlgorithm,
       );
     }
   }

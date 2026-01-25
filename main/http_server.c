@@ -786,6 +786,12 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         const char *temp_jpg_path = CURRENT_JPG_PATH;
         const char *display_path = NULL;
 
+        // Load processing settings to get dithering algorithm
+        processing_settings_t proc_settings;
+        if (processing_settings_load(&proc_settings) != ESP_OK) {
+            processing_settings_get_defaults(&proc_settings);
+        }
+
         // Process the uploaded image
         if (upload_is_png) {
             unlink(temp_png_path);
@@ -811,7 +817,8 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             display_path = temp_bmp_path;
         } else {
             // Assume JPEG, convert to BMP
-            err = image_processor_convert_jpg_to_bmp(result.image_path, temp_bmp_path, false);
+            err = image_processor_convert_jpg_to_bmp(result.image_path, temp_bmp_path, false,
+                                                     proc_settings.dither_algorithm);
             unlink(result.image_path);
             if (err != ESP_OK) {
                 if (result.has_thumbnail)
@@ -935,6 +942,12 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
 
     ESP_LOGI(TAG, "Image received successfully, processing...");
 
+    // Load processing settings to get dithering algorithm
+    processing_settings_t proc_settings;
+    if (processing_settings_load(&proc_settings) != ESP_OK) {
+        processing_settings_get_defaults(&proc_settings);
+    }
+
     esp_err_t err = ESP_OK;
     const char *display_path = NULL;
 
@@ -959,7 +972,8 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         ESP_LOGI(TAG, "PNG saved: %s", temp_png_path);
     } else {
         // Convert JPG to BMP using image processor
-        err = image_processor_convert_jpg_to_bmp(temp_upload_path, temp_bmp_path, false);
+        err = image_processor_convert_jpg_to_bmp(temp_upload_path, temp_bmp_path, false,
+                                                 proc_settings.dither_algorithm);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to convert JPG to BMP: %s", esp_err_to_name(err));
             unlink(temp_upload_path);
@@ -1940,8 +1954,8 @@ static esp_err_t processing_settings_handler(httpd_req_t *req)
         cJSON_AddNumberToObject(response, "highlightCompress", settings.highlight_compress);
         cJSON_AddNumberToObject(response, "midpoint", settings.midpoint);
         cJSON_AddStringToObject(response, "colorMethod", settings.color_method);
-        cJSON_AddBoolToObject(response, "renderMeasured", settings.render_measured);
         cJSON_AddStringToObject(response, "processingMode", settings.processing_mode);
+        cJSON_AddStringToObject(response, "ditherAlgorithm", settings.dither_algorithm);
 
         char *json_str = cJSON_Print(response);
         httpd_resp_set_type(req, "application/json");
@@ -2005,12 +2019,13 @@ static esp_err_t processing_settings_handler(httpd_req_t *req)
         if ((item = cJSON_GetObjectItem(json, "colorMethod")) && cJSON_IsString(item)) {
             strncpy(settings.color_method, item->valuestring, sizeof(settings.color_method) - 1);
         }
-        if ((item = cJSON_GetObjectItem(json, "renderMeasured")) && cJSON_IsBool(item)) {
-            settings.render_measured = cJSON_IsTrue(item);
-        }
         if ((item = cJSON_GetObjectItem(json, "processingMode")) && cJSON_IsString(item)) {
             strncpy(settings.processing_mode, item->valuestring,
                     sizeof(settings.processing_mode) - 1);
+        }
+        if ((item = cJSON_GetObjectItem(json, "ditherAlgorithm")) && cJSON_IsString(item)) {
+            strncpy(settings.dither_algorithm, item->valuestring,
+                    sizeof(settings.dither_algorithm) - 1);
         }
 
         cJSON_Delete(json);
@@ -2048,8 +2063,8 @@ static esp_err_t processing_settings_handler(httpd_req_t *req)
         cJSON_AddNumberToObject(response, "highlightCompress", settings.highlight_compress);
         cJSON_AddNumberToObject(response, "midpoint", settings.midpoint);
         cJSON_AddStringToObject(response, "colorMethod", settings.color_method);
-        cJSON_AddBoolToObject(response, "renderMeasured", settings.render_measured);
         cJSON_AddStringToObject(response, "processingMode", settings.processing_mode);
+        cJSON_AddStringToObject(response, "ditherAlgorithm", settings.dither_algorithm);
 
         char *json_str = cJSON_Print(response);
         httpd_resp_set_type(req, "application/json");

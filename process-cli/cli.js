@@ -50,6 +50,7 @@ const DEFAULT_PARAMS = {
   midpoint: 0.5,
   colorMethod: "rgb",
   processingMode: "enhanced",
+  ditherAlgorithm: "floyd-steinberg",
 };
 
 // Fetch processing settings from device
@@ -81,6 +82,9 @@ async function fetchDeviceSettings(host) {
               } else if (settings.toneMode === "contrast") {
                 console.log(`  contrast=${settings.contrast}`);
               }
+              console.log(
+                `  processing_mode=${settings.processingMode}, dither_algorithm=${settings.ditherAlgorithm || "floyd-steinberg"}`,
+              );
               resolve(settings);
             } catch (error) {
               reject(
@@ -574,6 +578,7 @@ async function processImageFile(
     colorMethod: options.colorMethod,
     renderMeasured: options.renderMeasured,
     processingMode: options.processingMode,
+    ditherAlgorithm: options.ditherAlgorithm,
   };
 
   // Use shared processing pipeline with verbose logging
@@ -719,6 +724,11 @@ program
     "Processing algorithm: enhanced (with tone mapping) or stock (Waveshare original)",
     DEFAULT_PARAMS.processingMode,
   )
+  .option(
+    "--dither-algorithm <algorithm>",
+    "Dithering algorithm: floyd-steinberg, stucki, burkes, or sierra",
+    DEFAULT_PARAMS.ditherAlgorithm,
+  )
   .action(async (input, options) => {
     try {
       const inputPath = path.resolve(input);
@@ -833,6 +843,8 @@ program
             colorMethod: deviceSettings.colorMethod,
             renderMeasured: options.renderMeasured || false,
             processingMode: deviceSettings.processingMode,
+            ditherAlgorithm:
+              deviceSettings.ditherAlgorithm || options.ditherAlgorithm,
           }
         : {
             generateThumbnail: true,
@@ -848,6 +860,7 @@ program
             colorMethod: options.colorMethod,
             renderMeasured: options.renderMeasured || false,
             processingMode: options.processingMode,
+            ditherAlgorithm: options.ditherAlgorithm,
           };
 
       // Process based on input type

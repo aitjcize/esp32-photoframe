@@ -18,8 +18,8 @@ static const char *TAG = "processing_settings";
 #define NVS_PROC_HIGHLIGHT_KEY "proc_high"
 #define NVS_PROC_MIDPOINT_KEY "proc_mid"
 #define NVS_PROC_COLOR_METHOD_KEY "proc_col"
-#define NVS_PROC_RENDER_MEAS_KEY "proc_rend"
 #define NVS_PROC_MODE_KEY "proc_mode"
+#define NVS_PROC_DITHER_ALGO_KEY "proc_dith"
 
 void processing_settings_get_defaults(processing_settings_t *settings)
 {
@@ -32,8 +32,8 @@ void processing_settings_get_defaults(processing_settings_t *settings)
     settings->highlight_compress = 1.5f;
     settings->midpoint = 0.5f;
     strncpy(settings->color_method, "rgb", sizeof(settings->color_method) - 1);
-    settings->render_measured = true;
     strncpy(settings->processing_mode, "enhanced", sizeof(settings->processing_mode) - 1);
+    strncpy(settings->dither_algorithm, "floyd-steinberg", sizeof(settings->dither_algorithm) - 1);
 }
 
 esp_err_t processing_settings_init(void)
@@ -70,8 +70,8 @@ esp_err_t processing_settings_save(const processing_settings_t *settings)
     nvs_set_u32(nvs_handle, NVS_PROC_HIGHLIGHT_KEY, high_bits);
     nvs_set_u32(nvs_handle, NVS_PROC_MIDPOINT_KEY, mid_bits);
     nvs_set_str(nvs_handle, NVS_PROC_COLOR_METHOD_KEY, settings->color_method);
-    nvs_set_u8(nvs_handle, NVS_PROC_RENDER_MEAS_KEY, settings->render_measured ? 1 : 0);
     nvs_set_str(nvs_handle, NVS_PROC_MODE_KEY, settings->processing_mode);
+    nvs_set_str(nvs_handle, NVS_PROC_DITHER_ALGO_KEY, settings->dither_algorithm);
 
     err = nvs_commit(nvs_handle);
     nvs_close(nvs_handle);
@@ -129,13 +129,11 @@ esp_err_t processing_settings_load(processing_settings_t *settings)
     len = sizeof(settings->color_method);
     nvs_get_str(nvs_handle, NVS_PROC_COLOR_METHOD_KEY, settings->color_method, &len);
 
-    uint8_t render_meas = 1;
-    if (nvs_get_u8(nvs_handle, NVS_PROC_RENDER_MEAS_KEY, &render_meas) == ESP_OK) {
-        settings->render_measured = (render_meas != 0);
-    }
-
     len = sizeof(settings->processing_mode);
     nvs_get_str(nvs_handle, NVS_PROC_MODE_KEY, settings->processing_mode, &len);
+
+    len = sizeof(settings->dither_algorithm);
+    nvs_get_str(nvs_handle, NVS_PROC_DITHER_ALGO_KEY, settings->dither_algorithm, &len);
 
     nvs_close(nvs_handle);
 

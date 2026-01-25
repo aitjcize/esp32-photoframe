@@ -130,10 +130,10 @@
                         <label class="radio-option">
                             <input type="radio" name="processingMode" value="stock">
                             Stock (Waveshare Original)
+                            <small class="helper-text">Stock mode uses simple dithering without tone mapping</small>
                         </label>
                     </div>
                 </div>
-                <small class="helper-text">Stock mode uses simple dithering without tone mapping</small>
                 
                 <div class="form-group" id="colorMethodControl">
                     <label>Color Matching Method:</label>
@@ -145,6 +145,28 @@
                         <label class="radio-option">
                             <input type="radio" name="colorMethod" value="lab">
                             LAB Color Space (better for grayscale)
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="form-group" id="ditherAlgorithmControl">
+                    <label>Dithering Algorithm:</label>
+                    <div class="radio-group">
+                        <label class="radio-option">
+                            <input type="radio" name="ditherAlgorithm" value="floyd-steinberg" checked>
+                            Floyd-Steinberg (default)
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="ditherAlgorithm" value="stucki">
+                            Stucki (smoother)
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="ditherAlgorithm" value="burkes">
+                            Burkes (balanced)
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="ditherAlgorithm" value="sierra">
+                            Sierra (detailed)
                         </label>
                     </div>
                 </div>

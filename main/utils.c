@@ -14,6 +14,7 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "image_processor.h"
+#include "processing_settings.h"
 
 static const char *TAG = "utils";
 
@@ -217,8 +218,15 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
         err = ESP_OK;  // PNG move succeeded
         ESP_LOGI(TAG, "PNG saved: %s", temp_png_path);
     } else if (upload_is_jpeg) {
+        // Load processing settings to get dithering algorithm
+        processing_settings_t proc_settings;
+        if (processing_settings_load(&proc_settings) != ESP_OK) {
+            processing_settings_get_defaults(&proc_settings);
+        }
+
         // Convert the upload from JPG to BMP
-        err = image_processor_convert_jpg_to_bmp(temp_upload_path, temp_bmp_path, false);
+        err = image_processor_convert_jpg_to_bmp(temp_upload_path, temp_bmp_path, false,
+                                                 proc_settings.dither_algorithm);
         final_path = temp_bmp_path;
     } else {
         // Unknown format

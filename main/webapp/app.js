@@ -525,6 +525,7 @@ let currentParams = {
   colorMethod: "rgb",
   renderMeasured: true,
   processingMode: "enhanced",
+  ditherAlgorithm: "floyd-steinberg",
 };
 
 document.getElementById("fileInput").addEventListener("change", async (e) => {
@@ -1028,6 +1029,15 @@ document.querySelectorAll('input[name="colorMethod"]').forEach((radio) => {
   });
 });
 
+// Dithering algorithm radio buttons
+document.querySelectorAll('input[name="ditherAlgorithm"]').forEach((radio) => {
+  radio.addEventListener("change", (e) => {
+    currentParams.ditherAlgorithm = e.target.value;
+    updatePreview();
+    scheduleSaveSettings();
+  });
+});
+
 // Tone mode radio buttons
 document.querySelectorAll('input[name="toneMode"]').forEach((radio) => {
   radio.addEventListener("change", (e) => {
@@ -1058,15 +1068,25 @@ document.querySelectorAll('input[name="processingMode"]').forEach((radio) => {
     // Show/hide enhanced controls and canvas based on mode
     const enhancedControls = document.getElementById("enhancedControls");
     const colorMethodControl = document.getElementById("colorMethodControl");
+    const ditherAlgorithmControl = document.getElementById(
+      "ditherAlgorithmControl",
+    );
     const curveCanvasWrapper = document.querySelector(".curve-canvas-wrapper");
 
     if (e.target.value === "stock") {
       enhancedControls.style.display = "none";
       colorMethodControl.style.display = "none";
+      ditherAlgorithmControl.style.display = "none";
       curveCanvasWrapper.style.display = "none";
+      // Stock mode always uses Floyd-Steinberg
+      currentParams.ditherAlgorithm = "floyd-steinberg";
+      document.querySelector(
+        'input[name="ditherAlgorithm"][value="floyd-steinberg"]',
+      ).checked = true;
     } else {
       enhancedControls.style.display = "grid";
       colorMethodControl.style.display = "block";
+      ditherAlgorithmControl.style.display = "block";
       // Show curve canvas only if S-curve mode is selected
       if (currentParams.toneMode === "scurve") {
         curveCanvasWrapper.style.display = "block";
@@ -1135,10 +1155,16 @@ document.getElementById("resetParams").addEventListener("click", async () => {
       document.querySelector(
         `input[name="processingMode"][value="${defaults.processingMode}"]`,
       ).checked = true;
+      document.querySelector(
+        `input[name="ditherAlgorithm"][value="${defaults.ditherAlgorithm}"]`,
+      ).checked = true;
 
       // Update UI visibility
       const enhancedControls = document.getElementById("enhancedControls");
       const colorMethodControl = document.getElementById("colorMethodControl");
+      const ditherAlgorithmControl = document.getElementById(
+        "ditherAlgorithmControl",
+      );
       const contrastControl = document.getElementById("contrastControl");
       const curveCanvasWrapper = document.querySelector(
         ".curve-canvas-wrapper",
@@ -1147,10 +1173,12 @@ document.getElementById("resetParams").addEventListener("click", async () => {
       if (defaults.processingMode === "stock") {
         enhancedControls.style.display = "none";
         colorMethodControl.style.display = "none";
+        ditherAlgorithmControl.style.display = "none";
         curveCanvasWrapper.style.display = "none";
       } else {
         enhancedControls.style.display = "grid";
         colorMethodControl.style.display = "block";
+        ditherAlgorithmControl.style.display = "block";
         if (defaults.toneMode === "scurve") {
           contrastControl.style.display = "none";
           curveCanvasWrapper.style.display = "flex";
@@ -1749,20 +1777,28 @@ function initializeUI() {
   document.querySelector(
     `input[name="processingMode"][value="${currentParams.processingMode}"]`,
   ).checked = true;
+  document.querySelector(
+    `input[name="ditherAlgorithm"][value="${currentParams.ditherAlgorithm}"]`,
+  ).checked = true;
 
   // Update UI visibility based on settings
   const enhancedControls = document.getElementById("enhancedControls");
   const colorMethodControl = document.getElementById("colorMethodControl");
+  const ditherAlgorithmControl = document.getElementById(
+    "ditherAlgorithmControl",
+  );
   const contrastControl = document.getElementById("contrastControl");
   const curveCanvasWrapper = document.querySelector(".curve-canvas-wrapper");
 
   if (currentParams.processingMode === "stock") {
     enhancedControls.style.display = "none";
     colorMethodControl.style.display = "none";
+    ditherAlgorithmControl.style.display = "none";
     curveCanvasWrapper.style.display = "none";
   } else {
     enhancedControls.style.display = "grid";
     colorMethodControl.style.display = "block";
+    ditherAlgorithmControl.style.display = "block";
     if (currentParams.toneMode === "scurve") {
       contrastControl.style.display = "none";
       curveCanvasWrapper.style.display = "flex";

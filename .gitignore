@@ -15,3 +15,5 @@ docs/manifest.json
 docs/manifest-dev.json
 docs/photoframe-firmware-merged.bin
 docs/photoframe-firmware-dev.bin
+
+package-lock.json

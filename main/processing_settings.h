@@ -14,9 +14,9 @@ typedef struct {
     float shadow_boost;
     float highlight_compress;
     float midpoint;
-    char color_method[8];  // "rgb" or "lab"
-    bool render_measured;
-    char processing_mode[16];  // "enhanced" or "stock"
+    char color_method[8];       // "rgb" or "lab"
+    char processing_mode[16];   // "enhanced" or "stock"
+    char dither_algorithm[20];  // "floyd-steinberg", "stucki", "burkes", "sierra"
 } processing_settings_t;
 
 esp_err_t processing_settings_init(void);

@@ -66,8 +66,6 @@ typedef enum {
 #define NVS_ROTATE_INTERVAL_KEY "rotate_int"
 #define NVS_AUTO_ROTATE_KEY "auto_rotate"
 #define NVS_IMAGE_ORIENTATION_KEY "image_ori"
-#define NVS_BRIGHTNESS_KEY "brightness"
-#define NVS_CONTRAST_KEY "contrast"
 #define NVS_DEEP_SLEEP_KEY "deep_sleep"
 #define NVS_ENABLED_ALBUMS_KEY "enabled_albums"
 #define NVS_IMAGE_URL_KEY "image_url"

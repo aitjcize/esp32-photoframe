@@ -612,7 +612,7 @@
                 </div>
 
                 <div id="controlsGrid">
-                    <!-- Row 1: Color Matching Method -->
+                    <!-- Row 1: Color Matching Method & Dithering Algorithm -->
                     <div class="controls-grid" style="margin-bottom: 20px;">
                         <div class="form-group">
                             <label>Color Matching Method:</label>
@@ -626,6 +626,29 @@
                                     LAB Color Space (better for grayscale)
                                 </label>
                             </div>
+                        </div>
+                        
+                        <div class="form-group" id="ditherAlgorithmControl">
+                            <label>Dithering Algorithm:</label>
+                            <div style="margin-top: 8px;">
+                                <label style="display: block; margin-bottom: 5px;">
+                                    <input type="radio" name="ditherAlgorithm" value="floyd-steinberg" checked style="margin-right: 5px;">
+                                    Floyd-Steinberg (default)
+                                </label>
+                                <label style="display: block; margin-bottom: 5px;">
+                                    <input type="radio" name="ditherAlgorithm" value="stucki" style="margin-right: 5px;">
+                                    Stucki (smoother)
+                                </label>
+                                <label style="display: block; margin-bottom: 5px;">
+                                    <input type="radio" name="ditherAlgorithm" value="burkes" style="margin-right: 5px;">
+                                    Burkes (balanced)
+                                </label>
+                                <label style="display: block;">
+                                    <input type="radio" name="ditherAlgorithm" value="sierra" style="margin-right: 5px;">
+                                    Sierra (detailed)
+                                </label>
+                            </div>
+                            <small>Note: Stock mode always uses Floyd-Steinberg</small>
                         </div>
                     </div>
                     
@@ -878,12 +901,14 @@
             midpoint: 0.5,
             colorMethod: 'rgb',
             renderMeasured: true,
-            processingMode: 'enhanced'
+            processingMode: 'enhanced',
+            ditherAlgorithm: 'floyd-steinberg'
         };
 
         const stockParams = {
             processingMode: 'stock',
-            renderMeasured: true
+            renderMeasured: true,
+            ditherAlgorithm: 'floyd-steinberg'
         };
 
         const fileInput = document.getElementById('fileInput');
@@ -1209,6 +1234,14 @@
             });
         });
 
+        document.querySelectorAll('input[name="ditherAlgorithm"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                enhancedParams.ditherAlgorithm = e.target.value;
+                stockParams.ditherAlgorithm = e.target.value;
+                updatePreviews();
+            });
+        });
+
         document.querySelectorAll('input[name="toneMode"]').forEach(radio => {
             radio.addEventListener('change', (e) => {
                 enhancedParams.toneMode = e.target.value;
@@ -1247,6 +1280,8 @@
             enhancedParams.highlightCompress = 1.5;
             enhancedParams.midpoint = 0.5;
             enhancedParams.colorMethod = 'rgb';
+            enhancedParams.ditherAlgorithm = 'floyd-steinberg';
+            stockParams.ditherAlgorithm = 'floyd-steinberg';
 
             document.getElementById('exposure').value = 1.0;
             document.getElementById('exposureValue').textContent = '1.0';
@@ -1263,6 +1298,7 @@
             document.getElementById('scurveMidpoint').value = 0.5;
             document.getElementById('midpointValue').textContent = '0.5';
             document.querySelector('input[name="colorMethod"][value="rgb"]').checked = true;
+            document.querySelector('input[name="ditherAlgorithm"][value="floyd-steinberg"]').checked = true;
             document.querySelector('input[name="toneMode"][value="scurve"]').checked = true;
             document.getElementById('contrastControl').style.display = 'none';
             document.getElementById('curveWrapper').style.display = 'flex';

@@ -20,6 +20,20 @@ typedef struct {
     uint8_t b;
 } rgb_t;
 
+typedef enum {
+    DITHER_FLOYD_STEINBERG,
+    DITHER_STUCKI,
+    DITHER_BURKES,
+    DITHER_SIERRA
+} dither_algorithm_t;
+
+typedef struct {
+    int dx;
+    int dy;
+    int numerator;
+    int denominator;
+} error_diffusion_t;
+
 // Theoretical palette - used for BMP output (firmware compatibility)
 static const rgb_t palette[7] = {
     {0, 0, 0},        // Black
@@ -85,20 +99,36 @@ static int find_closest_color(uint8_t r, uint8_t g, uint8_t b, const rgb_t *pal)
     return closest;
 }
 
-static void apply_floyd_steinberg_dither(uint8_t *image, int width, int height,
-                                         const rgb_t *dither_palette)
+static dither_algorithm_t parse_dither_algorithm(const char *algo_str)
 {
-    // Use two scanlines for error diffusion (current and next row)
-    // This reduces memory from ~4.6MB to ~10KB for 800x480
+    if (strcmp(algo_str, "stucki") == 0) {
+        return DITHER_STUCKI;
+    } else if (strcmp(algo_str, "burkes") == 0) {
+        return DITHER_BURKES;
+    } else if (strcmp(algo_str, "sierra") == 0) {
+        return DITHER_SIERRA;
+    }
+    return DITHER_FLOYD_STEINBERG;  // Default
+}
+
+static void apply_error_diffusion_dither(uint8_t *image, int width, int height,
+                                         const rgb_t *dither_palette, dither_algorithm_t algorithm)
+{
+    // Use three scanlines for error diffusion (current, next, and next+1 row)
+    // This supports algorithms like Stucki and Sierra that diffuse to dy=2
+    // Memory usage: ~15KB for 800x480 (3 rows * 800 pixels * 3 channels * 4 bytes)
     int *curr_errors = (int *) heap_caps_calloc(width * 3, sizeof(int), MALLOC_CAP_SPIRAM);
     int *next_errors = (int *) heap_caps_calloc(width * 3, sizeof(int), MALLOC_CAP_SPIRAM);
+    int *next2_errors = (int *) heap_caps_calloc(width * 3, sizeof(int), MALLOC_CAP_SPIRAM);
 
-    if (!curr_errors || !next_errors) {
+    if (!curr_errors || !next_errors || !next2_errors) {
         ESP_LOGE(TAG, "Failed to allocate error buffers");
         if (curr_errors)
             free(curr_errors);
         if (next_errors)
             free(next_errors);
+        if (next2_errors)
+            free(next2_errors);
         return;
     }
 
@@ -128,45 +158,83 @@ static void apply_floyd_steinberg_dither(uint8_t *image, int width, int height,
             int err_g = old_g - dither_palette[color_idx].g;
             int err_b = old_b - dither_palette[color_idx].b;
 
-            // Distribute error to neighboring pixels
-            if (x + 1 < width) {
-                // Right pixel (current row)
-                curr_errors[(x + 1) * 3] += err_r * 7 / 16;
-                curr_errors[(x + 1) * 3 + 1] += err_g * 7 / 16;
-                curr_errors[(x + 1) * 3 + 2] += err_b * 7 / 16;
+            // Define error diffusion matrices for different algorithms
+            // Format: {dx, dy, numerator, denominator}
+            const error_diffusion_t *matrix;
+            int matrix_size;
+
+            static const error_diffusion_t floyd_steinberg[] = {
+                {1, 0, 7, 16}, {-1, 1, 3, 16}, {0, 1, 5, 16}, {1, 1, 1, 16}};
+            static const error_diffusion_t stucki[] = {
+                {1, 0, 8, 42},  {2, 0, 4, 42}, {-2, 1, 2, 42}, {-1, 1, 4, 42},
+                {0, 1, 8, 42},  {1, 1, 4, 42}, {2, 1, 2, 42},  {-2, 2, 1, 42},
+                {-1, 2, 2, 42}, {0, 2, 4, 42}, {1, 2, 2, 42},  {2, 2, 1, 42}};
+            static const error_diffusion_t burkes[] = {
+                {1, 0, 8, 32}, {2, 0, 4, 32}, {-2, 1, 2, 32}, {-1, 1, 4, 32},
+                {0, 1, 8, 32}, {1, 1, 4, 32}, {2, 1, 2, 32}};
+            static const error_diffusion_t sierra[] = {
+                {1, 0, 5, 32}, {2, 0, 3, 32}, {-2, 1, 2, 32}, {-1, 1, 4, 32}, {0, 1, 5, 32},
+                {1, 1, 4, 32}, {2, 1, 2, 32}, {-1, 2, 2, 32}, {0, 2, 3, 32},  {1, 2, 2, 32}};
+
+            switch (algorithm) {
+            case DITHER_STUCKI:
+                matrix = stucki;
+                matrix_size = sizeof(stucki) / sizeof(error_diffusion_t);
+                break;
+            case DITHER_BURKES:
+                matrix = burkes;
+                matrix_size = sizeof(burkes) / sizeof(error_diffusion_t);
+                break;
+            case DITHER_SIERRA:
+                matrix = sierra;
+                matrix_size = sizeof(sierra) / sizeof(error_diffusion_t);
+                break;
+            case DITHER_FLOYD_STEINBERG:
+            default:
+                matrix = floyd_steinberg;
+                matrix_size = sizeof(floyd_steinberg) / sizeof(error_diffusion_t);
+                break;
             }
 
-            if (y + 1 < height) {
-                // Bottom-left pixel (next row)
-                if (x > 0) {
-                    next_errors[(x - 1) * 3] += err_r * 3 / 16;
-                    next_errors[(x - 1) * 3 + 1] += err_g * 3 / 16;
-                    next_errors[(x - 1) * 3 + 2] += err_b * 3 / 16;
-                }
+            // Distribute error to neighboring pixels using selected algorithm
+            for (int i = 0; i < matrix_size; i++) {
+                int nx = x + matrix[i].dx;
+                int ny = y + matrix[i].dy;
 
-                // Bottom pixel (next row)
-                next_errors[x * 3] += err_r * 5 / 16;
-                next_errors[x * 3 + 1] += err_g * 5 / 16;
-                next_errors[x * 3 + 2] += err_b * 5 / 16;
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                    int *target_errors;
+                    if (ny == y) {
+                        target_errors = curr_errors;  // Same row (dy=0)
+                    } else if (ny == y + 1) {
+                        target_errors = next_errors;  // Next row (dy=1)
+                    } else if (ny == y + 2) {
+                        target_errors = next2_errors;  // Two rows down (dy=2)
+                    } else {
+                        continue;  // Skip if beyond our buffer range
+                    }
 
-                // Bottom-right pixel (next row)
-                if (x + 1 < width) {
-                    next_errors[(x + 1) * 3] += err_r * 1 / 16;
-                    next_errors[(x + 1) * 3 + 1] += err_g * 1 / 16;
-                    next_errors[(x + 1) * 3 + 2] += err_b * 1 / 16;
+                    int target_idx = nx * 3;
+                    target_errors[target_idx] +=
+                        err_r * matrix[i].numerator / matrix[i].denominator;
+                    target_errors[target_idx + 1] +=
+                        err_g * matrix[i].numerator / matrix[i].denominator;
+                    target_errors[target_idx + 2] +=
+                        err_b * matrix[i].numerator / matrix[i].denominator;
                 }
             }
         }
 
-        // Swap error buffers for next row
+        // Rotate error buffers for next row
         int *temp = curr_errors;
         curr_errors = next_errors;
-        next_errors = temp;
-        memset(next_errors, 0, width * 3 * sizeof(int));
+        next_errors = next2_errors;
+        next2_errors = temp;
+        memset(next2_errors, 0, width * 3 * sizeof(int));
     }
 
     free(curr_errors);
     free(next_errors);
+    free(next2_errors);
 }
 
 esp_err_t image_processor_init(void)
@@ -334,10 +402,11 @@ static esp_err_t write_bmp_file(const char *filename, uint8_t *rgb_data, int wid
 }
 
 esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *bmp_path,
-                                             bool use_stock_mode)
+                                             bool use_stock_mode, const char *dither_algorithm)
 {
-    ESP_LOGI(TAG, "Converting %s to %s (mode: %s)", jpg_path, bmp_path,
-             use_stock_mode ? "stock" : "enhanced");
+    ESP_LOGI(TAG, "Converting %s to %s (mode: %s, dither: %s)", jpg_path, bmp_path,
+             use_stock_mode ? "stock" : "enhanced",
+             dither_algorithm ? dither_algorithm : "floyd-steinberg");
 
     FILE *fp = fopen(jpg_path, "rb");
     if (!fp) {
@@ -590,9 +659,15 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
     // Stock mode: use theoretical palette (matches original Waveshare algorithm)
     // Enhanced mode: use measured palette (accurate error diffusion)
     const rgb_t *dither_palette = use_stock_mode ? palette : palette_measured;
-    ESP_LOGI(TAG, "Applying Floyd-Steinberg dithering with %s palette",
+
+    // Parse dithering algorithm
+    dither_algorithm_t algo =
+        parse_dither_algorithm(dither_algorithm ? dither_algorithm : "floyd-steinberg");
+    const char *algo_name = dither_algorithm ? dither_algorithm : "floyd-steinberg";
+
+    ESP_LOGI(TAG, "Applying %s dithering with %s palette", algo_name,
              use_stock_mode ? "theoretical" : "measured");
-    apply_floyd_steinberg_dither(final_image, final_width, final_height, dither_palette);
+    apply_error_diffusion_dither(final_image, final_width, final_height, dither_palette, algo);
 
     // Write BMP file
     ESP_LOGI(TAG, "Writing BMP file");
