@@ -1,652 +1,950 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PhotoFrame Control Panel</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
     <div class="container">
-        <header>
-            <h1 class="header-title">
-                <img src="favicon.svg" alt="PhotoFrame" width="48" height="48">
-                <span>PhotoFrame Control Panel</span>
-            </h1>
-            <div class="header-actions">
-                <div id="batteryStatus" class="battery-status"></div>
-                <button type="button" id="sleepBtn" class="btn-icon" title="Enter Deep Sleep">
-                    💤
-                </button>
-            </div>
-        </header>
+      <header>
+        <h1 class="header-title">
+          <img src="favicon.svg" alt="PhotoFrame" width="48" height="48" />
+          <span>PhotoFrame Control Panel</span>
+        </h1>
+        <div class="header-actions">
+          <div id="batteryStatus" class="battery-status"></div>
+          <button
+            type="button"
+            id="sleepBtn"
+            class="btn-icon"
+            title="Enter Deep Sleep"
+          >
+            💤
+          </button>
+        </div>
+      </header>
 
-        <section class="card">
-            <h2>Albums & Gallery</h2>
-            
-            <!-- Album Selection -->
-            <div class="album-section">
-                <div class="album-header">
-                    <p class="album-hint">
-                        ✓ = Enabled for auto-rotation • Click album to view images
-                    </p>
-                    <button onclick="createAlbum()" class="btn-primary">+ New Album</button>
-                </div>
-                <div id="albumList" class="album-list">
-                    <p class="loading">Loading albums...</p>
-                </div>
-            </div>
-            
-            <!-- Image Gallery -->
-            <div class="gallery-divider">
-                <h3 class="gallery-title">
-                    <span id="currentAlbumName">Images</span>
-                </h3>
-                <div id="displayStatus" class="display-status hidden">
-                    <div class="spinner"></div>
-                    <p>Updating display... This may take up to 30 seconds</p>
-                </div>
-                <div id="imageList" class="image-grid">
-                    <p class="loading">Loading images...</p>
-                </div>
-            </div>
-        </section>
+      <section class="card">
+        <h2>Albums & Gallery</h2>
 
-        <!-- Hidden file input -->
-        <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.heic,.heif,.webp,.gif,.bmp" class="hidden">
-        
-        <section class="card hidden" id="imageProcessingSection">
-            <h2>Image Processing</h2>
-            
-            <!-- Preview and Controls Area -->
-            <div id="previewArea" class="hidden">
-            <div class="preview-container">
-                <div class="comparison-container comparison-custom">
-                    <h3 class="comparison-title">
-                        Drag the slider to compare
-                    </h3>
-                    <div class="comparison-wrapper" id="comparisonWrapper">
-                        <div class="canvas-container">
-                            <canvas id="originalCanvas"></canvas>
-                            <canvas id="previewCanvas"></canvas>
-                            <div class="slider-container" id="sliderContainer">
-                                <div class="slider-handle">⟷</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="comparison-labels">
-                        <span>← Original</span>
-                        <span>Dithered Preview →</span>
-                    </div>
-                </div>
-                
-                <div class="curve-canvas-wrapper curve-wrapper">
-                    <div>
-                        <canvas id="curveCanvas" width="300" height="300"></canvas>
-                        <div class="preview-label">S-Curve Tone Mapping</div>
-                    </div>
-                    
-                    <!-- S-Curve Controls (Advanced) - Under Curve Canvas -->
-                    <div id="scurveControls" class="scurve-panel">
-                        <div class="scurve-title">S-Curve Parameters</div>
-                        <div class="scurve-controls-grid">
-                            <div class="form-group">
-                                <label for="scurveStrength">Strength: <span id="strengthValue"></span></label>
-                                <input type="range" id="scurveStrength" min="0" max="1" step="0.01">
-                                <small>Overall tone mapping strength (0=linear, 1=strong)</small>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="scurveShadow">Shadow Boost: <span id="shadowValue"></span></label>
-                                <input type="range" id="scurveShadow" min="0" max="1" step="0.01">
-                                <small>Brighten shadow areas (higher=brighter)</small>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="scurveHighlight">Highlight Compress: <span id="highlightValue"></span></label>
-                                <input type="range" id="scurveHighlight" min="0.5" max="5" step="0.01">
-                                <small>Protect highlights from over-exposure (higher=more protection)</small>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="scurveMidpoint">Midpoint: <span id="midpointValue"></span></label>
-                                <input type="range" id="scurveMidpoint" min="0.3" max="0.7" step="0.01">
-                                <small>Where to split shadows/highlights</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Preset Selection (Visually Distinct) -->
-            <div class="preset-selector">
-                <div class="preset-title">Processing Preset</div>
-                <div class="preset-options-horizontal">
-                    <label class="preset-option-horizontal">
-                        <input type="radio" name="preset" value="cdr" checked>
-                        <span>Compressed Dynamic Range</span>
-                    </label>
-                    <label class="preset-option-horizontal">
-                        <input type="radio" name="preset" value="scurve">
-                        <span>S-Curve</span>
-                    </label>
-                    <label class="preset-option-horizontal">
-                        <input type="radio" name="preset" value="custom">
-                        <span>Custom</span>
-                    </label>
-                </div>
-                <div class="preset-hint" id="presetHint">
-                    <small id="presetHintText">Prevents over-exposure and generates good image quality for all images. Images will have a slightly darker look.</small>
-                </div>
-            </div>
-            
-            <!-- Row 1: Processing Algorithm & Color Matching Method & Dithering Algorithm -->
-            <div class="controls-grid processing-controls">
-                <div class="form-group">
-                    <label>Processing Algorithm:</label>
-                    <div class="radio-group">
-                        <label class="radio-option">
-                            <input type="radio" name="processingMode" value="enhanced">
-                            Enhanced (Our Algorithm)
-                        </label>
-                        <label class="radio-option">
-                            <input type="radio" name="processingMode" value="stock">
-                            Stock (Waveshare Original)
-                            <small class="helper-text">Stock mode uses simple dithering without tone mapping</small>
-                        </label>
-                    </div>
-                </div>
-                
-                <div class="form-group" id="colorMethodControl">
-                    <label>Color Matching Method:</label>
-                    <div class="radio-group">
-                        <label class="radio-option">
-                            <input type="radio" name="colorMethod" value="rgb">
-                            Simple RGB (default)
-                        </label>
-                        <label class="radio-option">
-                            <input type="radio" name="colorMethod" value="lab">
-                            LAB Color Space (better for grayscale)
-                        </label>
-                    </div>
-                </div>
-                
-                <div class="form-group" id="ditherAlgorithmControl">
-                    <label>Dithering Algorithm:</label>
-                    <div class="radio-group">
-                        <label class="radio-option">
-                            <input type="radio" name="ditherAlgorithm" value="floyd-steinberg" checked>
-                            Floyd-Steinberg (default)
-                        </label>
-                        <label class="radio-option">
-                            <input type="radio" name="ditherAlgorithm" value="stucki">
-                            Stucki (smoother)
-                        </label>
-                        <label class="radio-option">
-                            <input type="radio" name="ditherAlgorithm" value="burkes">
-                            Burkes (balanced)
-                        </label>
-                        <label class="radio-option">
-                            <input type="radio" name="ditherAlgorithm" value="sierra">
-                            Sierra (detailed)
-                        </label>
-                    </div>
-                </div>
-            </div>
-            
-            <div id="enhancedControls">
-                
-                <!-- Row 2: Exposure & Saturation -->
-                <div class="controls-grid processing-controls">
-                    <div class="form-group">
-                        <label for="exposure">Exposure: <span id="exposureValue"></span></label>
-                        <input type="range" id="exposure" min="0.5" max="2.0" step="0.01">
-                        <small>Overall brightness (1.0=normal, >1.0=brighter)</small>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="saturation">Saturation: <span id="saturationValue"></span></label>
-                        <input type="range" id="saturation" min="0.5" max="2" step="0.01">
-                        <small>Color vibrancy (1.0=normal, >1.0=more vibrant)</small>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>
-                            <input type="checkbox" id="compressDynamicRange" checked>
-                            Compress Dynamic Range
-                        </label>
-                        <small>Map brightness range to display's actual white point to prevent overexposure</small>
-                    </div>
-                </div>
-                
-                <!-- Row 3: Tone Mapping Selection and Contrast Control -->
-                <div class="controls-grid processing-controls">
-                    <div class="form-group">
-                        <label>Tone Mapping:</label>
-                        <div class="radio-group">
-                            <label class="radio-option">
-                                <input type="radio" name="toneMode" value="scurve">
-                                S-Curve (Advanced)
-                            </label>
-                            <label class="radio-option">
-                                <input type="radio" name="toneMode" value="contrast">
-                                Contrast (Simple)
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <!-- Contrast Control (Simple) -->
-                    <div id="contrastControl" class="form-group hidden">
-                        <label for="contrast">Contrast: <span id="contrastValue"></span></label>
-                        <input type="range" id="contrast" min="0.5" max="2.0" step="0.01">
-                        <small>Tonal range (1.0=normal, >1.0=more contrast)</small>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="button-group">
-                <button type="button" id="discardImage" class="btn btn-secondary">Discard</button>
-                <button type="button" id="resetParams" class="btn btn-secondary">Reset to Defaults</button>
-                <button type="button" id="uploadProcessed" class="btn btn-primary">Upload to Device</button>
-            </div>
-            
-            <div id="uploadProgress" class="upload-progress hidden">
-                <div class="upload-progress-title">⏳ Uploading...</div>
-                <div class="upload-progress-text">Please wait, do not close this page</div>
-            </div>
-            </div>
-            
-            <!-- Status Messages -->
-            <div id="uploadStatus" class="status-spacing-large"></div>
-        </section>
-
-        <section class="card">
-            <h2>Settings</h2>
-            
-            <!-- Tab Navigation -->
-            <div class="tabs">
-                <button class="tab-button active" data-tab="general">General</button>
-                <button class="tab-button" data-tab="autoRotate">Auto Rotate</button>
-                <button class="tab-button" data-tab="power">Power</button>
-                <button class="tab-button" data-tab="homeAssistant">Home Assistant</button>
-                <button class="tab-button" data-tab="advanced">Advanced</button>
-                <button class="tab-button" data-tab="calibration">Palette Calibration</button>
-            </div>
-            
-            <!-- General Settings Tab -->
-            <div id="generalTab" class="tab-content active">
-            <form id="configForm">
-                <!-- Device Name Section -->
-                <div class="settings-section-divider">
-                    <div class="form-group">
-                        <label for="deviceName">Device Name:</label>
-                    </div>
-                    <div class="form-group indented">
-                        <input type="text" id="deviceName" placeholder="PhotoFrame" maxlength="64">
-                        <small class="helper-text">
-                            📛 Set a custom name for your device. This will be used for the mDNS hostname (e.g., "Living Room PhotoFrame" → http://living-room-photoframe.local)
-                        </small>
-                    </div>
-                </div>
-                
-                <!-- Display Orientation Section -->
-                <div class="settings-section">
-                    <div class="form-group">
-                        <label>Display Orientation:</label>
-                    </div>
-                    <div class="form-group indented">
-                        <div class="rotation-mode-group">
-                            <label class="radio-label">
-                                <input type="radio" name="displayOrientation" value="landscape" id="displayOrientationLandscape" checked>
-                                <span>Landscape (800×480)</span>
-                            </label>
-                            <label class="radio-label">
-                                <input type="radio" name="displayOrientation" value="portrait" id="displayOrientationPortrait">
-                                <span>Portrait (480×800)</span>
-                            </label>
-                            <small class="helper-text">
-                                📐 Set the physical orientation of your display.
-                            </small>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Timezone Section -->
-                <div class="settings-section-divider">
-                    <div class="form-group">
-                        <label for="timezoneOffset">Timezone (UTC offset):</label>
-                    </div>
-                    <div class="form-group indented">
-                        <input type="number" id="timezoneOffset" min="-12" max="14" step="0.5" value="0" placeholder="0">
-                        <small class="helper-text">
-                            🌍 Set your UTC offset (e.g., -8 for PST, +1 for CET, +8 for CST). Supports half-hour offsets like +5.5 for IST.
-                        </small>
-                    </div>
-                </div>
-            </form>
-            </div>
-            <!-- End General Settings Tab -->
-            
-            <!-- Auto Rotate Tab -->
-            <div id="autoRotateTab" class="tab-content">
-                <!-- Auto-Rotate Section -->
-                <div class="settings-section-divider">
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="autoRotate">
-                            <span>Enable Auto-Rotate</span>
-                        </label>
-                    </div>
-                    
-                    <div class="form-group indented">
-                        <label>Rotation Interval:</label>
-                        <div class="time-input-group">
-                            <div class="time-input-field">
-                                <input type="number" id="rotateHours" min="0" max="23" value="1">
-                                <span class="time-input-label">hours</span>
-                            </div>
-                            <div class="time-input-field">
-                                <input type="number" id="rotateMinutes" min="0" max="59" value="0">
-                                <span class="time-input-label">minutes</span>
-                            </div>
-                        </div>
-                        <small class="helper-text">
-                            ⏰ Rotation will be aligned to clock boundaries. For example, 1 hour will rotate at 1:00, 2:00, 3:00, etc.
-                        </small>
-                    </div>
-                    
-                    <div class="form-group indented">
-                        <label>Rotation Mode:</label>
-                        <div class="rotation-mode-group">
-                            <label class="radio-label">
-                                <input type="radio" name="rotationMode" value="sdcard" id="rotationModeSDCard" checked>
-                                <span>SD Card - Rotate through images on SD card</span>
-                            </label>
-                            <label class="radio-label">
-                                <input type="radio" name="rotationMode" value="url" id="rotationModeURL">
-                                <span>URL - Fetch image from URL (random images)</span>
-                            </label>
-                            <div id="imageUrlGroup" class="url-group" style="display: none;">
-                                <div class="url-group-field">
-                                    <label for="imageUrl" class="field-label">Image URL</label>
-                                    <div class="input-with-button">
-                                        <input type="url" id="imageUrl" value="https://loremflickr.com/800/480">
-                                        <button type="button" onclick="document.getElementById('imageUrl').value='https://loremflickr.com/800/480'">Reset</button>
-                                    </div>
-                                    <small class="helper-text">
-                                        💡 Default URL provides random images. You can change this to any image URL.
-                                    </small>
-                                </div>
-                                <div class="url-group-field">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" id="saveDownloadedImages" checked>
-                                        <span>Save downloaded images to Downloads album</span>
-                                    </label>
-                                    <small class="helper-text">
-                                        💡 When enabled, downloaded images are saved to SD card in the "Downloads" album.
-                                    </small>
-                                </div>
-                                <div class="url-group-divider">
-                                    <label for="accessToken" class="field-label">Access Token (Optional)</label>
-                                    <input type="text" id="accessToken" placeholder="JWT token or API key">
-                                    <small class="helper-text">
-                                        💡 Automatically sets Authorization: Bearer &lt;token&gt; header for authenticated image URLs.
-                                    </small>
-                                </div>
-                                <div class="url-group-divider">
-                                    <label for="httpHeaderKey" class="field-label">Custom HTTP Header (Optional)</label>
-                                    <div class="http-header-inputs">
-                                        <input type="text" id="httpHeaderKey" placeholder="Header name (e.g., Authorization)">
-                                        <input type="text" id="httpHeaderValue" placeholder="Header value (e.g., Bearer token123)">
-                                    </div>
-                                    <small class="helper-text">
-                                        💡 Add a custom HTTP header for authentication (e.g., API tokens). Leave empty if not needed.
-                                    </small>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <button type="button" id="rotateBtn" class="btn btn-secondary">
-                            Rotate Now
-                        </button>
-                        <div id="rotateStatus" class="status-spacing"></div>
-                    </div>
-                </div>
-                
-                <!-- Sleep Schedule Section -->
-                <div class="settings-section-divider">
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="sleepScheduleEnabled">
-                            <span>Enable Sleep Schedule</span>
-                        </label>
-                    </div>
-                    
-                    <div class="form-group indented">
-                        <label>Pause rotation during:</label>
-                        <div class="time-input-group">
-                            <div class="time-input-field">
-                                <span class="time-input-label">From</span>
-                                <input type="time" id="sleepScheduleStart" value="23:00">
-                            </div>
-                            <div class="time-input-field">
-                                <span class="time-input-label">To</span>
-                                <input type="time" id="sleepScheduleEnd" value="07:00">
-                            </div>
-                        </div>
-                        <small class="helper-text">
-                            🌙 Images won't rotate during this time period. Useful for night hours when no one is looking at the display.
-                        </small>
-                    </div>
-                </div>
-            </div>
-            <!-- End Auto Rotate Tab -->
-            
-            <!-- Power Tab -->
-            <div id="powerTab" class="tab-content">
-                <!-- Power Management Section -->
-                <div class="settings-section-divider">
-                    <div class="form-group">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="deepSleepEnabled" checked>
-                            <span>Enable Deep Sleep</span>
-                        </label>
-                        <div class="form-group indented">
-                            <small class="helper-text">
-                                💡 When disabled, webapp stays accessible even if device is battery-powered. This will consume more power.
-                            </small>
-                        </div>
-                    </div>
-                    <div class="form-group indented">
-                        <div id="deepSleepWarning" class="warning-box" style="display: none;">
-                            <div class="warning-box-title">⚠️ Power Consumption Notice</div>
-                            <small class="warning-box-text">
-                                Disabling deep sleep keeps the HTTP server accessible for Home Assistant integration, but will significantly increase power consumption and reduce battery life. Only disable if the device is permanently powered via USB.
-                            </small>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <!-- End Power Tab -->
-            
-            <!-- Home Assistant Tab -->
-            <div id="homeAssistantTab" class="tab-content">
-                <!-- Home Assistant Integration Section -->
-                <div class="settings-section-divider">
-                    <div class="form-group">
-                        <label for="haUrl">Home Assistant URL:</label>
-                    </div>
-                    <div class="form-group indented">
-                        <input type="url" id="haUrl" placeholder="http://homeassistant.local:8123">
-                        <small class="helper-text">
-                            🏠 Optional: Configure Home Assistant integration for dynamic image serving and reporting battery level.
-                        </small>
-                    </div>
-                </div>
-            </div>
-            <!-- End Home Assistant Tab -->
-            
-            <!-- Advanced Tab -->
-            <div id="advancedTab" class="tab-content">
-                <!-- Advanced Settings Section -->
-                <div class="settings-section-divider">
-                    <div class="form-group">
-                        <label for="imageOrientation">Image orientation (degrees):</label>
-                        <input type="number" id="imageOrientation" min="0" max="360" value="180">
-                        <small class="helper-text">
-                            💡 This is only needed for images that were converted through third-party tools. If you are only using the default firmware implementation, leave this setting as is (180).
-                        </small>
-                    </div>
-                </div>
-            </div>
-            <!-- End Advanced Tab -->
-            
-            <!-- Palette Calibration Tab -->
-            <div id="calibrationTab" class="tab-content">
-                <p class="section-description">
-                    Calibrate the measured color palette for your specific E6 display batch. This improves color accuracy during image processing.
-                </p>
-                
-                <div id="currentPalette" class="settings-section">
-                    <h3 class="section-subtitle">Current Palette</h3>
-                    <p class="step-tip">
-                        You can manually adjust the RGB values (0-255) to fine-tune each color. Changes will be saved when you click the Save button.
-                    </p>
-                    <div id="currentPaletteColors" class="palette-grid">
-                        <!-- Colors will be populated by JavaScript -->
-                    </div>
-                    <div id="savePaletteButtonContainer" class="btn-with-margin" style="display: none;">
-                        <button id="savePaletteBtn" class="btn btn-primary">Save Palette Changes</button>
-                        <button id="cancelPaletteBtn" class="btn btn-secondary btn-secondary-margin">Cancel</button>
-                    </div>
-                    <div id="savePaletteStatus" class="status-message"></div>
-                </div>
-                
-                <div id="calibrationFlow" class="calibration-flow" style="display: none;">
-                    <div id="calibrationStep1" class="calibration-step">
-                        <h3 class="section-subtitle">Step 1: Display Calibration Image</h3>
-                        <p class="step-description">
-                            Click the button below to display the calibration pattern on your device. The pattern shows 6 color boxes.
-                        </p>
-                        <div class="button-row">
-                            <button id="displayCalibrationBtn" class="btn btn-primary">Display Calibration Pattern</button>
-                            <button id="skipDisplayBtn" class="btn btn-secondary">Skip (Already Displayed)</button>
-                        </div>
-                        <div id="displayCalibrationStatus" class="status-message"></div>
-                    </div>
-                    
-                    <div id="calibrationStep2" class="calibration-step" style="display: none;">
-                        <h3 class="section-subtitle">Step 2: Take Photo</h3>
-                        <p class="step-description">
-                            Place the device under a 5500K light source (daylight or daylight-balanced LED). Take a photo with your phone camera, ensuring the entire display is visible and well-lit. Avoid shadows and reflections.
-                        </p>
-                        <div class="warning-box-important">
-                            <p class="warning-box-important-title">📸 Important:</p>
-                            <p class="warning-box-important-text">
-                                <strong>Crop your photo to show ONLY the color boxes</strong> - no device edges, bezels, or background. This ensures accurate color detection.
-                            </p>
-                        </div>
-                        <div class="info-box">
-                            <p class="info-box-title">Example Photo:</p>
-                            <img src="measurement_sample.jpg" alt="Sample calibration photo" class="info-box-image">
-                            <p class="info-box-caption">Your photo should look similar to this - entire display visible, well-lit, no glare.</p>
-                        </div>
-                        <button id="proceedToUploadBtn" class="btn btn-primary">I've Taken the Photo</button>
-                    </div>
-                    
-                    <div id="calibrationStep3" class="calibration-step" style="display: none;">
-                        <h3 class="section-subtitle">Step 3: Crop & Upload Photo</h3>
-                        <p class="step-description-small">
-                            <strong>Before uploading:</strong> Crop your photo to show only the 6 color boxes - remove all device edges, bezels, and background. This improves color detection accuracy.
-                        </p>
-                        <p class="step-description">
-                            Upload the cropped photo. The system will automatically detect the color boxes and extract the RGB values.
-                        </p>
-                        <input type="file" id="calibrationPhotoInput" accept="image/*" class="btn-with-margin">
-                        <div id="calibrationAnalysisStatus" class="status-message"></div>
-                        <canvas id="calibrationCanvas" class="calibration-canvas" style="display: none;"></canvas>
-                    </div>
-                    
-                    <div id="calibrationStep4" class="calibration-step" style="display: none;">
-                        <h3 class="section-subtitle">Step 4: Review & Save</h3>
-                        <p class="step-description-small">
-                            Review the measured colors below. You can manually adjust the RGB values (0-255) to fine-tune each color.
-                        </p>
-                        <p class="step-tip">
-                            💡 <strong>Tip:</strong> The color swatch updates in real-time as you edit. When satisfied, click Save to store the calibration.
-                        </p>
-                        <div id="measuredPalette" class="palette-grid">
-                        </div>
-                        <div class="button-group">
-                            <button id="cancelCalibrationBtn" class="btn btn-secondary">Cancel</button>
-                            <button id="saveCalibrationBtn" class="btn btn-primary">Save Calibration</button>
-                        </div>
-                        <div id="saveCalibrationStatus" class="status-message"></div>
-                    </div>
-                </div>
-                
-                <button id="startCalibrationBtn" class="btn btn-primary btn-with-margin">Start Calibration</button>
-                <button id="resetPaletteBtn" class="btn btn-secondary btn-with-margin">Reset to Defaults</button>
-            </div>
-            <!-- End Palette Calibration Tab -->
-            
-            <!-- Save Settings Button (outside tabs, always visible) -->
-            <div class="settings-save-section">
-                <button type="button" id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
-                <div id="configStatus"></div>
-            </div>
-        </section>
-
-        <section class="card">
-            <h2>Firmware Update (OTA)</h2>
-            <p class="section-description">
-                Check for and install firmware updates from GitHub releases.
+        <!-- Album Selection -->
+        <div class="album-section">
+          <div class="album-header">
+            <p class="album-hint">
+              ✓ = Enabled for auto-rotation • Click album to view images
             </p>
-            
-            <div class="settings-section">
-                <div class="ota-status-container">
-                    <div class="ota-info">
-                        <div class="ota-version-info">
-                            <span class="ota-label">Current Version:</span>
-                            <span id="currentVersion" class="ota-version">Loading...</span>
-                        </div>
-                        <div class="ota-version-info">
-                            <span class="ota-label">Latest Version:</span>
-                            <span id="latestVersion" class="ota-version">-</span>
-                        </div>
-                        <div id="otaStateInfo" class="ota-state-info"></div>
-                    </div>
-                    
-                    <div class="ota-actions">
-                        <button id="checkUpdateBtn" class="btn btn-secondary" onclick="checkForUpdate()">
-                            Check for Updates
-                        </button>
-                        <button id="installUpdateBtn" class="btn btn-primary" onclick="installUpdate()" style="display: none;">
-                            Install Update
-                        </button>
-                    </div>
-                </div>
-                
-                <div id="otaProgress" class="ota-progress-container" style="display: none;">
-                    <div class="progress-bar">
-                        <div id="otaProgressBar" class="progress-bar-fill"></div>
-                    </div>
-                </div>
-                
-                <div id="otaStatus" class="status-message"></div>
-            </div>
-        </section>
+            <button onclick="createAlbum()" class="btn-primary">
+              + New Album
+            </button>
+          </div>
+          <div id="albumList" class="album-list">
+            <p class="loading">Loading albums...</p>
+          </div>
+        </div>
 
-        <footer>
-            <p>ESP32-S3 PhotoFrame v1.0</p>
-        </footer>
+        <!-- Image Gallery -->
+        <div class="gallery-divider">
+          <h3 class="gallery-title">
+            <span id="currentAlbumName">Images</span>
+          </h3>
+          <div id="displayStatus" class="display-status hidden">
+            <div class="spinner"></div>
+            <p>Updating display... This may take up to 30 seconds</p>
+          </div>
+          <div id="imageList" class="image-grid">
+            <p class="loading">Loading images...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Hidden file input -->
+      <input
+        type="file"
+        id="fileInput"
+        accept=".jpg,.jpeg,.png,.heic,.heif,.webp,.gif,.bmp"
+        class="hidden"
+      />
+
+      <section class="card hidden" id="imageProcessingSection">
+        <h2>Image Processing</h2>
+
+        <!-- Preview and Controls Area -->
+        <div id="previewArea" class="hidden">
+          <div class="preview-container">
+            <div class="comparison-container comparison-custom">
+              <h3 class="comparison-title">Drag the slider to compare</h3>
+              <div class="comparison-wrapper" id="comparisonWrapper">
+                <div class="canvas-container">
+                  <canvas id="originalCanvas"></canvas>
+                  <canvas id="previewCanvas"></canvas>
+                  <div class="slider-container" id="sliderContainer">
+                    <div class="slider-handle">⟷</div>
+                  </div>
+                </div>
+              </div>
+              <div class="comparison-labels">
+                <span>← Original</span>
+                <span>Dithered Preview →</span>
+              </div>
+            </div>
+
+            <div class="curve-canvas-wrapper curve-wrapper">
+              <div>
+                <canvas id="curveCanvas" width="300" height="300"></canvas>
+                <div class="preview-label">S-Curve Tone Mapping</div>
+              </div>
+
+              <!-- S-Curve Controls (Advanced) - Under Curve Canvas -->
+              <div id="scurveControls" class="scurve-panel">
+                <div class="scurve-title">S-Curve Parameters</div>
+                <div class="scurve-controls-grid">
+                  <div class="form-group">
+                    <label for="scurveStrength"
+                      >Strength: <span id="strengthValue"></span
+                    ></label>
+                    <input
+                      type="range"
+                      id="scurveStrength"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                    />
+                    <small
+                      >Overall tone mapping strength (0=linear, 1=strong)</small
+                    >
+                  </div>
+
+                  <div class="form-group">
+                    <label for="scurveShadow"
+                      >Shadow Boost: <span id="shadowValue"></span
+                    ></label>
+                    <input
+                      type="range"
+                      id="scurveShadow"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                    />
+                    <small>Brighten shadow areas (higher=brighter)</small>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="scurveHighlight"
+                      >Highlight Compress: <span id="highlightValue"></span
+                    ></label>
+                    <input
+                      type="range"
+                      id="scurveHighlight"
+                      min="0.5"
+                      max="5"
+                      step="0.01"
+                    />
+                    <small
+                      >Protect highlights from over-exposure (higher=more
+                      protection)</small
+                    >
+                  </div>
+
+                  <div class="form-group">
+                    <label for="scurveMidpoint"
+                      >Midpoint: <span id="midpointValue"></span
+                    ></label>
+                    <input
+                      type="range"
+                      id="scurveMidpoint"
+                      min="0.3"
+                      max="0.7"
+                      step="0.01"
+                    />
+                    <small>Where to split shadows/highlights</small>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Preset Selection (Visually Distinct) -->
+          <div class="preset-selector">
+            <div class="preset-title">Processing Preset</div>
+            <div class="preset-options-horizontal">
+              <label class="preset-option-horizontal">
+                <input type="radio" name="preset" value="cdr" checked />
+                <span>Compressed Dynamic Range</span>
+              </label>
+              <label class="preset-option-horizontal">
+                <input type="radio" name="preset" value="scurve" />
+                <span>S-Curve</span>
+              </label>
+              <label class="preset-option-horizontal">
+                <input type="radio" name="preset" value="custom" />
+                <span>Custom</span>
+              </label>
+            </div>
+            <div class="preset-hint" id="presetHint">
+              <small id="presetHintText"
+                >Prevents over-exposure and generates good image quality for all
+                images. Images will have a slightly darker look.</small
+              >
+            </div>
+          </div>
+
+          <!-- Row 1: Processing Algorithm & Color Matching Method & Dithering Algorithm -->
+          <div class="controls-grid processing-controls">
+            <div class="form-group">
+              <label>Processing Algorithm:</label>
+              <div class="radio-group">
+                <label class="radio-option">
+                  <input type="radio" name="processingMode" value="enhanced" />
+                  Enhanced (Our Algorithm)
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="processingMode" value="stock" />
+                  Stock (Waveshare Original)
+                  <small class="helper-text"
+                    >Stock mode uses simple dithering without tone
+                    mapping</small
+                  >
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group" id="colorMethodControl">
+              <label>Color Matching Method:</label>
+              <div class="radio-group">
+                <label class="radio-option">
+                  <input type="radio" name="colorMethod" value="rgb" />
+                  Simple RGB (default)
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="colorMethod" value="lab" />
+                  LAB Color Space (better for grayscale)
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group" id="ditherAlgorithmControl">
+              <label>Dithering Algorithm:</label>
+              <div class="radio-group">
+                <label class="radio-option">
+                  <input
+                    type="radio"
+                    name="ditherAlgorithm"
+                    value="floyd-steinberg"
+                    checked
+                  />
+                  Floyd-Steinberg (default)
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="ditherAlgorithm" value="stucki" />
+                  Stucki (smoother)
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="ditherAlgorithm" value="burkes" />
+                  Burkes (balanced)
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="ditherAlgorithm" value="sierra" />
+                  Sierra (detailed)
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div id="enhancedControls">
+            <!-- Row 2: Exposure & Saturation -->
+            <div class="controls-grid processing-controls">
+              <div class="form-group">
+                <label for="exposure"
+                  >Exposure: <span id="exposureValue"></span
+                ></label>
+                <input
+                  type="range"
+                  id="exposure"
+                  min="0.5"
+                  max="2.0"
+                  step="0.01"
+                />
+                <small>Overall brightness (1.0=normal, >1.0=brighter)</small>
+              </div>
+
+              <div class="form-group">
+                <label for="saturation"
+                  >Saturation: <span id="saturationValue"></span
+                ></label>
+                <input
+                  type="range"
+                  id="saturation"
+                  min="0.5"
+                  max="2"
+                  step="0.01"
+                />
+                <small>Color vibrancy (1.0=normal, >1.0=more vibrant)</small>
+              </div>
+
+              <div class="form-group">
+                <label>
+                  <input type="checkbox" id="compressDynamicRange" checked />
+                  Compress Dynamic Range
+                </label>
+                <small
+                  >Map brightness range to display's actual white point to
+                  prevent overexposure</small
+                >
+              </div>
+            </div>
+
+            <!-- Row 3: Tone Mapping Selection and Contrast Control -->
+            <div class="controls-grid processing-controls">
+              <div class="form-group">
+                <label>Tone Mapping:</label>
+                <div class="radio-group">
+                  <label class="radio-option">
+                    <input type="radio" name="toneMode" value="scurve" />
+                    S-Curve (Advanced)
+                  </label>
+                  <label class="radio-option">
+                    <input type="radio" name="toneMode" value="contrast" />
+                    Contrast (Simple)
+                  </label>
+                </div>
+              </div>
+
+              <!-- Contrast Control (Simple) -->
+              <div id="contrastControl" class="form-group hidden">
+                <label for="contrast"
+                  >Contrast: <span id="contrastValue"></span
+                ></label>
+                <input
+                  type="range"
+                  id="contrast"
+                  min="0.5"
+                  max="2.0"
+                  step="0.01"
+                />
+                <small>Tonal range (1.0=normal, >1.0=more contrast)</small>
+              </div>
+            </div>
+          </div>
+
+          <div class="button-group">
+            <button type="button" id="discardImage" class="btn btn-secondary">
+              Discard
+            </button>
+            <button type="button" id="resetParams" class="btn btn-secondary">
+              Reset to Defaults
+            </button>
+            <button type="button" id="uploadProcessed" class="btn btn-primary">
+              Upload to Device
+            </button>
+          </div>
+
+          <div id="uploadProgress" class="upload-progress hidden">
+            <div class="upload-progress-title">⏳ Uploading...</div>
+            <div class="upload-progress-text">
+              Please wait, do not close this page
+            </div>
+          </div>
+        </div>
+
+        <!-- Status Messages -->
+        <div id="uploadStatus" class="status-spacing-large"></div>
+      </section>
+
+      <section class="card">
+        <h2>Settings</h2>
+
+        <!-- Tab Navigation -->
+        <div class="tabs">
+          <button class="tab-button active" data-tab="general">General</button>
+          <button class="tab-button" data-tab="autoRotate">Auto Rotate</button>
+          <button class="tab-button" data-tab="power">Power</button>
+          <button class="tab-button" data-tab="homeAssistant">
+            Home Assistant
+          </button>
+          <button class="tab-button" data-tab="advanced">Advanced</button>
+          <button class="tab-button" data-tab="calibration">
+            Palette Calibration
+          </button>
+        </div>
+
+        <!-- General Settings Tab -->
+        <div id="generalTab" class="tab-content active">
+          <form id="configForm">
+            <!-- Device Name Section -->
+            <div class="settings-section-divider">
+              <div class="form-group">
+                <label for="deviceName">Device Name:</label>
+              </div>
+              <div class="form-group indented">
+                <input
+                  type="text"
+                  id="deviceName"
+                  placeholder="PhotoFrame"
+                  maxlength="64"
+                />
+                <small class="helper-text">
+                  📛 Set a custom name for your device. This will be used for
+                  the mDNS hostname (e.g., "Living Room PhotoFrame" →
+                  http://living-room-photoframe.local)
+                </small>
+              </div>
+            </div>
+
+            <!-- Display Orientation Section -->
+            <div class="settings-section">
+              <div class="form-group">
+                <label>Display Orientation:</label>
+              </div>
+              <div class="form-group indented">
+                <div class="rotation-mode-group">
+                  <label class="radio-label">
+                    <input
+                      type="radio"
+                      name="displayOrientation"
+                      value="landscape"
+                      id="displayOrientationLandscape"
+                      checked
+                    />
+                    <span>Landscape (800×480)</span>
+                  </label>
+                  <label class="radio-label">
+                    <input
+                      type="radio"
+                      name="displayOrientation"
+                      value="portrait"
+                      id="displayOrientationPortrait"
+                    />
+                    <span>Portrait (480×800)</span>
+                  </label>
+                  <small class="helper-text">
+                    📐 Set the physical orientation of your display.
+                  </small>
+                </div>
+              </div>
+            </div>
+
+            <!-- Timezone Section -->
+            <div class="settings-section-divider">
+              <div class="form-group">
+                <label for="timezoneOffset">Timezone (UTC offset):</label>
+              </div>
+              <div class="form-group indented">
+                <input
+                  type="number"
+                  id="timezoneOffset"
+                  min="-12"
+                  max="14"
+                  step="0.5"
+                  value="0"
+                  placeholder="0"
+                />
+                <small class="helper-text">
+                  🌍 Set your UTC offset (e.g., -8 for PST, +1 for CET, +8 for
+                  CST). Supports half-hour offsets like +5.5 for IST.
+                </small>
+              </div>
+            </div>
+          </form>
+        </div>
+        <!-- End General Settings Tab -->
+
+        <!-- Auto Rotate Tab -->
+        <div id="autoRotateTab" class="tab-content">
+          <!-- Auto-Rotate Section -->
+          <div class="settings-section-divider">
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="autoRotate" />
+                <span>Enable Auto-Rotate</span>
+              </label>
+            </div>
+
+            <div class="form-group indented">
+              <label>Rotation Interval:</label>
+              <div class="time-input-group">
+                <div class="time-input-field">
+                  <input
+                    type="number"
+                    id="rotateHours"
+                    min="0"
+                    max="23"
+                    value="1"
+                  />
+                  <span class="time-input-label">hours</span>
+                </div>
+                <div class="time-input-field">
+                  <input
+                    type="number"
+                    id="rotateMinutes"
+                    min="0"
+                    max="59"
+                    value="0"
+                  />
+                  <span class="time-input-label">minutes</span>
+                </div>
+              </div>
+              <small class="helper-text">
+                ⏰ Rotation will be aligned to clock boundaries. For example, 1
+                hour will rotate at 1:00, 2:00, 3:00, etc.
+              </small>
+            </div>
+
+            <div class="form-group indented">
+              <label>Rotation Mode:</label>
+              <div class="rotation-mode-group">
+                <label class="radio-label">
+                  <input
+                    type="radio"
+                    name="rotationMode"
+                    value="sdcard"
+                    id="rotationModeSDCard"
+                    checked
+                  />
+                  <span>SD Card - Rotate through images on SD card</span>
+                </label>
+                <label class="radio-label">
+                  <input
+                    type="radio"
+                    name="rotationMode"
+                    value="url"
+                    id="rotationModeURL"
+                  />
+                  <span>URL - Fetch image from URL (random images)</span>
+                </label>
+                <div id="imageUrlGroup" class="url-group" style="display: none">
+                  <div class="url-group-field">
+                    <label for="imageUrl" class="field-label">Image URL</label>
+                    <div class="input-with-button">
+                      <input
+                        type="url"
+                        id="imageUrl"
+                        value="https://loremflickr.com/800/480"
+                      />
+                      <button
+                        type="button"
+                        onclick="
+                          document.getElementById('imageUrl').value =
+                            'https://loremflickr.com/800/480'
+                        "
+                      >
+                        Reset
+                      </button>
+                    </div>
+                    <small class="helper-text">
+                      💡 Default URL provides random images. You can change this
+                      to any image URL.
+                    </small>
+                  </div>
+                  <div class="url-group-field">
+                    <label class="checkbox-label">
+                      <input
+                        type="checkbox"
+                        id="saveDownloadedImages"
+                        checked
+                      />
+                      <span>Save downloaded images to Downloads album</span>
+                    </label>
+                    <small class="helper-text">
+                      💡 When enabled, downloaded images are saved to SD card in
+                      the "Downloads" album.
+                    </small>
+                  </div>
+                  <div class="url-group-divider">
+                    <label for="accessToken" class="field-label"
+                      >Access Token (Optional)</label
+                    >
+                    <input
+                      type="text"
+                      id="accessToken"
+                      placeholder="JWT token or API key"
+                    />
+                    <small class="helper-text">
+                      💡 Automatically sets Authorization: Bearer &lt;token&gt;
+                      header for authenticated image URLs.
+                    </small>
+                  </div>
+                  <div class="url-group-divider">
+                    <label for="httpHeaderKey" class="field-label"
+                      >Custom HTTP Header (Optional)</label
+                    >
+                    <div class="http-header-inputs">
+                      <input
+                        type="text"
+                        id="httpHeaderKey"
+                        placeholder="Header name (e.g., Authorization)"
+                      />
+                      <input
+                        type="text"
+                        id="httpHeaderValue"
+                        placeholder="Header value (e.g., Bearer token123)"
+                      />
+                    </div>
+                    <small class="helper-text">
+                      💡 Add a custom HTTP header for authentication (e.g., API
+                      tokens). Leave empty if not needed.
+                    </small>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <button type="button" id="rotateBtn" class="btn btn-secondary">
+                Rotate Now
+              </button>
+              <div id="rotateStatus" class="status-spacing"></div>
+            </div>
+          </div>
+
+          <!-- Sleep Schedule Section -->
+          <div class="settings-section-divider">
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="sleepScheduleEnabled" />
+                <span>Enable Sleep Schedule</span>
+              </label>
+            </div>
+
+            <div class="form-group indented">
+              <label>Pause rotation during:</label>
+              <div class="time-input-group">
+                <div class="time-input-field">
+                  <span class="time-input-label">From</span>
+                  <input type="time" id="sleepScheduleStart" value="23:00" />
+                </div>
+                <div class="time-input-field">
+                  <span class="time-input-label">To</span>
+                  <input type="time" id="sleepScheduleEnd" value="07:00" />
+                </div>
+              </div>
+              <small class="helper-text">
+                🌙 Images won't rotate during this time period. Useful for night
+                hours when no one is looking at the display.
+              </small>
+            </div>
+          </div>
+        </div>
+        <!-- End Auto Rotate Tab -->
+
+        <!-- Power Tab -->
+        <div id="powerTab" class="tab-content">
+          <!-- Power Management Section -->
+          <div class="settings-section-divider">
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="deepSleepEnabled" checked />
+                <span>Enable Deep Sleep</span>
+              </label>
+              <div class="form-group indented">
+                <small class="helper-text">
+                  💡 When disabled, webapp stays accessible even if device is
+                  battery-powered. This will consume more power.
+                </small>
+              </div>
+            </div>
+            <div class="form-group indented">
+              <div
+                id="deepSleepWarning"
+                class="warning-box"
+                style="display: none"
+              >
+                <div class="warning-box-title">⚠️ Power Consumption Notice</div>
+                <small class="warning-box-text">
+                  Disabling deep sleep keeps the HTTP server accessible for Home
+                  Assistant integration, but will significantly increase power
+                  consumption and reduce battery life. Only disable if the
+                  device is permanently powered via USB.
+                </small>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- End Power Tab -->
+
+        <!-- Home Assistant Tab -->
+        <div id="homeAssistantTab" class="tab-content">
+          <!-- Home Assistant Integration Section -->
+          <div class="settings-section-divider">
+            <div class="form-group">
+              <label for="haUrl">Home Assistant URL:</label>
+            </div>
+            <div class="form-group indented">
+              <input
+                type="url"
+                id="haUrl"
+                placeholder="http://homeassistant.local:8123"
+              />
+              <small class="helper-text">
+                🏠 Optional: Configure Home Assistant integration for dynamic
+                image serving and reporting battery level.
+              </small>
+            </div>
+          </div>
+        </div>
+        <!-- End Home Assistant Tab -->
+
+        <!-- Advanced Tab -->
+        <div id="advancedTab" class="tab-content">
+          <!-- Advanced Settings Section -->
+          <div class="settings-section-divider">
+            <div class="form-group">
+              <label for="imageOrientation">Image orientation (degrees):</label>
+              <input
+                type="number"
+                id="imageOrientation"
+                min="0"
+                max="360"
+                value="180"
+              />
+              <small class="helper-text">
+                💡 This is only needed for images that were converted through
+                third-party tools. If you are only using the default firmware
+                implementation, leave this setting as is (180).
+              </small>
+            </div>
+          </div>
+        </div>
+        <!-- End Advanced Tab -->
+
+        <!-- Palette Calibration Tab -->
+        <div id="calibrationTab" class="tab-content">
+          <p class="section-description">
+            Calibrate the measured color palette for your specific E6 display
+            batch. This improves color accuracy during image processing.
+          </p>
+
+          <div id="currentPalette" class="settings-section">
+            <h3 class="section-subtitle">Current Palette</h3>
+            <p class="step-tip">
+              You can manually adjust the RGB values (0-255) to fine-tune each
+              color. Changes will be saved when you click the Save button.
+            </p>
+            <div id="currentPaletteColors" class="palette-grid">
+              <!-- Colors will be populated by JavaScript -->
+            </div>
+            <div
+              id="savePaletteButtonContainer"
+              class="btn-with-margin"
+              style="display: none"
+            >
+              <button id="savePaletteBtn" class="btn btn-primary">
+                Save Palette Changes
+              </button>
+              <button
+                id="cancelPaletteBtn"
+                class="btn btn-secondary btn-secondary-margin"
+              >
+                Cancel
+              </button>
+            </div>
+            <div id="savePaletteStatus" class="status-message"></div>
+          </div>
+
+          <div
+            id="calibrationFlow"
+            class="calibration-flow"
+            style="display: none"
+          >
+            <div id="calibrationStep1" class="calibration-step">
+              <h3 class="section-subtitle">
+                Step 1: Display Calibration Image
+              </h3>
+              <p class="step-description">
+                Click the button below to display the calibration pattern on
+                your device. The pattern shows 6 color boxes.
+              </p>
+              <div class="button-row">
+                <button id="displayCalibrationBtn" class="btn btn-primary">
+                  Display Calibration Pattern
+                </button>
+                <button id="skipDisplayBtn" class="btn btn-secondary">
+                  Skip (Already Displayed)
+                </button>
+              </div>
+              <div id="displayCalibrationStatus" class="status-message"></div>
+            </div>
+
+            <div
+              id="calibrationStep2"
+              class="calibration-step"
+              style="display: none"
+            >
+              <h3 class="section-subtitle">Step 2: Take Photo</h3>
+              <p class="step-description">
+                Place the device under a 5500K light source (daylight or
+                daylight-balanced LED). Take a photo with your phone camera,
+                ensuring the entire display is visible and well-lit. Avoid
+                shadows and reflections.
+              </p>
+              <div class="warning-box-important">
+                <p class="warning-box-important-title">📸 Important:</p>
+                <p class="warning-box-important-text">
+                  <strong>Crop your photo to show ONLY the color boxes</strong>
+                  - no device edges, bezels, or background. This ensures
+                  accurate color detection.
+                </p>
+              </div>
+              <div class="info-box">
+                <p class="info-box-title">Example Photo:</p>
+                <img
+                  src="measurement_sample.jpg"
+                  alt="Sample calibration photo"
+                  class="info-box-image"
+                />
+                <p class="info-box-caption">
+                  Your photo should look similar to this - entire display
+                  visible, well-lit, no glare.
+                </p>
+              </div>
+              <button id="proceedToUploadBtn" class="btn btn-primary">
+                I've Taken the Photo
+              </button>
+            </div>
+
+            <div
+              id="calibrationStep3"
+              class="calibration-step"
+              style="display: none"
+            >
+              <h3 class="section-subtitle">Step 3: Crop & Upload Photo</h3>
+              <p class="step-description-small">
+                <strong>Before uploading:</strong> Crop your photo to show only
+                the 6 color boxes - remove all device edges, bezels, and
+                background. This improves color detection accuracy.
+              </p>
+              <p class="step-description">
+                Upload the cropped photo. The system will automatically detect
+                the color boxes and extract the RGB values.
+              </p>
+              <input
+                type="file"
+                id="calibrationPhotoInput"
+                accept="image/*"
+                class="btn-with-margin"
+              />
+              <div id="calibrationAnalysisStatus" class="status-message"></div>
+              <canvas
+                id="calibrationCanvas"
+                class="calibration-canvas"
+                style="display: none"
+              ></canvas>
+            </div>
+
+            <div
+              id="calibrationStep4"
+              class="calibration-step"
+              style="display: none"
+            >
+              <h3 class="section-subtitle">Step 4: Review & Save</h3>
+              <p class="step-description-small">
+                Review the measured colors below. You can manually adjust the
+                RGB values (0-255) to fine-tune each color.
+              </p>
+              <p class="step-tip">
+                💡 <strong>Tip:</strong> The color swatch updates in real-time
+                as you edit. When satisfied, click Save to store the
+                calibration.
+              </p>
+              <div id="measuredPalette" class="palette-grid"></div>
+              <div class="button-group">
+                <button id="cancelCalibrationBtn" class="btn btn-secondary">
+                  Cancel
+                </button>
+                <button id="saveCalibrationBtn" class="btn btn-primary">
+                  Save Calibration
+                </button>
+              </div>
+              <div id="saveCalibrationStatus" class="status-message"></div>
+            </div>
+          </div>
+
+          <button
+            id="startCalibrationBtn"
+            class="btn btn-primary btn-with-margin"
+          >
+            Start Calibration
+          </button>
+          <button
+            id="resetPaletteBtn"
+            class="btn btn-secondary btn-with-margin"
+          >
+            Reset to Defaults
+          </button>
+        </div>
+        <!-- End Palette Calibration Tab -->
+
+        <!-- Save Settings Button (outside tabs, always visible) -->
+        <div class="settings-save-section">
+          <button type="button" id="saveSettingsBtn" class="btn btn-primary">
+            Save Settings
+          </button>
+          <div id="configStatus"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Firmware Update (OTA)</h2>
+        <p class="section-description">
+          Check for and install firmware updates from GitHub releases.
+        </p>
+
+        <div class="settings-section">
+          <div class="ota-status-container">
+            <div class="ota-info">
+              <div class="ota-version-info">
+                <span class="ota-label">Current Version:</span>
+                <span id="currentVersion" class="ota-version">Loading...</span>
+              </div>
+              <div class="ota-version-info">
+                <span class="ota-label">Latest Version:</span>
+                <span id="latestVersion" class="ota-version">-</span>
+              </div>
+              <div id="otaStateInfo" class="ota-state-info"></div>
+            </div>
+
+            <div class="ota-actions">
+              <button
+                id="checkUpdateBtn"
+                class="btn btn-secondary"
+                onclick="checkForUpdate()"
+              >
+                Check for Updates
+              </button>
+              <button
+                id="installUpdateBtn"
+                class="btn btn-primary"
+                onclick="installUpdate()"
+                style="display: none"
+              >
+                Install Update
+              </button>
+            </div>
+          </div>
+
+          <div
+            id="otaProgress"
+            class="ota-progress-container"
+            style="display: none"
+          >
+            <div class="progress-bar">
+              <div id="otaProgressBar" class="progress-bar-fill"></div>
+            </div>
+          </div>
+
+          <div id="otaStatus" class="status-message"></div>
+        </div>
+      </section>
+
+      <footer>
+        <p>ESP32-S3 PhotoFrame v1.0</p>
+      </footer>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
     <script type="module" src="image-processor.js"></script>
     <script type="module" src="app.js"></script>
-</body>
+  </body>
 </html>

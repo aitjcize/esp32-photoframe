@@ -14,13 +14,16 @@ C_FILES := $(shell find main -type f \( -name "*.c" -o -name "*.h" \) 2>/dev/nul
 # Find all JS files in main/webapp/ and process-cli/ directories
 JS_FILES := $(shell find main/webapp process-cli docs -type f -name "*.js" 2>/dev/null | grep -v node_modules)
 
+# Find all HTML files in docs/ and main/webapp/ directories
+HTML_FILES := $(shell find docs main/webapp -type f -name "*.html" 2>/dev/null)
+
 # Find all Python files in the project root and docs/
 PY_FILES := $(shell find main -type f -name "*.py" 2>/dev/null) \
 	    $(shell find scripts -type f -name "*.py" 3>/dev/null)
 
 help:
 	@echo "Available targets:"
-	@echo "  format        - Format all C/H/JS/Python files with clang-format, prettier, black, and isort"
+	@echo "  format        - Format all C/H/JS/HTML/Python files with clang-format, prettier, black, and isort"
 	@echo "  format-check  - Check if files need formatting (non-zero exit if changes needed)"
 	@echo "  format-diff   - Show what would change without modifying files"
 	@echo "  test          - Build and run unit tests (requires ESP-IDF environment)"
@@ -32,6 +35,11 @@ format:
 	@echo "Formatting JS files..."
 	@npx prettier --write $(JS_FILES)
 	@echo "Done! Formatted $(words $(JS_FILES)) JS files."
+	@if [ -n "$(HTML_FILES)" ]; then \
+		echo "Formatting HTML files..."; \
+		npx prettier --write $(HTML_FILES); \
+		echo "Done! Formatted $(words $(HTML_FILES)) HTML files."; \
+	fi
 	@if [ -n "$(PY_FILES)" ]; then \
 		echo "Formatting Python files with isort..."; \
 		python3 -m isort $(PY_FILES); \
@@ -45,6 +53,10 @@ format-check:
 	@$(CLANG_FORMAT) --dry-run --Werror $(C_FILES)
 	@echo "Checking JS files formatting..."
 	@npx prettier --check $(JS_FILES)
+	@if [ -n "$(HTML_FILES)" ]; then \
+		echo "Checking HTML files formatting..."; \
+		npx prettier --check $(HTML_FILES); \
+	fi
 	@if [ -n "$(PY_FILES)" ]; then \
 		echo "Checking Python files formatting..."; \
 		python3 -m isort --check-only $(PY_FILES); \
@@ -63,6 +75,13 @@ format-diff:
 		echo "=== $$file ==="; \
 		npx prettier "$$file" | diff -u "$$file" - || true; \
 	done
+	@if [ -n "$(HTML_FILES)" ]; then \
+		echo "Showing formatting differences for HTML files..."; \
+		for file in $(HTML_FILES); do \
+			echo "=== $$file ==="; \
+			npx prettier "$$file" | diff -u "$$file" - || true; \
+		done; \
+	fi
 	@if [ -n "$(PY_FILES)" ]; then \
 		echo "Showing formatting differences for Python files..."; \
 		for file in $(PY_FILES); do \
