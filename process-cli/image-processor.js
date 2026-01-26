@@ -69,11 +69,11 @@ function getCanvasContext(canvas, contextType = "2d") {
 // Measured palette - actual displayed colors from e-paper
 const PALETTE_MEASURED = {
   black: { r: 2, g: 2, b: 2 },
-  white: { r: 200, g: 200, b: 200 },
-  yellow: { r: 205, g: 202, b: 0 },
-  red: { r: 135, g: 19, b: 0 },
-  blue: { r: 5, g: 64, b: 158 },
-  green: { r: 39, g: 102, b: 60 },
+  white: { r: 181, g: 191, b: 195 },
+  yellow: { r: 217, g: 207, b: 3 },
+  red: { r: 157, g: 31, b: 20 },
+  blue: { r: 22, g: 67, b: 150 },
+  green: { r: 43, g: 100, b: 90 },
 };
 
 // Theoretical palette - for BMP output
