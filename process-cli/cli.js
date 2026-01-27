@@ -292,7 +292,7 @@ function uploadToDeviceOnce(host, pngPath, thumbPath, album = null) {
           if (res.statusCode === 200) {
             try {
               const response = JSON.parse(data);
-              console.log(`✓ Upload successful: ${response.filename}`);
+              console.log(`✓ Upload successful: ${response.filepath}`);
               resolve(response);
             } catch (error) {
               reject(new Error(`Failed to parse response: ${error.message}`));
