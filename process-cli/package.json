@@ -11,7 +11,7 @@
     "test:orientation": "node --experimental-vm-modules node_modules/jest/bin/jest.js test/serve-orientation.test.js"
   },
   "dependencies": {
-    "@aitjcize/epaper-image-convert": "^0.1.2",
+    "@aitjcize/epaper-image-convert": "^0.1.4",
     "canvas": "^2.11.2",
     "commander": "^11.1.0",
     "exif-parser": "^0.1.12",
