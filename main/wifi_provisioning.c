@@ -27,16 +27,103 @@ typedef struct {
     char password[WIFI_PASS_MAX_LEN];
 } wifi_test_params_t;
 
-extern const uint8_t provision_html_start[] asm("_binary_provision_html_start");
-extern const uint8_t provision_html_end[] asm("_binary_provision_html_end");
+// Webapp assets - same as http_server.c
+extern const uint8_t index_html_start[] asm("_binary_index_html_start");
+extern const uint8_t index_html_end[] asm("_binary_index_html_end");
+extern const uint8_t index_css_start[] asm("_binary_index_css_start");
+extern const uint8_t index_css_end[] asm("_binary_index_css_end");
+extern const uint8_t index_js_start[] asm("_binary_index_js_start");
+extern const uint8_t index_js_end[] asm("_binary_index_js_end");
+extern const uint8_t index2_js_start[] asm("_binary_index2_js_start");
+extern const uint8_t index2_js_end[] asm("_binary_index2_js_end");
+extern const uint8_t exif_reader_js_start[] asm("_binary_exif_reader_js_start");
+extern const uint8_t exif_reader_js_end[] asm("_binary_exif_reader_js_end");
+extern const uint8_t browser_js_start[] asm("_binary_browser_js_start");
+extern const uint8_t browser_js_end[] asm("_binary_browser_js_end");
+extern const uint8_t vite_browser_external_js_start[] asm(
+    "_binary___vite_browser_external_js_start");
+extern const uint8_t vite_browser_external_js_end[] asm("_binary___vite_browser_external_js_end");
+extern const uint8_t favicon_svg_start[] asm("_binary_favicon_svg_start");
+extern const uint8_t favicon_svg_end[] asm("_binary_favicon_svg_end");
 
-static esp_err_t provision_page_handler(httpd_req_t *req)
+static esp_err_t provision_index_handler(httpd_req_t *req)
 {
     power_manager_reset_sleep_timer();
 
-    const size_t provision_html_size = (provision_html_end - provision_html_start);
+    // If accessing root, redirect to /provision
+    if (strcmp(req->uri, "/") == 0) {
+        httpd_resp_set_status(req, "302 Found");
+        httpd_resp_set_hdr(req, "Location", "/provision");
+        httpd_resp_send(req, NULL, 0);
+        return ESP_OK;
+    }
+
+    const size_t index_html_size = (index_html_end - index_html_start);
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, (const char *) provision_html_start, provision_html_size);
+    httpd_resp_send(req, (const char *) index_html_start, index_html_size);
+    return ESP_OK;
+}
+
+static esp_err_t provision_css_handler(httpd_req_t *req)
+{
+    power_manager_reset_sleep_timer();
+    const size_t index_css_size = (index_css_end - index_css_start);
+    httpd_resp_set_type(req, "text/css");
+    httpd_resp_send(req, (const char *) index_css_start, index_css_size);
+    return ESP_OK;
+}
+
+static esp_err_t provision_js_handler(httpd_req_t *req)
+{
+    power_manager_reset_sleep_timer();
+    const size_t index_js_size = (index_js_end - index_js_start);
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_send(req, (const char *) index_js_start, index_js_size);
+    return ESP_OK;
+}
+
+static esp_err_t provision_js2_handler(httpd_req_t *req)
+{
+    power_manager_reset_sleep_timer();
+    const size_t index2_js_size = (index2_js_end - index2_js_start);
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_send(req, (const char *) index2_js_start, index2_js_size);
+    return ESP_OK;
+}
+
+static esp_err_t provision_exif_js_handler(httpd_req_t *req)
+{
+    power_manager_reset_sleep_timer();
+    const size_t exif_reader_js_size = (exif_reader_js_end - exif_reader_js_start);
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_send(req, (const char *) exif_reader_js_start, exif_reader_js_size);
+    return ESP_OK;
+}
+
+static esp_err_t provision_browser_js_handler(httpd_req_t *req)
+{
+    power_manager_reset_sleep_timer();
+    const size_t browser_js_size = (browser_js_end - browser_js_start);
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_send(req, (const char *) browser_js_start, browser_js_size);
+    return ESP_OK;
+}
+
+static esp_err_t provision_vite_js_handler(httpd_req_t *req)
+{
+    power_manager_reset_sleep_timer();
+    const size_t vite_js_size = (vite_browser_external_js_end - vite_browser_external_js_start);
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_send(req, (const char *) vite_browser_external_js_start, vite_js_size);
+    return ESP_OK;
+}
+
+static esp_err_t provision_favicon_handler(httpd_req_t *req)
+{
+    power_manager_reset_sleep_timer();
+    const size_t favicon_svg_size = (favicon_svg_end - favicon_svg_start);
+    httpd_resp_set_type(req, "image/svg+xml");
+    httpd_resp_send(req, (const char *) favicon_svg_start, favicon_svg_size);
     return ESP_OK;
 }
 
@@ -47,10 +134,10 @@ static esp_err_t captive_portal_handler(httpd_req_t *req)
 
     ESP_LOGI(TAG, "Captive portal detection request: %s", req->uri);
 
-    // For iOS/macOS - return success page instead of redirect
+    // Redirect to /provision route
     const char *success_response =
         "<!DOCTYPE html><html><head>"
-        "<meta http-equiv='refresh' content='0;url=http://192.168.4.1/'>"
+        "<meta http-equiv='refresh' content='0;url=http://192.168.4.1/provision'>"
         "</head><body>Success</body></html>";
 
     httpd_resp_set_type(req, "text/html");
@@ -65,9 +152,10 @@ static esp_err_t captive_portal_error_handler(httpd_req_t *req, httpd_err_code_t
 
     ESP_LOGI(TAG, "404 catch-all request: %s", req->uri);
 
+    // Redirect to /provision route
     const char *success_response =
         "<!DOCTYPE html><html><head>"
-        "<meta http-equiv='refresh' content='0;url=http://192.168.4.1/'>"
+        "<meta http-equiv='refresh' content='0;url=http://192.168.4.1/provision'>"
         "</head><body>Redirecting...</body></html>";
 
     httpd_resp_set_type(req, "text/html");
@@ -306,13 +394,64 @@ esp_err_t wifi_provisioning_start_ap(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 8;
+    config.max_uri_handlers = 16;
 
     if (httpd_start(&provisioning_server, &config) == ESP_OK) {
-        httpd_uri_t provision_uri = {
-            .uri = "/", .method = HTTP_GET, .handler = provision_page_handler, .user_ctx = NULL};
+        // Serve main webapp - Vue router will handle /provision route
+        httpd_uri_t index_uri = {
+            .uri = "/", .method = HTTP_GET, .handler = provision_index_handler, .user_ctx = NULL};
+        httpd_register_uri_handler(provisioning_server, &index_uri);
+
+        httpd_uri_t provision_uri = {.uri = "/provision",
+                                     .method = HTTP_GET,
+                                     .handler = provision_index_handler,
+                                     .user_ctx = NULL};
         httpd_register_uri_handler(provisioning_server, &provision_uri);
 
+        // Webapp assets
+        httpd_uri_t css_uri = {.uri = "/assets/index.css",
+                               .method = HTTP_GET,
+                               .handler = provision_css_handler,
+                               .user_ctx = NULL};
+        httpd_register_uri_handler(provisioning_server, &css_uri);
+
+        httpd_uri_t js_uri = {.uri = "/assets/index.js",
+                              .method = HTTP_GET,
+                              .handler = provision_js_handler,
+                              .user_ctx = NULL};
+        httpd_register_uri_handler(provisioning_server, &js_uri);
+
+        httpd_uri_t js2_uri = {.uri = "/assets/index2.js",
+                               .method = HTTP_GET,
+                               .handler = provision_js2_handler,
+                               .user_ctx = NULL};
+        httpd_register_uri_handler(provisioning_server, &js2_uri);
+
+        httpd_uri_t exif_uri = {.uri = "/assets/exif-reader.js",
+                                .method = HTTP_GET,
+                                .handler = provision_exif_js_handler,
+                                .user_ctx = NULL};
+        httpd_register_uri_handler(provisioning_server, &exif_uri);
+
+        httpd_uri_t browser_uri = {.uri = "/assets/browser.js",
+                                   .method = HTTP_GET,
+                                   .handler = provision_browser_js_handler,
+                                   .user_ctx = NULL};
+        httpd_register_uri_handler(provisioning_server, &browser_uri);
+
+        httpd_uri_t vite_uri = {.uri = "/assets/__vite-browser-external.js",
+                                .method = HTTP_GET,
+                                .handler = provision_vite_js_handler,
+                                .user_ctx = NULL};
+        httpd_register_uri_handler(provisioning_server, &vite_uri);
+
+        httpd_uri_t favicon_uri = {.uri = "/favicon.svg",
+                                   .method = HTTP_GET,
+                                   .handler = provision_favicon_handler,
+                                   .user_ctx = NULL};
+        httpd_register_uri_handler(provisioning_server, &favicon_uri);
+
+        // Save credentials handler
         httpd_uri_t save_uri = {.uri = "/save",
                                 .method = HTTP_POST,
                                 .handler = provision_save_handler,

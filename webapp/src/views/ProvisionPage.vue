@@ -30,11 +30,13 @@ async function submitForm() {
 
     if (response.ok) {
       status.value = "success";
+      // Generate mDNS hostname from device name (lowercase, spaces to hyphens)
+      const hostname = deviceName.value.toLowerCase().replace(/\s+/g, "-");
       statusMessage.value = `Credentials saved! Device will restart in 3 seconds and attempt to connect to "${ssid.value}".`;
 
       setTimeout(() => {
         statusMessage.value +=
-          "\n\nRestarting now... Close this page and reconnect to your WiFi network, then visit http://photoframe.local";
+          `\n\nRestarting now... Close this page and reconnect to your WiFi network, then visit http://${hostname}.local`;
       }, 3000);
     } else {
       loading.value = false;
@@ -58,14 +60,13 @@ async function submitForm() {
 
 <template>
   <v-app>
-    <v-main class="bg-grey-lighten-4 d-flex align-center justify-center">
-      <v-card class="pa-6" max-width="400" width="100%" elevation="12">
-        <v-card-title class="text-h5 d-flex align-center gap-2">
-          <span>📷</span>
+    <v-main class="provision-main bg-grey-lighten-4">
+      <v-card class="provision-card" elevation="12">
+        <v-card-title class="text-h6">
           PhotoFrame Setup
         </v-card-title>
 
-        <v-card-subtitle class="mb-4"> Connect your PhotoFrame to WiFi </v-card-subtitle>
+        <v-card-subtitle class="mb-2"> Connect your PhotoFrame to WiFi </v-card-subtitle>
 
         <v-form @submit.prevent="submitForm">
           <v-text-field
@@ -82,12 +83,19 @@ async function submitForm() {
             label="WiFi Password"
             :type="showPassword ? 'text' : 'password'"
             variant="outlined"
-            :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
             :disabled="loading"
             hint="Leave blank for open networks"
             class="mb-2"
-            @click:append-inner="showPassword = !showPassword"
-          />
+          >
+            <template #append-inner>
+              <span
+                style="cursor: pointer; user-select: none"
+                @click="showPassword = !showPassword"
+              >
+                {{ showPassword ? "🙈" : "👁️" }}
+              </span>
+            </template>
+          </v-text-field>
 
           <v-text-field
             v-model="deviceName"
@@ -99,7 +107,6 @@ async function submitForm() {
           />
 
           <v-btn type="submit" color="primary" size="large" block :loading="loading">
-            <v-icon icon="mdi-wifi" start />
             Connect to WiFi
           </v-btn>
         </v-form>
@@ -117,3 +124,20 @@ async function submitForm() {
     </v-main>
   </v-app>
 </template>
+
+<style scoped>
+.provision-main {
+  min-height: 100vh;
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 40px;
+}
+
+.provision-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 20px;
+}
+</style>

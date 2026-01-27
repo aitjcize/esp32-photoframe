@@ -26,5 +26,5 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES esp_driver_gpio esp_driver_sdmmc nvs_flash esp_wifi esp_netif esp_event esp_http_server fatfs espressif__cjson espressif__esp_jpeg ListLib axpPower i2c_bsp shtc3_sensor pcf85063_rtc espressif__mdns espressif__libpng
     PRIV_REQUIRES epaper_port epaper_src sdcard_bsp esp_timer esp_app_format esp_http_client esp_https_ota app_update mbedtls
-    EMBED_FILES "webapp/index.html" "webapp/favicon.svg" "webapp/assets/index.css" "webapp/assets/index.js" "webapp/assets/index2.js" "webapp/assets/exif-reader.js" "webapp/assets/browser.js" "webapp/assets/__vite-browser-external.js" "resources/calibration.png" "resources/provision.html"
+    EMBED_FILES "webapp/index.html" "webapp/favicon.svg" "webapp/assets/index.css" "webapp/assets/index.js" "webapp/assets/index2.js" "webapp/assets/exif-reader.js" "webapp/assets/browser.js" "webapp/assets/__vite-browser-external.js" "resources/calibration.png"
 )
