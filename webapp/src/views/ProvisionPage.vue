@@ -35,8 +35,7 @@ async function submitForm() {
       statusMessage.value = `Credentials saved! Device will restart in 3 seconds and attempt to connect to "${ssid.value}".`;
 
       setTimeout(() => {
-        statusMessage.value +=
-          `\n\nRestarting now... Close this page and reconnect to your WiFi network, then visit http://${hostname}.local`;
+        statusMessage.value += `\n\nRestarting now... Close this page and reconnect to your WiFi network, then visit http://${hostname}.local`;
       }, 3000);
     } else {
       loading.value = false;
@@ -62,9 +61,7 @@ async function submitForm() {
   <v-app>
     <v-main class="provision-main bg-grey-lighten-4">
       <v-card class="provision-card" elevation="12">
-        <v-card-title class="text-h6">
-          PhotoFrame Setup
-        </v-card-title>
+        <v-card-title class="text-h6"> PhotoFrame Setup </v-card-title>
 
         <v-card-subtitle class="mb-2"> Connect your PhotoFrame to WiFi </v-card-subtitle>
 
@@ -111,14 +108,8 @@ async function submitForm() {
           </v-btn>
         </v-form>
 
-        <v-alert
-          v-if="status"
-          :type="status"
-          variant="tonal"
-          class="mt-4"
-          style="white-space: pre-line"
-        >
-          {{ statusMessage }}
+        <v-alert v-if="status" :type="status" variant="tonal" class="mt-4" :icon="false">
+          <div style="white-space: pre-line">{{ statusMessage }}</div>
         </v-alert>
       </v-card>
     </v-main>
