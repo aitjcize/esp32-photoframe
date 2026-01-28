@@ -16,8 +16,12 @@
 #include "config.h"
 #include "config_manager.h"
 #include "ha_integration.h"
+#include "periodic_tasks.h"
 #include "shtc3_sensor.h"
 #include "utils.h"
+
+// RTC memory to store expected wakeup time (persists across deep sleep)
+RTC_DATA_ATTR static time_t expected_wakeup_time = 0;
 
 static const char *TAG = "power_manager";
 
@@ -202,6 +206,22 @@ esp_err_t power_manager_init(void)
     if (wakeup_causes & (1 << ESP_SLEEP_WAKEUP_TIMER)) {
         last_wakeup_cause = ESP_SLEEP_WAKEUP_TIMER;
         ESP_LOGI(TAG, "Wakeup caused by timer (auto-rotate)");
+
+        // Check time drift and force NTP sync if needed
+        if (expected_wakeup_time > 0) {
+            time_t now;
+            time(&now);
+            int drift = (int) (now - expected_wakeup_time);
+            ESP_LOGI(TAG, "Wakeup time drift: %d seconds (expected: %ld, actual: %ld)", drift,
+                     (long) expected_wakeup_time, (long) now);
+
+            // If drift exceeds 30 seconds, force NTP sync
+            if (drift > 30 || drift < -30) {
+                ESP_LOGW(TAG, "Time drift exceeds 30s, will force NTP sync");
+                periodic_tasks_force_run(SNTP_TASK_NAME);
+            }
+            expected_wakeup_time = 0;  // Reset after checking
+        }
     } else if (wakeup_causes & (1 << ESP_SLEEP_WAKEUP_EXT1)) {
         last_wakeup_cause = ESP_SLEEP_WAKEUP_EXT1;
         // ESP32-S3 only supports EXT1, check which GPIO triggered it
@@ -276,6 +296,11 @@ void power_manager_enter_sleep(void)
 
         ESP_LOGI(TAG, "Auto-rotate enabled, setting timer wake-up for %d seconds", wake_seconds);
         esp_sleep_enable_timer_wakeup(wake_seconds * 1000000ULL);
+
+        // Store expected wakeup time in RTC memory for drift detection
+        time_t now;
+        time(&now);
+        expected_wakeup_time = now + wake_seconds;
     }
 
     // Enable boot button and key button wake-up (ESP32-S3 only supports EXT1)

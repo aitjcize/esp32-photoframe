@@ -19,33 +19,43 @@ int calculate_next_aligned_wakeup(int rotate_interval)
     int next_aligned_seconds = ((current_seconds / rotate_interval) + 1) * rotate_interval;
     int seconds_until_next = next_aligned_seconds - current_seconds;
 
+    // If next wakeup is too soon (less than 60s), skip to the following interval.
+    // This prevents immediate re-wakeup due to time drift (e.g., waking at 16:59:20 instead of
+    // 17:00:00). With daily NTP sync, drift should be well under 60s.
+    if (seconds_until_next < 60) {
+        next_aligned_seconds += rotate_interval;
+        seconds_until_next = next_aligned_seconds - current_seconds;
+    }
+
     // Check if sleep schedule is enabled
     if (!config_manager_get_sleep_schedule_enabled()) {
         return seconds_until_next;
     }
 
-    // Calculate the wake-up time in minutes since midnight
-    int current_minutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
-    int wake_minutes = current_minutes + (seconds_until_next / 60);
+    // Calculate the wake-up time in seconds since midnight
+    int current_seconds_of_day = timeinfo.tm_hour * 3600 + timeinfo.tm_min * 60 + timeinfo.tm_sec;
+    int wake_seconds_of_day = current_seconds_of_day + seconds_until_next;
 
-    // Normalize wake_minutes to handle day overflow
-    if (wake_minutes >= 1440) {
-        wake_minutes -= 1440;
+    // Normalize wake_seconds_of_day to handle day overflow
+    if (wake_seconds_of_day >= 86400) {
+        wake_seconds_of_day -= 86400;
     }
 
-    int sleep_start = config_manager_get_sleep_schedule_start();
-    int sleep_end = config_manager_get_sleep_schedule_end();
+    int sleep_start_seconds = config_manager_get_sleep_schedule_start() * 60;
+    int sleep_end_seconds = config_manager_get_sleep_schedule_end() * 60;
 
     // Check if wake-up time falls within or at the start of sleep schedule
     bool wake_in_schedule = false;
-    if (sleep_start > sleep_end) {
+    if (sleep_start_seconds > sleep_end_seconds) {
         // Schedule crosses midnight (e.g., 23:00 - 07:00)
         // Wake is in schedule if >= start OR < end
-        wake_in_schedule = (wake_minutes >= sleep_start || wake_minutes < sleep_end);
+        wake_in_schedule =
+            (wake_seconds_of_day >= sleep_start_seconds || wake_seconds_of_day < sleep_end_seconds);
     } else {
         // Schedule within same day (e.g., 12:00 - 14:00)
         // Wake is in schedule if >= start AND < end
-        wake_in_schedule = (wake_minutes >= sleep_start && wake_minutes < sleep_end);
+        wake_in_schedule =
+            (wake_seconds_of_day >= sleep_start_seconds && wake_seconds_of_day < sleep_end_seconds);
     }
 
     if (!wake_in_schedule) {
@@ -53,38 +63,36 @@ int calculate_next_aligned_wakeup(int rotate_interval)
         return seconds_until_next;
     }
 
-    // Wake-up would be in sleep schedule, calculate next aligned time at or after schedule ends
-    int interval_minutes = rotate_interval / 60;
+    // Wake-up would be in sleep schedule, calculate next aligned time at or after schedule ends.
+    // Find the first aligned time >= sleep_end (sleep_end is exclusive).
 
-    // Find the first aligned time >= sleep_end (sleep_end is exclusive, so we can wake AT
-    // sleep_end) This finds the first interval boundary that is >= sleep_end
-    int next_aligned_wake =
-        ((sleep_end + interval_minutes - 1) / interval_minutes) * interval_minutes;
+    long long next_aligned_wake_seconds =
+        ((long long) sleep_end_seconds + rotate_interval - 1) / rotate_interval * rotate_interval;
 
     // Calculate seconds from current time to next aligned wake-up
-    int minutes_until_wake;
-    if (sleep_start > sleep_end) {
+    int seconds_until_wake;
+    if (sleep_start_seconds > sleep_end_seconds) {
         // Overnight schedule (e.g., 23:00 - 07:00)
-        if (current_minutes >= sleep_start || current_minutes < sleep_end) {
-            // Currently in the schedule (either before midnight or after midnight)
-            if (current_minutes >= sleep_start) {
-                // Before midnight (e.g., 23:30) - wake after schedule ends next day
-                minutes_until_wake = (1440 - current_minutes) + next_aligned_wake;
+        if (current_seconds_of_day >= sleep_start_seconds ||
+            current_seconds_of_day < sleep_end_seconds) {
+            // Currently in the schedule
+            if (current_seconds_of_day >= sleep_start_seconds) {
+                // Before midnight - wake after schedule ends next day
+                seconds_until_wake =
+                    (86400 - current_seconds_of_day) + (int) next_aligned_wake_seconds;
             } else {
-                // After midnight (e.g., 02:00) - wake at next aligned time today
-                minutes_until_wake = next_aligned_wake - current_minutes;
+                // After midnight - wake at next aligned time today
+                seconds_until_wake = (int) next_aligned_wake_seconds - current_seconds_of_day;
             }
         } else {
-            // Currently between schedule end and start (e.g., 08:00-22:59)
-            // But wake time is in schedule, so skip to next day's aligned time >= sleep_end
-            minutes_until_wake = (1440 - current_minutes) + next_aligned_wake;
+            // Currently between schedule end and start
+            // But wake time is in schedule, so skip to next day
+            seconds_until_wake = (86400 - current_seconds_of_day) + (int) next_aligned_wake_seconds;
         }
     } else {
-        // Same-day schedule (e.g., 12:00 - 14:00)
-        // Wake time is in schedule, skip to first aligned time >= sleep_end
-        minutes_until_wake = next_aligned_wake - current_minutes;
+        // Same-day schedule
+        seconds_until_wake = (int) next_aligned_wake_seconds - current_seconds_of_day;
     }
 
-    int adjusted_seconds = minutes_until_wake * 60;
-    return adjusted_seconds;
+    return seconds_until_wake;
 }
