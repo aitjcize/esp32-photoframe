@@ -52,6 +52,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // Original config from server (for change detection)
   let originalConfig = {};
+  let originalParams = {};
 
   // Palette
   const palette = ref({
@@ -131,6 +132,8 @@ export const useSettingsStore = defineStore("settings", () => {
       }
       const data = await response.json();
       Object.assign(params.value, data);
+      // Store original params for change detection
+      originalParams = JSON.parse(JSON.stringify(data));
     } catch (error) {
       console.log("Settings API not available (standalone mode)");
     }
@@ -292,13 +295,32 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }
 
+  function hasProcessingSettingsChanged() {
+    const current = params.value;
+    for (const key of presetKeys) {
+      if (current[key] !== originalParams[key]) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async function saveSettings() {
+    // Skip save if nothing changed
+    if (!hasProcessingSettingsChanged()) {
+      return true;
+    }
+
     try {
       const response = await fetch(`${API_BASE}/api/settings/processing`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params.value),
       });
+      if (response.ok) {
+        // Update original params after successful save
+        originalParams = JSON.parse(JSON.stringify(params.value));
+      }
       return response.ok;
     } catch (error) {
       console.error("Failed to save settings:", error);
