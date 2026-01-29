@@ -92,9 +92,10 @@ onMounted(async () => {
   loadSampleImage();
 });
 
-// Watch tab changes and update URL hash
-watch(tab, (newTab) => {
-  window.location.hash = newTab;
+// Watch tab or board changes
+watch([tab, selectedBoard], ([newTab]) => {
+  if (newTab) window.location.hash = newTab;
+  loadVersionInfo();
 });
 
 async function loadVersionInfo() {
@@ -106,10 +107,10 @@ async function loadVersionInfo() {
     const stableData = await stableResponse.json();
     stableVersion.value = stableData.tag_name;
 
-    // Get dev version from manifest-dev.json (try root first, then board-specific)
-    let devResponse = await fetch(baseUrl + "manifest-dev.json");
+    // Get dev version from manifest-dev.json (try board-specific first)
+    let devResponse = await fetch(baseUrl + selectedBoard.value + "/manifest-dev.json");
     if (!devResponse.ok) {
-      devResponse = await fetch(baseUrl + selectedBoard.value + "/manifest-dev.json");
+      devResponse = await fetch(baseUrl + "manifest-dev.json");
     }
     if (devResponse.ok) {
       const devData = await devResponse.json();
@@ -411,8 +412,9 @@ function newImage() {
 
                     <div class="d-flex justify-center">
                       <esp-web-install-button
+                        :key="selectedBoard + selectedVersion"
                         :manifest="
-                          baseUrl +
+                          (baseUrl.endsWith('/') ? baseUrl : baseUrl + '/') +
                           selectedBoard +
                           '/' +
                           (selectedVersion === 'stable' ? 'manifest.json' : 'manifest-dev.json')
