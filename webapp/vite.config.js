@@ -12,6 +12,7 @@ export default defineConfig({
     outDir: resolve(__dirname, "../main/webapp"),
     emptyOutDir: true,
     rollupOptions: {
+      external: ["/measurement_sample.jpg"],
       output: {
         entryFileNames: "assets/[name].js",
         chunkFileNames: "assets/[name].js",

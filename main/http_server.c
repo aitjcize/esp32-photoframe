@@ -56,8 +56,6 @@ extern const uint8_t vite_browser_external_js_start[] asm(
 extern const uint8_t vite_browser_external_js_end[] asm("_binary___vite_browser_external_js_end");
 extern const uint8_t favicon_svg_start[] asm("_binary_favicon_svg_start");
 extern const uint8_t favicon_svg_end[] asm("_binary_favicon_svg_end");
-extern const uint8_t calibration_png_start[] asm("_binary_calibration_png_start");
-extern const uint8_t calibration_png_end[] asm("_binary_calibration_png_end");
 extern const uint8_t measurement_sample_jpg_start[] asm("_binary_measurement_sample_jpg_start");
 extern const uint8_t measurement_sample_jpg_end[] asm("_binary_measurement_sample_jpg_end");
 
@@ -1945,57 +1943,10 @@ static esp_err_t keep_alive_handler(httpd_req_t *req)
 
 static esp_err_t display_calibration_handler(httpd_req_t *req)
 {
-    const size_t calibration_png_size = (calibration_png_end - calibration_png_start);
-
     ESP_LOGI(TAG, "Displaying calibration pattern on e-paper");
 
-    // Write embedded PNG to temporary file
-    const char *temp_path = CURRENT_CALIBRATION_PATH;
-
-    // Copy embedded data to SPIRAM buffer first to avoid cache coherency issues
-    // when writing directly from flash memory to SD card
-    uint8_t *png_buffer = (uint8_t *) heap_caps_malloc(calibration_png_size, MALLOC_CAP_SPIRAM);
-    if (!png_buffer) {
-        ESP_LOGE(TAG, "Failed to allocate SPIRAM buffer");
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Out of memory\"}");
-        return ESP_FAIL;
-    }
-
-    memcpy(png_buffer, calibration_png_start, calibration_png_size);
-
-    FILE *f = fopen(temp_path, "wb");
-    if (!f) {
-        ESP_LOGE(TAG, "Failed to create temporary calibration file");
-        free(png_buffer);
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(
-            req, "{\"status\":\"error\",\"message\":\"Failed to create temporary file\"}");
-        return ESP_FAIL;
-    }
-
-    // Write from SPIRAM buffer
-    size_t written = fwrite(png_buffer, 1, calibration_png_size, f);
-    free(png_buffer);
-    fclose(f);
-
-    if (written != calibration_png_size) {
-        ESP_LOGE(TAG, "Failed to write calibration PNG");
-        unlink(temp_path);
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(
-            req, "{\"status\":\"error\",\"message\":\"Failed to write calibration data\"}");
-        return ESP_FAIL;
-    }
-
-    // Display the calibration pattern
-    esp_err_t ret = display_manager_show_image(temp_path);
-
-    // Clean up temporary file
-    unlink(temp_path);
+    // Generate and display calibration pattern dynamically
+    esp_err_t ret = display_manager_show_calibration();
 
     if (ret == ESP_OK) {
         httpd_resp_set_type(req, "application/json");
@@ -2417,7 +2368,7 @@ static esp_err_t color_palette_handler(httpd_req_t *req)
 esp_err_t http_server_init(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 40;
+    config.max_uri_handlers = 50;
     config.stack_size = 12288;       // Increased from 8192 to 12KB
     config.max_open_sockets = 10;    // Limit concurrent connections to prevent memory exhaustion
     config.lru_purge_enable = true;  // Enable LRU purging of connections

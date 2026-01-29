@@ -185,6 +185,30 @@ esp_err_t display_manager_clear(void)
     return ESP_OK;
 }
 
+esp_err_t display_manager_show_calibration(void)
+{
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire display mutex for calibration");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Displaying calibration pattern");
+
+    // Re-initialize paint with current orientation
+    display_manager_initialize_paint();
+
+    // Draw the calibration pattern directly to the buffer
+    Paint_DrawCalibrationPattern();
+
+    // Display the buffer
+    epaper_port_display(epd_image_buffer);
+
+    xSemaphoreGive(display_mutex);
+
+    ESP_LOGI(TAG, "Calibration pattern displayed successfully");
+    return ESP_OK;
+}
+
 bool display_manager_is_busy(void)
 {
     // Try to take the mutex without blocking

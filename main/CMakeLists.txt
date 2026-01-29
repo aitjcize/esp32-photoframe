@@ -33,5 +33,5 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES ${MAIN_REQUIRES}
     PRIV_REQUIRES epaper_port epaper_src sdcard_bsp esp_timer esp_app_format esp_http_client esp_https_ota app_update mbedtls board_hal memfs
-    EMBED_FILES "webapp/index.html" "webapp/favicon.svg" "webapp/assets/index.css" "webapp/assets/index.js" "webapp/assets/index2.js" "webapp/assets/exif-reader.js" "webapp/assets/browser.js" "webapp/assets/__vite-browser-external.js" "resources/calibration.png" "resources/measurement_sample.jpg"
+    EMBED_FILES "webapp/index.html" "webapp/favicon.svg" "webapp/assets/index.css" "webapp/assets/index.js" "webapp/assets/index2.js" "webapp/assets/exif-reader.js" "webapp/assets/browser.js" "webapp/assets/__vite-browser-external.js" "resources/measurement_sample.jpg"
 )

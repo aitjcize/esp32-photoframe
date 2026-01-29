@@ -873,3 +873,64 @@ void Paint_DrawBitMap(const unsigned char* image_buffer)
         }
     }
 }
+
+/******************************************************************************
+function:   Draw calibration pattern for 6-color e-paper displays
+info:       Draws 6 color boxes (2 rows x 3 columns) for display calibration.
+            Colors: Black, White, Yellow, Red, Blue, Green
+            Works with any screen size by calculating box dimensions dynamically.
+******************************************************************************/
+void Paint_DrawCalibrationPattern(void)
+{
+    // Color indices for 6-color e-paper (matches EPD_7IN3E_* defines)
+    // Order: Black, White, Yellow, Red, Blue, Green
+    const UBYTE colors[6] = {0x0, 0x1, 0x2, 0x3, 0x5, 0x6};
+
+    UWORD width = Paint.Width;
+    UWORD height = Paint.Height;
+
+    // For portrait displays (height > width), we need to swap the layout
+    // so that we still get 3 columns x 2 rows visually
+    UBYTE is_portrait = (height > width) ? 1 : 0;
+
+    // Calculate box dimensions based on orientation
+    // Landscape: 3 columns (width/3) x 2 rows (height/2)
+    // Portrait: 2 columns (width/2) x 3 rows (height/3), then remap indices
+    UWORD box_width = is_portrait ? (width / 2) : (width / 3);
+    UWORD box_height = is_portrait ? (height / 3) : (height / 2);
+
+    for (UWORD y = 0; y < height; y++) {
+        UWORD box_row = y / box_height;
+
+        for (UWORD x = 0; x < width; x++) {
+            UWORD box_col = x / box_width;
+
+            UWORD box_idx;
+            if (is_portrait) {
+                // Portrait: 2 cols x 3 rows, remap to match landscape color order
+                // Landscape layout (row-major):
+                //   [0:Black] [1:White] [2:Yellow]
+                //   [3:Red]   [4:Blue]  [5:Green]
+                // Portrait layout (2 cols x 3 rows), we want:
+                //   [0:Black] [3:Red]
+                //   [1:White] [4:Blue]
+                //   [2:Yellow][5:Green]
+                if (box_row > 2)
+                    box_row = 2;
+                if (box_col > 1)
+                    box_col = 1;
+                box_idx = box_row + box_col * 3;
+            } else {
+                // Landscape: 3 cols x 2 rows
+                if (box_row > 1)
+                    box_row = 1;
+                if (box_col > 2)
+                    box_col = 2;
+                box_idx = box_row * 3 + box_col;
+            }
+
+            UBYTE color = colors[box_idx];
+            Paint_SetPixel(x, y, color);
+        }
+    }
+}
