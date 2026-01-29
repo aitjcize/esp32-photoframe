@@ -8,6 +8,7 @@
 #include "nvs_flash.h"
 
 static const char *TAG = "color_palette";
+static const char *NVS_KEY_PALETTE = "palette";
 
 void color_palette_get_defaults(color_palette_t *palette)
 {
@@ -36,30 +37,7 @@ esp_err_t color_palette_save(const color_palette_t *palette)
         return err;
     }
 
-    err = nvs_set_u8(handle, "pal_black_r", palette->black.r);
-    err |= nvs_set_u8(handle, "pal_black_g", palette->black.g);
-    err |= nvs_set_u8(handle, "pal_black_b", palette->black.b);
-
-    err |= nvs_set_u8(handle, "pal_white_r", palette->white.r);
-    err |= nvs_set_u8(handle, "pal_white_g", palette->white.g);
-    err |= nvs_set_u8(handle, "pal_white_b", palette->white.b);
-
-    err |= nvs_set_u8(handle, "pal_yellow_r", palette->yellow.r);
-    err |= nvs_set_u8(handle, "pal_yellow_g", palette->yellow.g);
-    err |= nvs_set_u8(handle, "pal_yellow_b", palette->yellow.b);
-
-    err |= nvs_set_u8(handle, "pal_red_r", palette->red.r);
-    err |= nvs_set_u8(handle, "pal_red_g", palette->red.g);
-    err |= nvs_set_u8(handle, "pal_red_b", palette->red.b);
-
-    err |= nvs_set_u8(handle, "pal_blue_r", palette->blue.r);
-    err |= nvs_set_u8(handle, "pal_blue_g", palette->blue.g);
-    err |= nvs_set_u8(handle, "pal_blue_b", palette->blue.b);
-
-    err |= nvs_set_u8(handle, "pal_green_r", palette->green.r);
-    err |= nvs_set_u8(handle, "pal_green_g", palette->green.g);
-    err |= nvs_set_u8(handle, "pal_green_b", palette->green.b);
-
+    err = nvs_set_blob(handle, NVS_KEY_PALETTE, palette, sizeof(color_palette_t));
     if (err == ESP_OK) {
         err = nvs_commit(handle);
         if (err == ESP_OK) {
@@ -80,120 +58,26 @@ esp_err_t color_palette_load(color_palette_t *palette)
     nvs_handle_t handle;
     esp_err_t err;
 
+    // Initialize with defaults first
+    color_palette_get_defaults(palette);
+
     err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Failed to open NVS for reading: %s, using defaults", esp_err_to_name(err));
-        color_palette_get_defaults(palette);
-        return err;
-    }
-
-    uint8_t val;
-    bool has_palette = true;
-
-    err = nvs_get_u8(handle, "pal_black_r", &val);
-    if (err == ESP_OK)
-        palette->black.r = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_black_g", &val);
-    if (err == ESP_OK)
-        palette->black.g = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_black_b", &val);
-    if (err == ESP_OK)
-        palette->black.b = val;
-    else
-        has_palette = false;
-
-    err = nvs_get_u8(handle, "pal_white_r", &val);
-    if (err == ESP_OK)
-        palette->white.r = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_white_g", &val);
-    if (err == ESP_OK)
-        palette->white.g = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_white_b", &val);
-    if (err == ESP_OK)
-        palette->white.b = val;
-    else
-        has_palette = false;
-
-    err = nvs_get_u8(handle, "pal_yellow_r", &val);
-    if (err == ESP_OK)
-        palette->yellow.r = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_yellow_g", &val);
-    if (err == ESP_OK)
-        palette->yellow.g = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_yellow_b", &val);
-    if (err == ESP_OK)
-        palette->yellow.b = val;
-    else
-        has_palette = false;
-
-    err = nvs_get_u8(handle, "pal_red_r", &val);
-    if (err == ESP_OK)
-        palette->red.r = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_red_g", &val);
-    if (err == ESP_OK)
-        palette->red.g = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_red_b", &val);
-    if (err == ESP_OK)
-        palette->red.b = val;
-    else
-        has_palette = false;
-
-    err = nvs_get_u8(handle, "pal_blue_r", &val);
-    if (err == ESP_OK)
-        palette->blue.r = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_blue_g", &val);
-    if (err == ESP_OK)
-        palette->blue.g = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_blue_b", &val);
-    if (err == ESP_OK)
-        palette->blue.b = val;
-    else
-        has_palette = false;
-
-    err = nvs_get_u8(handle, "pal_green_r", &val);
-    if (err == ESP_OK)
-        palette->green.r = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_green_g", &val);
-    if (err == ESP_OK)
-        palette->green.g = val;
-    else
-        has_palette = false;
-    err = nvs_get_u8(handle, "pal_green_b", &val);
-    if (err == ESP_OK)
-        palette->green.b = val;
-    else
-        has_palette = false;
-
-    nvs_close(handle);
-
-    if (!has_palette) {
-        ESP_LOGW(TAG, "Color palette not found in NVS, using defaults");
-        color_palette_get_defaults(palette);
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "Color palette loaded from NVS");
+    size_t required_size = sizeof(color_palette_t);
+    err = nvs_get_blob(handle, NVS_KEY_PALETTE, palette, &required_size);
+
+    nvs_close(handle);
+
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Color palette not found in NVS, using defaults");
+        color_palette_get_defaults(palette);
+    } else {
+        ESP_LOGI(TAG, "Color palette loaded from NVS");
+    }
+
     return ESP_OK;
 }
