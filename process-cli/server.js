@@ -58,6 +58,7 @@ export async function createImageServer(
 
   // Use pre-resolved processing params
   const processingParams = { ...processingOptions };
+  const baseOptions = processingOptions || {};
 
   // Scan albums and collect all images
   const albums = {};
@@ -131,27 +132,63 @@ export async function createImageServer(
 
       try {
         // Get display dimensions from headers or use defaults
-        const width =
+        let width =
           parseInt(req.headers["x-display-width"]) ||
-          processingOptions.displayWidth ||
+          baseOptions.displayWidth ||
           DEFAULT_DISPLAY_WIDTH;
-        const height =
+        let height =
           parseInt(req.headers["x-display-height"]) ||
-          processingOptions.displayHeight ||
+          baseOptions.displayHeight ||
           DEFAULT_DISPLAY_HEIGHT;
 
+        // X-Display-Orientation can be used to swap width/height if needed
+        const orientation = req.headers["x-display-orientation"];
+        if (orientation === "portrait" && width > height) {
+          [width, height] = [height, width];
+        } else if (orientation === "landscape" && height > width) {
+          [width, height] = [height, width];
+        }
+
         if (!options.silent) {
-          console.log(`Processing for display: ${width}x${height}`);
+          console.log(
+            `Processing for display: ${width}x${height} (${orientation || "default"})`,
+          );
+        }
+
+        // Merge processing settings from headers if present
+        let currentProcessingParams = { ...processingParams };
+        if (req.headers["x-processing-settings"]) {
+          try {
+            const headerSettings = JSON.parse(req.headers["x-processing-settings"]);
+            currentProcessingParams = {
+              ...currentProcessingParams,
+              ...headerSettings,
+            };
+          } catch (e) {
+            console.error(
+              `Failed to parse X-Processing-Settings header: ${e.message}`,
+            );
+          }
+        }
+
+        // Use custom palette from header if present
+        let currentDevicePalette = devicePalette;
+        if (req.headers["x-color-palette"]) {
+          try {
+            currentDevicePalette = JSON.parse(req.headers["x-color-palette"]);
+          } catch (e) {
+            console.error(`Failed to parse X-Color-Palette header: ${e.message}`);
+          }
         }
 
         // Process image through pipeline
         const { canvas: processedCanvas, originalCanvas } =
           await processImagePipeline(
             image.path,
-            processingParams,
+            currentProcessingParams,
             width,
             height,
-            devicePalette,
+            currentDevicePalette,
             {
               verbose: options.verbose,
               skipDithering: serveFormat === "jpg",
