@@ -20,6 +20,7 @@ Usage:
 import argparse
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import urllib.request
@@ -41,6 +42,18 @@ class CORSRequestHandler(SimpleHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
         self.end_headers()
+
+
+def find_available_port(start_port=8000, max_attempts=10):
+    """Find an available port starting from start_port."""
+    for port in range(start_port, start_port + max_attempts):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("localhost", port))
+                return port
+            except socket.error:
+                continue
+    return None
 
 
 def build_firmware(project_root, board="waveshare_photopainter_73"):
@@ -116,6 +129,22 @@ def download_stable_firmware(demo_dir, project_root):
                 print(f"  ✓ Downloaded stable firmware for {board} ({latest_tag})")
                 success_count += 1
             except Exception as e:
+                # Fallback for waveshare backward compatibility (before board names were in filename)
+                if board == "waveshare_photopainter_73":
+                    try:
+                        print(
+                            f"  ⚠ Warning: Could not download board-specific firmware, trying legacy filename..."
+                        )
+                        legacy_url = f"https://github.com/{repo_path}/releases/download/{latest_tag}/photoframe-firmware-merged.bin"
+                        urllib.request.urlretrieve(legacy_url, output_file)
+                        print(
+                            f"  ✓ Downloaded legacy stable firmware for {board} ({latest_tag})"
+                        )
+                        success_count += 1
+                        continue
+                    except Exception as e2:
+                        pass
+
                 print(
                     f"  ⚠ Warning: Could not download stable firmware for {board}: {e}"
                 )
@@ -272,15 +301,20 @@ def serve_demo(demo_dir, port=8000):
 
     os.chdir(project_root)
 
-    server = HTTPServer(("localhost", port), CORSRequestHandler)
+    actual_port = find_available_port(port)
+    if not actual_port:
+        print(f"  ✗ Error: Could not find an available port starting from {port}")
+        return
+
+    server = HTTPServer(("localhost", actual_port), CORSRequestHandler)
 
     print("\n" + "=" * 60)
     print("ESP32 PhotoFrame Demo Page")
     print("=" * 60)
     print(f"\nDemo page available at:")
-    print(f"  http://localhost:{port}/esp32-photoframe/#demo")
+    print(f"  http://localhost:{actual_port}/esp32-photoframe/#demo")
     print(f"\nWeb flasher available at:")
-    print(f"  http://localhost:{port}/esp32-photoframe/#flash")
+    print(f"  http://localhost:{actual_port}/esp32-photoframe/#flash")
     print(f"\nPress Ctrl+C to stop the server")
     print("=" * 60 + "\n")
 
@@ -340,11 +374,8 @@ def main():
     print("=" * 60)
 
     # Determine boards to handle
-    selected_boards = (
-        [args.board]
-        if args.board != "all"
-        else ["waveshare_photopainter_73", "seeedstudio_xiao_ee02"]
-    )
+    all_boards = ["waveshare_photopainter_73", "seeedstudio_xiao_ee02"]
+    selected_boards = [args.board] if args.board != "all" else all_boards
 
     # Build firmware
     if not args.skip_build:
@@ -376,6 +407,7 @@ def main():
                     ],
                     cwd=project_root,
                     check=True,
+                    capture_output=True,
                 )
 
                 # Copy merged firmware as dev version
@@ -387,7 +419,7 @@ def main():
             except Exception as e:
                 print(f"  ⚠ Warning: Could not copy dev firmware for {board}: {e}")
 
-    # Download stable firmware
+    # Download stable firmware (process ALL boards so demo works)
     if not args.skip_download:
         download_stable_firmware(demo_dir, project_root)
 
@@ -395,9 +427,9 @@ def main():
     if not args.skip_copy:
         copy_required_files(demo_dir, project_root)
 
-    # Generate manifests
+    # Generate manifests (process ALL boards so demo works)
     if not args.skip_manifests:
-        if not generate_manifests(project_root, boards=selected_boards):
+        if not generate_manifests(project_root, boards=all_boards):
             print("\n⚠ Warning: Manifest generation failed, but continuing...")
 
     # Handle --dev mode: use Vite dev server

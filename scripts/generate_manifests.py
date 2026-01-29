@@ -48,19 +48,17 @@ def copy_firmware_to_demo(build_dir, demo_dir, board):
     try:
         subprocess.run(
             [
-                "python3",
-                "-m",
                 "esptool",
                 "--chip",
                 "esp32s3",
-                "merge_bin",
+                "merge-bin",
                 "-o",
                 merged_bin,
-                "--flash_mode",
+                "--flash-mode",
                 "dio",
-                "--flash_freq",
+                "--flash-freq",
                 "80m",
-                "--flash_size",
+                "--flash-size",
                 "16MB",
                 "0x0",
                 bootloader,
@@ -124,12 +122,16 @@ def generate_manifests(demo_dir, board, build_dir=None, dev_mode=False):
     firmware_file = f"photoframe-firmware-{board}-merged.bin"
     firmware_path = demo_path / firmware_file
 
-    if not check_firmware_exists(firmware_path):
-        return False
-
     # Generate stable manifest
     manifest_path = demo_path / "manifest.json"
-    generate_manifest(manifest_path, stable_version, firmware_file, board, is_dev=False)
+    if check_firmware_exists(firmware_path):
+        generate_manifest(
+            manifest_path, stable_version, firmware_file, board, is_dev=False
+        )
+    else:
+        print(
+            f"  Warning: Stable firmware {firmware_file} not found, skipping stable manifest generation"
+        )
 
     # Generate dev manifest if in dev mode
     if dev_mode:
@@ -140,6 +142,9 @@ def generate_manifests(demo_dir, board, build_dir=None, dev_mode=False):
         dev_firmware_file = f"photoframe-firmware-{board}-dev.bin"
         # Check if dev firmware exists, fallback to merged if not
         if not (demo_path / dev_firmware_file).exists():
+            print(
+                f"  Warning: Dev firmware {dev_firmware_file} not found, using stable firmware instead"
+            )
             dev_firmware_file = firmware_file
         generate_manifest(
             dev_manifest_path, dev_version, dev_firmware_file, board, is_dev=True
