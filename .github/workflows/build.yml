@@ -72,11 +72,6 @@ jobs:
 
         # Copy OTA binary with board name for release
         cp build/esp32-photoframe.bin firmware/esp32-photoframe-${{ matrix.board }}.bin
-        
-        # Backward compatibility: for waveshare_photopainter_73, also provide the generic name
-        if [ "${{ matrix.board }}" = "waveshare_photopainter_73" ]; then
-          cp build/esp32-photoframe.bin firmware/esp32-photoframe.bin
-        fi
     
     - name: Install esptool
       run: pip install esptool
