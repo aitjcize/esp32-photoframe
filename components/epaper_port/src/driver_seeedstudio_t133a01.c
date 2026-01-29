@@ -8,7 +8,7 @@
 
 #include "epaper_port.h"
 
-static const char *TAG = "epaper_driver";
+static const char *TAG = "epaper_seeedstudio_t133a01";
 
 // Pin definition for Seeed XIAO EE02 (verified from Seeed_GFX)
 #define EPD_DC_PIN GPIO_NUM_10
@@ -289,7 +289,7 @@ void epaper_port_display(uint8_t *buffer)
     CS_L();  // CS LOW
 
     gpio_set_level(EPD_DC_PIN, 0);  // CMD
-    spi_transaction_t t_dtm = {.length = 8, .tx_buffer = (uint8_t[]){R10_DTM}};
+    spi_transaction_t t_dtm = {.length = 8, .tx_buffer = (uint8_t[]) {R10_DTM}};
     spi_device_transmit(spi, &t_dtm);
 
     gpio_set_level(EPD_DC_PIN, 1);  // DATA

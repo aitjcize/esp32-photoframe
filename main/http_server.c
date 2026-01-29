@@ -661,7 +661,29 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// URL decode helper function to handle encoded characters like %20 for space
+static void url_decode(char *dst, const char *src, size_t dst_size)
+{
+    size_t i = 0, j = 0;
+    while (src[i] && j < dst_size - 1) {
+        if (src[i] == '%' && src[i + 1] && src[i + 2]) {
+            // Convert hex to char
+            char hex[3] = {src[i + 1], src[i + 2], '\0'};
+            dst[j++] = (char) strtol(hex, NULL, 16);
+            i += 3;
+        } else if (src[i] == '+') {
+            // '+' is also used for space in query strings
+            dst[j++] = ' ';
+            i++;
+        } else {
+            dst[j++] = src[i++];
+        }
+    }
+    dst[j] = '\0';
+}
+
 #ifdef CONFIG_HAS_SDCARD
+
 static esp_err_t upload_image_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -680,8 +702,8 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
         char album_param[128];
         if (httpd_query_key_value(query, "album", album_param, sizeof(album_param)) == ESP_OK) {
-            strncpy(album_name, album_param, sizeof(album_name) - 1);
-            album_name[sizeof(album_name) - 1] = '\0';
+            // URL decode the album name to handle special characters like '+'
+            url_decode(album_name, album_param, sizeof(album_name));
         }
     }
 
@@ -783,27 +805,6 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
 #endif
 
 #ifdef CONFIG_HAS_SDCARD
-// URL decode helper function to handle encoded characters like %20 for space
-static void url_decode(char *dst, const char *src, size_t dst_size)
-{
-    size_t i = 0, j = 0;
-    while (src[i] && j < dst_size - 1) {
-        if (src[i] == '%' && src[i + 1] && src[i + 2]) {
-            // Convert hex to char
-            char hex[3] = {src[i + 1], src[i + 2], '\0'};
-            dst[j++] = (char) strtol(hex, NULL, 16);
-            i += 3;
-        } else if (src[i] == '+') {
-            // '+' is also used for space in query strings
-            dst[j++] = ' ';
-            i++;
-        } else {
-            dst[j++] = src[i++];
-        }
-    }
-    dst[j] = '\0';
-}
-
 static esp_err_t serve_image_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -1604,7 +1605,11 @@ static esp_err_t album_delete_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    esp_err_t err = album_manager_delete_album(album_name);
+    // URL decode the album name to handle special characters like '+'
+    char decoded_album_name[128];
+    url_decode(decoded_album_name, album_name, sizeof(decoded_album_name));
+
+    esp_err_t err = album_manager_delete_album(decoded_album_name);
     if (err != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to delete album");
         return ESP_FAIL;
@@ -1642,6 +1647,10 @@ static esp_err_t album_enabled_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
+    // URL decode the album name to handle special characters like '+'
+    char decoded_album_name[128];
+    url_decode(decoded_album_name, album_name, sizeof(decoded_album_name));
+
     // Get enabled status from JSON body
     char buf[256];
     int ret = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf) - 1));
@@ -1667,7 +1676,7 @@ static esp_err_t album_enabled_handler(httpd_req_t *req)
 
     bool enabled = cJSON_IsTrue(enabled_json);
 
-    esp_err_t err = album_manager_set_album_enabled(album_name, enabled);
+    esp_err_t err = album_manager_set_album_enabled(decoded_album_name, enabled);
     cJSON_Delete(root);
 
     if (err != ESP_OK) {
@@ -1705,8 +1714,12 @@ static esp_err_t album_images_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
+    // URL decode the album name to handle special characters like '+'
+    char decoded_album_name[128];
+    url_decode(decoded_album_name, album_name, sizeof(decoded_album_name));
+
     char album_path[256];
-    if (album_manager_get_album_path(album_name, album_path, sizeof(album_path)) != ESP_OK) {
+    if (album_manager_get_album_path(decoded_album_name, album_path, sizeof(album_path)) != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid album");
         return ESP_FAIL;
     }
@@ -1729,7 +1742,7 @@ static esp_err_t album_images_handler(httpd_req_t *req)
                         strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
                 cJSON *image_obj = cJSON_CreateObject();
                 cJSON_AddStringToObject(image_obj, "filename", entry->d_name);
-                cJSON_AddStringToObject(image_obj, "album", album_name);
+                cJSON_AddStringToObject(image_obj, "album", decoded_album_name);
 
                 // Check if a corresponding JPG thumbnail exists for any image type
                 char thumbnail_name[256];

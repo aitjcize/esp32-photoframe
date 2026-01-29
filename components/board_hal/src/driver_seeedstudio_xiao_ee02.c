@@ -32,6 +32,7 @@ static adc_oneshot_unit_handle_t adc_handle = NULL;
 esp_err_t board_hal_init(void)
 {
     ESP_LOGI(TAG, "Initializing XIAO EE02 Power HAL (BQ24070)");
+
     // Do nothing for now.
     return ESP_OK;
 

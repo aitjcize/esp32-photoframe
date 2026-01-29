@@ -1,8 +1,8 @@
 set(srcs "")
 if(CONFIG_EP_DRIVER_WAVESHARE_7IN3)
     list(APPEND srcs "src/driver_waveshare_7in3.c")
-elseif(CONFIG_EP_DRIVER_SEEEDSTUDIO_XIAO_EE02)
-    list(APPEND srcs "src/driver_seeedstudio_xiao_ee02.c")
+elseif(CONFIG_EP_DRIVER_SEEEDSTUDIO_T133A01)
+    list(APPEND srcs "src/driver_seeedstudio_t133a01.c")
 endif()
 
 idf_component_register(

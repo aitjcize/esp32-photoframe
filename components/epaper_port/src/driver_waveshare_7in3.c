@@ -26,6 +26,8 @@
 static spi_device_handle_t spi;
 static void spi_send_byte(uint8_t cmd);
 
+static const char *TAG = "epaper_waveshare_7in3";
+
 static void epaper_gpio_init(void)
 {
     gpio_config_t gpio_conf = {};
@@ -110,7 +112,7 @@ static void epaper_readbusyh(void)
         wait_count++;
         if (wait_count >
             4000) {  // 40 seconds timeout (e-paper can be slow, especially for full refresh)
-            ESP_LOGW("epaper_port", "Display busy timeout after 40s");
+            ESP_LOGW(TAG, "Display busy timeout after 40s");
             return;
         }
     }
@@ -150,8 +152,7 @@ void epaper_Sendbuffera(uint8_t *Data, int len)
     int len_dcl = len % 5000;
     uint8_t *ptr = Data;
 
-    ESP_LOGI("epaper_port", "Sending %d bytes in %d chunks of 5000 + %d remainder", len, len_scl,
-             len_dcl);
+    ESP_LOGI(TAG, "Sending %d bytes in %d chunks of 5000 + %d remainder", len, len_scl, len_dcl);
 
     int chunk = 0;
     while (len_scl) {
@@ -159,8 +160,7 @@ void epaper_Sendbuffera(uint8_t *Data, int len)
         t.tx_buffer = ptr;
         ret = spi_device_polling_transmit(spi, &t);  // Transmit!
         if (ret != ESP_OK) {
-            ESP_LOGE("epaper_port", "SPI transmit failed at chunk %d: %s", chunk,
-                     esp_err_to_name(ret));
+            ESP_LOGE(TAG, "SPI transmit failed at chunk %d: %s", chunk, esp_err_to_name(ret));
         }
         assert(ret == ESP_OK);  // Should have had no issues
         len_scl--;
@@ -173,17 +173,17 @@ void epaper_Sendbuffera(uint8_t *Data, int len)
         }
     }
 
-    ESP_LOGI("epaper_port", "Sending final chunk of %d bytes", len_dcl);
+    ESP_LOGI(TAG, "Sending final chunk of %d bytes", len_dcl);
     t.length = 8 * len_dcl;
     t.tx_buffer = ptr;
     ret = spi_device_polling_transmit(spi, &t);  // Transmit!
     if (ret != ESP_OK) {
-        ESP_LOGE("epaper_port", "SPI transmit failed at final chunk: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "SPI transmit failed at final chunk: %s", esp_err_to_name(ret));
     }
     assert(ret == ESP_OK);  // Should have had no issues.
     epaper_cs_1;
 
-    ESP_LOGI("epaper_port", "Buffer send complete");
+    ESP_LOGI(TAG, "Buffer send complete");
 }
 
 /*
@@ -331,13 +331,12 @@ void epaper_port_display(uint8_t *Image)
     Width = (lcd_width % 2 == 0) ? (lcd_width / 2) : (lcd_width / 2 + 1);
     Height = epaper_get_height();
 
-    ESP_LOGI("epaper_port", "Starting display update: %d x %d = %d bytes", Width, Height,
-             Height * Width);
+    ESP_LOGI(TAG, "Starting display update: %d x %d = %d bytes", Width, Height, Height * Width);
 
     epaper_SendCommand(0x10);
-    ESP_LOGI("epaper_port", "Sent command 0x10, sending buffer...");
+    ESP_LOGI(TAG, "Sent command 0x10, sending buffer...");
     epaper_Sendbuffera(Image, Height * Width);
-    ESP_LOGI("epaper_port", "Buffer sent, turning on display...");
+    ESP_LOGI(TAG, "Buffer sent, turning on display...");
     epaper_TurnOnDisplay();
-    ESP_LOGI("epaper_port", "Display update complete");
+    ESP_LOGI(TAG, "Display update complete");
 }
