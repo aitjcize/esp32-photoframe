@@ -150,13 +150,23 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
             }
         }
 
-        // Add display resolution headers
+        // Add hostname header (mDNS name with .local suffix)
+        char hostname[64];
+        sanitize_hostname(config_manager_get_device_name(), hostname, sizeof(hostname) - 6);
+        strlcat(hostname, ".local", sizeof(hostname));
+        esp_http_client_set_header(client, "X-Hostname", hostname);
+
+        // Add display resolution and orientation headers
         char width_str[16];
         char height_str[16];
         snprintf(width_str, sizeof(width_str), "%d", board_hal_get_display_width());
         snprintf(height_str, sizeof(height_str), "%d", board_hal_get_display_height());
         esp_http_client_set_header(client, "X-Display-Width", width_str);
         esp_http_client_set_header(client, "X-Display-Height", height_str);
+        esp_http_client_set_header(
+            client, "X-Display-Orientation",
+            config_manager_get_display_orientation() == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape"
+                                                                                      : "portrait");
 
         err = esp_http_client_perform(client);
 
