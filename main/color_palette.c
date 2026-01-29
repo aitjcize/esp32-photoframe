@@ -191,7 +191,7 @@ esp_err_t color_palette_load(color_palette_t *palette)
     if (!has_palette) {
         ESP_LOGW(TAG, "Color palette not found in NVS, using defaults");
         color_palette_get_defaults(palette);
-        return ESP_ERR_NOT_FOUND;
+        return ESP_OK;
     }
 
     ESP_LOGI(TAG, "Color palette loaded from NVS");
