@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    strategy:
+      matrix:
+        board: [waveshare_photopainter_73, seeedstudio_xiao_ee02]
+      fail-fast: false
     
     steps:
     - name: Checkout repository
@@ -25,10 +29,8 @@ jobs:
       id: version
       run: |
         if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-          # For tag builds, extract tag name directly
           VERSION="${GITHUB_REF#refs/tags/}"
         else
-          # For non-tag builds, use centralized version script
           VERSION=$(python3 scripts/get_version.py --type dev)
         fi
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
@@ -50,28 +52,34 @@ jobs:
       with:
         esp_idf_version: release-v6.0
         target: esp32s3
-        command: idf.py -DFIRMWARE_VERSION='${{ steps.version.outputs.version }}' build
+        command: |
+          idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.${{ matrix.board }}" \
+                 -DFIRMWARE_VERSION='${{ steps.version.outputs.version }}' build
     
     - name: Prepare firmware artifacts
       run: |
         mkdir -p firmware
-        cp build/esp32-photoframe.bin firmware/
-        cp build/bootloader/bootloader.bin firmware/
-        cp build/partition_table/partition-table.bin firmware/
-        
         # Create flash_download_tool config
         cat > firmware/download.conf << EOF
         0x0 firmware/bootloader.bin
         0x8000 firmware/partition-table.bin
         0x20000 firmware/esp32-photoframe.bin
         EOF
+
+        # Copy OTA binary with board name for release
+        cp build/esp32-photoframe.bin firmware/esp32-photoframe-${{ matrix.board }}.bin
+        
+        # Backward compatibility: for waveshare_photopainter_73, also provide the generic name
+        if [ "${{ matrix.board }}" = "waveshare_photopainter_73" ]; then
+          cp build/esp32-photoframe.bin firmware/esp32-photoframe.bin
+        fi
     
     - name: Install esptool
       run: pip install esptool
     
     - name: Create merged firmware
       run: |
-        esptool.py --chip esp32s3 merge_bin -o firmware/photoframe-firmware-merged.bin \
+        esptool.py --chip esp32s3 merge_bin -o firmware/photoframe-firmware-${{ matrix.board }}-merged.bin \
           --flash_mode dio --flash_freq 80m --flash_size 16MB \
           0x0 firmware/bootloader.bin \
           0x8000 firmware/partition-table.bin \
@@ -80,7 +88,7 @@ jobs:
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: photoframe-firmware
+        name: photoframe-firmware-${{ matrix.board }}
         path: firmware/
         retention-days: 90
     
@@ -89,11 +97,12 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          firmware/photoframe-firmware-merged.bin
+          firmware/photoframe-firmware-*-merged.bin
+          firmware/esp32-photoframe-*.bin
           firmware/esp32-photoframe.bin
           firmware/bootloader.bin
           firmware/partition-table.bin
-          firmware/FLASH.txt
+          firmware/download.conf
         body: |
           ## 🎉 What's New
 
@@ -106,9 +115,12 @@ jobs:
           **[https://aitjcize.github.io/esp32-photoframe/#flash](https://aitjcize.github.io/esp32-photoframe/)**
 
           ### 📦 Manually
-          `photoframe-firmware-merged.bin` - Single file containing bootloader, partition table, and application
+          Choose the appropriate merged binary for your board:
+          - `photoframe-firmware-waveshare_photopainter_73-merged.bin`: For Waveshare 7.3" 7-color e-paper
+          - `photoframe-firmware-seeedstudio_xiao_ee02-merged.bin`: For Seeed XIAO EE02
+
           ```bash
-          esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 photoframe-firmware-merged.bin
+          esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 photoframe-firmware-[board]-merged.bin
           ```
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -126,13 +138,14 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Fetch all history and tags for version detection
+        fetch-depth: 0
     
-    - name: Download firmware artifacts
+    - name: Download all firmware artifacts
       uses: actions/download-artifact@v4
       with:
-        name: photoframe-firmware
-        path: firmware
+        path: firmware-artifacts
+        pattern: photoframe-firmware-*
+        merge-multiple: true
     
     - name: Setup Node.js
       uses: actions/setup-node@v4
@@ -153,31 +166,42 @@ jobs:
         # Copy sample image for demo page
         cp .img/sample.jpg demo/
         
-        # Copy firmware files
-        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-          # For releases: copy as both stable and dev firmware
-          cp firmware/photoframe-firmware-merged.bin demo/photoframe-firmware-merged.bin
-          cp firmware/photoframe-firmware-merged.bin demo/photoframe-firmware-dev.bin
-        else
-          # For main branch: copy dev firmware
-          cp firmware/photoframe-firmware-merged.bin demo/photoframe-firmware-dev.bin
-          
-          # Download latest stable release firmware from GitHub
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
-          echo "Downloading stable release ${LATEST_TAG} firmware..."
-          
-          # Try to download from GitHub releases
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/${LATEST_TAG}/photoframe-firmware-merged.bin"
-          if curl -L -f -o demo/photoframe-firmware-merged.bin "${RELEASE_URL}"; then
-            echo "Successfully downloaded stable firmware ${LATEST_TAG}"
-          else
-            echo "Warning: Could not download stable firmware, using dev build as fallback"
-            cp firmware/photoframe-firmware-merged.bin demo/photoframe-firmware-merged.bin
-          fi
-        fi
+        # Find latest tag
+        LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
         
-        # Always generate both stable and dev manifests
-        python3 scripts/generate_manifests.py --no-copy --dev --demo-dir demo
+        BOARDS="waveshare_photopainter_73 seeedstudio_xiao_ee02"
+        
+        for board in $BOARDS; do
+          mkdir -p "demo/$board"
+          
+          # Dev firmware from this build
+          cp "firmware-artifacts/photoframe-firmware-$board-merged.bin" "demo/$board/photoframe-firmware-$board-dev.bin"
+          
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # For releases: use this build as stable
+            cp "demo/$board/photoframe-firmware-$board-dev.bin" "demo/$board/photoframe-firmware-$board-merged.bin"
+          else
+            # For main branch: download latest stable release firmware
+            echo "Downloading stable release ${LATEST_TAG} firmware for $board..."
+            RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/${LATEST_TAG}/photoframe-firmware-$board-merged.bin"
+            
+            if curl -L -f -o "demo/$board/photoframe-firmware-$board-merged.bin" "${RELEASE_URL}"; then
+              echo "Successfully downloaded stable firmware ${LATEST_TAG} for $board"
+            else
+              echo "Warning: Could not download stable firmware for $board, using dev build as fallback"
+              cp "demo/$board/photoframe-firmware-$board-dev.bin" "demo/$board/photoframe-firmware-$board-merged.bin"
+            fi
+          fi
+          
+          # Generate manifests for this board
+          python3 scripts/generate_manifests.py --no-copy --dev --demo-dir "demo/$board" --board "$board"
+        done
+        
+        # Link a default manifest at the root of demo for backward compatibility or default view
+        cp demo/waveshare_photopainter_73/manifest.json demo/
+        cp demo/waveshare_photopainter_73/manifest-dev.json demo/
+        # Also need a way for the webflasher to discover these. 
+        # For now, we'll keep the structure organized by board subdirs.
     
     - name: Setup Pages
       uses: actions/configure-pages@v4

@@ -10,6 +10,26 @@
 extern "C" {
 #endif
 
+typedef enum {
+    BOARD_TYPE_WAVESHARE_PHOTOPAINTER,
+    BOARD_TYPE_SEEEDSTUDIO_XIAO_EE02,
+    BOARD_TYPE_UNKNOWN
+} board_type_t;
+
+/**
+ * @brief Get the board type
+ *
+ * @return board_type_t The current board type
+ */
+board_type_t board_hal_get_type(void);
+
+/**
+ * @brief Get the board name
+ *
+ * @return const char* The internal name of the board (used for OTA binaries, etc.)
+ */
+const char *board_hal_get_name(void);
+
 /**
  * @brief Initialize the power management HAL
  *

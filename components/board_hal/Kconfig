@@ -2,17 +2,17 @@ menu "Board Configuration"
 
     choice BOARD_TYPE
         prompt "Power Management Driver"
-        default BOARD_DRIVER_WAVESHARE_PHOTOPAINTER
+        default BOARD_DRIVER_WAVESHARE_PHOTOPAINTER_73
         help
             Select the power management driver to use.
 
-        config BOARD_DRIVER_WAVESHARE_PHOTOPAINTER
-            bool "WaveShare PhotoPainter"
+        config BOARD_DRIVER_WAVESHARE_PHOTOPAINTER_73
+            bool "WaveShare PhotoPainter 7.3in"
             help
-                Driver for WaveShare PhotoPainter (Spectra 6) board.
+                Driver for WaveShare PhotoPainter 7.3in (Spectra 6) board.
                 Includes AXP2101 PMIC initialization and SHTC3 sensor sleep management.
 
-        config BOARD_DRIVER_XIAO_EE02
+        config BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02
             bool "Seeed XIAO EE02 (BQ24070)"
             help
                 Driver for Seeed Studio XIAO EE02 board.

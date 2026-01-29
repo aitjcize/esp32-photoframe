@@ -1770,12 +1770,12 @@ static esp_err_t system_info_handler(httpd_req_t *req)
 
     cJSON_AddNumberToObject(response, "width", board_hal_get_display_width());
     cJSON_AddNumberToObject(response, "height", board_hal_get_display_height());
+    cJSON_AddStringToObject(response, "board_name", board_hal_get_name());
 #ifdef CONFIG_HAS_SDCARD
     cJSON_AddBoolToObject(response, "has_sdcard", true);
 #else
     cJSON_AddBoolToObject(response, "has_sdcard", false);
 #endif
-
     cJSON_AddStringToObject(response, "version", app_desc->version);
     cJSON_AddStringToObject(response, "project_name", app_desc->project_name);
     cJSON_AddStringToObject(response, "compile_time", app_desc->time);

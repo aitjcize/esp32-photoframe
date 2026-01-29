@@ -3,12 +3,21 @@ import { ref, onMounted, watch } from "vue";
 import { getPreset, getPresetOptions } from "@aitjcize/epaper-image-convert";
 import ImageProcessing from "../components/ImageProcessing.vue";
 import ProcessingControls from "../components/ProcessingControls.vue";
+import { useAppStore } from "../stores/app";
 
 // State
 const tab = ref("demo");
-const stableVersion = ref("Loading...");
+const appStore = useAppStore();
+const stableVersion = ref("-");
 const devVersion = ref("Loading...");
 const selectedVersion = ref("stable");
+const selectedBoard = ref("waveshare_photopainter_73");
+const baseUrl = import.meta.env.BASE_URL;
+
+const boardOptions = [
+  { label: 'Waveshare 7.3" (7-color)', value: "waveshare_photopainter_73" },
+  { label: "Seeed Studio XIAO EE02", value: "seeedstudio_xiao_ee02" },
+];
 
 // Image state
 const fileInput = ref(null);
@@ -99,8 +108,11 @@ async function loadVersionInfo() {
     const stableData = await stableResponse.json();
     stableVersion.value = stableData.tag_name;
 
-    // Get dev version from manifest-dev.json
-    const devResponse = await fetch(import.meta.env.BASE_URL + "manifest-dev.json");
+    // Get dev version from manifest-dev.json (try root first, then board-specific)
+    let devResponse = await fetch(baseUrl + "manifest-dev.json");
+    if (!devResponse.ok) {
+      devResponse = await fetch(baseUrl + selectedBoard.value + "/manifest-dev.json");
+    }
     if (devResponse.ok) {
       const devData = await devResponse.json();
       devVersion.value = devData.version || "dev";
@@ -113,7 +125,7 @@ async function loadVersionInfo() {
 
 async function loadSampleImage() {
   try {
-    const response = await fetch(import.meta.env.BASE_URL + "sample.jpg");
+    const response = await fetch(baseUrl + "sample.jpg");
     if (!response.ok) {
       console.log("Sample image not found, waiting for user upload");
       return;
@@ -346,8 +358,8 @@ function newImage() {
                   </template>
                   <ul class="pl-4 mt-2">
                     <li>Chrome, Edge, or Opera browser (Web Serial API required)</li>
-                    <li>USB-C cable connected to your ESP32-S3-PhotoPainter</li>
-                    <li>Waveshare ESP32-S3-PhotoPainter device</li>
+                    <li>USB-C cable connected to your ESP32-S3 PhotoFrame</li>
+                    <li>Compatible ESP32-S3 board (Waveshare or Seeed XIAO)</li>
                   </ul>
                 </v-alert>
 
@@ -358,6 +370,7 @@ function newImage() {
                     Flash Firmware
                   </v-card-title>
                   <v-card-text>
+                    <div class="text-subtitle-1 mb-2">Select Version:</div>
                     <v-radio-group v-model="selectedVersion" class="mb-4">
                       <v-radio value="stable">
                         <template #label>
@@ -377,10 +390,25 @@ function newImage() {
                       </v-radio>
                     </v-radio-group>
 
+                    <v-divider class="mb-4" />
+
+                    <div class="text-subtitle-1 mb-2 mt-4">Select Board:</div>
+                    <v-radio-group v-model="selectedBoard" class="mb-4">
+                      <v-radio
+                        v-for="board in boardOptions"
+                        :key="board.value"
+                        :label="board.label"
+                        :value="board.value"
+                      />
+                    </v-radio-group>
+
                     <div class="d-flex justify-center">
                       <esp-web-install-button
                         :manifest="
-                          selectedVersion === 'stable' ? 'manifest.json' : 'manifest-dev.json'
+                          baseUrl +
+                          selectedBoard +
+                          '/' +
+                          (selectedVersion === 'stable' ? 'manifest.json' : 'manifest-dev.json')
                         "
                       >
                         <template #activate>

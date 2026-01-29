@@ -28,14 +28,14 @@ def check_firmware_exists(firmware_path):
     return True
 
 
-def copy_firmware_to_demo(build_dir, demo_dir):
+def copy_firmware_to_demo(build_dir, demo_dir, board):
     """Copy firmware files from build directory to demo."""
     import shutil
 
     # Source files
     bootloader = os.path.join(build_dir, "bootloader", "bootloader.bin")
     partition_table = os.path.join(build_dir, "partition_table", "partition-table.bin")
-    app_bin = os.path.join(build_dir, "photoframe-api.bin")
+    app_bin = os.path.join(build_dir, "esp32-photoframe.bin")
 
     # Check if files exist
     if not all(os.path.exists(f) for f in [bootloader, partition_table, app_bin]):
@@ -43,7 +43,7 @@ def copy_firmware_to_demo(build_dir, demo_dir):
         return False
 
     # Create merged firmware using esptool
-    merged_bin = os.path.join(demo_dir, "photoframe-firmware-merged.bin")
+    merged_bin = os.path.join(demo_dir, f"photoframe-firmware-{board}-merged.bin")
 
     try:
         subprocess.run(
@@ -66,7 +66,7 @@ def copy_firmware_to_demo(build_dir, demo_dir):
                 bootloader,
                 "0x8000",
                 partition_table,
-                "0x10000",
+                "0x20000",
                 app_bin,
             ],
             check=True,
@@ -79,11 +79,16 @@ def copy_firmware_to_demo(build_dir, demo_dir):
         return False
 
 
-def generate_manifest(output_path, version, firmware_file, is_dev=False):
+def generate_manifest(output_path, version, firmware_file, board, is_dev=False):
     """Generate a manifest.json file."""
 
+    board_display = {
+        "waveshare_photopainter_73": "Waveshare 7.3in 7-color",
+        "seeedstudio_xiao_ee02": "Seeed Studio XIAO EE02",
+    }.get(board, board)
+
     manifest = {
-        "name": f"ESP32 PhotoFrame{' (Development)' if is_dev else ''}",
+        "name": f"ESP32 PhotoFrame {board_display}{' (Development)' if is_dev else ''}",
         "version": version,
         "home_assistant_domain": "esphome",
         "new_install_prompt_erase": True,
@@ -101,7 +106,7 @@ def generate_manifest(output_path, version, firmware_file, is_dev=False):
     print(f"  Firmware: {firmware_file}")
 
 
-def generate_manifests(demo_dir, build_dir=None, dev_mode=False):
+def generate_manifests(demo_dir, board, build_dir=None, dev_mode=False):
     """Generate manifest files for web flasher."""
 
     demo_path = Path(demo_dir)
@@ -112,11 +117,11 @@ def generate_manifests(demo_dir, build_dir=None, dev_mode=False):
 
     # Copy firmware if build_dir provided
     if build_dir:
-        if not copy_firmware_to_demo(build_dir, demo_dir):
+        if not copy_firmware_to_demo(build_dir, demo_dir, board):
             return False
 
     # Check if firmware exists
-    firmware_file = "photoframe-firmware-merged.bin"
+    firmware_file = f"photoframe-firmware-{board}-merged.bin"
     firmware_path = demo_path / firmware_file
 
     if not check_firmware_exists(firmware_path):
@@ -124,7 +129,7 @@ def generate_manifests(demo_dir, build_dir=None, dev_mode=False):
 
     # Generate stable manifest
     manifest_path = demo_path / "manifest.json"
-    generate_manifest(manifest_path, stable_version, firmware_file, is_dev=False)
+    generate_manifest(manifest_path, stable_version, firmware_file, board, is_dev=False)
 
     # Generate dev manifest if in dev mode
     if dev_mode:
@@ -132,12 +137,12 @@ def generate_manifests(demo_dir, build_dir=None, dev_mode=False):
         dev_version = version_module.get_dev_version()
         dev_manifest_path = demo_path / "manifest-dev.json"
         # Dev manifest points to dev firmware file
-        dev_firmware_file = "photoframe-firmware-dev.bin"
+        dev_firmware_file = f"photoframe-firmware-{board}-dev.bin"
         # Check if dev firmware exists, fallback to merged if not
         if not (demo_path / dev_firmware_file).exists():
             dev_firmware_file = firmware_file
         generate_manifest(
-            dev_manifest_path, dev_version, dev_firmware_file, is_dev=True
+            dev_manifest_path, dev_version, dev_firmware_file, board, is_dev=True
         )
 
     return True
@@ -165,6 +170,12 @@ def main():
         action="store_true",
         help="Skip copying firmware from build directory",
     )
+    parser.add_argument(
+        "--board",
+        required=True,
+        choices=["waveshare_photopainter_73", "seeedstudio_xiao_ee02"],
+        help="Board type to build",
+    )
 
     args = parser.parse_args()
 
@@ -175,13 +186,11 @@ def main():
     build_dir = project_root / args.build_dir if not args.no_copy else None
 
     # Generate manifests
-    print("Generating manifests...")
-    if not generate_manifests(demo_dir, build_dir, args.dev):
+    print(f"Generating manifests for {args.board}...")
+    if not generate_manifests(demo_dir, args.board, build_dir, args.dev):
         sys.exit(1)
 
     print("\nManifests generated successfully!")
-    print("\nTo test locally, run:")
-    print("  python3 scripts/launch_demo.py")
 
 
 if __name__ == "__main__":

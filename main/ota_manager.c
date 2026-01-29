@@ -4,6 +4,7 @@
 #include <sys/time.h>
 #include <time.h>
 
+#include "board_hal.h"
 #include "cJSON.h"
 #include "config.h"
 #include "esp_crt_bundle.h"
@@ -224,13 +225,20 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
 
     bool found_binary = false;
     cJSON *asset = NULL;
+
+    const char *board_name = board_hal_get_name();
+
+    char target_binary[64];
+    snprintf(target_binary, sizeof(target_binary), "esp32-photoframe-%s.bin", board_name);
+    ESP_LOGI(TAG, "Searching for board-specific OTA binary: %s", target_binary);
+
     cJSON_ArrayForEach(asset, assets)
     {
         cJSON *name = cJSON_GetObjectItem(asset, "name");
         if (name && cJSON_IsString(name)) {
             const char *asset_name = name->valuestring;
-            // Look for esp32-photoframe.bin specifically (the OTA firmware binary)
-            if (strstr(asset_name, "esp32-photoframe.bin") != NULL) {
+            // Look for board-specific binary
+            if (strcmp(asset_name, target_binary) == 0) {
                 cJSON *browser_download_url = cJSON_GetObjectItem(asset, "browser_download_url");
                 if (browser_download_url && cJSON_IsString(browser_download_url)) {
                     strncpy(download_url, browser_download_url->valuestring, url_len - 1);

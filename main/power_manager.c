@@ -282,9 +282,6 @@ esp_err_t power_manager_init(void)
 
     power_manager_enable_auto_light_sleep();
 
-    // Initialize Power HAL
-    ESP_ERROR_CHECK(board_hal_init());
-
     ESP_LOGI(TAG, "Power manager initialized");
     return ESP_OK;
 }
@@ -321,7 +318,7 @@ void power_manager_enter_sleep(void)
     esp_sleep_enable_ext1_wakeup((1ULL << BOOT_BUTTON_GPIO) | (1ULL << KEY_BUTTON_GPIO),
                                  ESP_EXT1_WAKEUP_ANY_LOW);
 
-    ESP_LOGI(TAG, "Configuring Power HAL for deep sleep");
+    ESP_LOGI(TAG, "Configuring Board HAL for deep sleep");
     board_hal_prepare_for_sleep();
 
     ESP_LOGI(TAG, "Entering deep sleep now");

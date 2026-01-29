@@ -18,5 +18,7 @@ esp32-photoframe
 demo/sample.jpg
 demo/manifest.json
 demo/manifest-dev.json
-demo/photoframe-firmware-merged.bin
-demo/photoframe-firmware-dev.bin
+demo/photoframe-firmware-*merged.bin
+demo/photoframe-firmware-*dev.bin
+demo/waveshare_photopainter_73
+demo/seeedstudio_xiao_ee02

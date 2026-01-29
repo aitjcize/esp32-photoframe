@@ -42,6 +42,10 @@ jobs:
   build-firmware:
     name: Build Firmware
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        board: [waveshare_photopainter_73, seeedstudio_xiao_ee02]
+      fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -71,7 +75,9 @@ jobs:
         with:
           esp_idf_version: release-v6.0
           target: esp32s3
-          command: idf.py -DFIRMWARE_VERSION='${{ steps.version.outputs.version }}' build
+          command: |
+             idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.${{ matrix.board }}" \
+                    -DFIRMWARE_VERSION='${{ steps.version.outputs.version }}' build
 
   host-tests:
     name: Host-Based Unit Tests

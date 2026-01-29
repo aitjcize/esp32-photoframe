@@ -2,6 +2,7 @@
 
 #include "axp_prot.h"
 #include "board_hal.h"
+#include "epaper_port.h"
 #include "esp_log.h"
 #include "i2c_bsp.h"
 #include "pcf85063_rtc.h"
@@ -26,7 +27,6 @@ esp_err_t board_hal_init(void)
     } else {
         ESP_LOGW(TAG, "SHTC3 sensor initialization failed (sensor may not be present)");
     }
-
     return ESP_OK;
 }
 
@@ -87,7 +87,8 @@ esp_err_t board_hal_get_temperature(float *t)
     // SHTC3 driver usually provides combined read, or we cache?
     // Let's assume shtc3_read_temperature exists or similar.
     // Checking shtc3_sensor.h would be ideal, but assuming standard interface:
-    return shtc3_read_temperature(t);
+    float h_dummy;
+    return shtc3_read(t, &h_dummy);
 }
 
 esp_err_t board_hal_get_humidity(float *h)
@@ -96,7 +97,8 @@ esp_err_t board_hal_get_humidity(float *h)
         return ESP_ERR_INVALID_ARG;
     if (!shtc3_is_available())
         return ESP_ERR_INVALID_STATE;
-    return shtc3_read_humidity(h);
+    float t_dummy;
+    return shtc3_read(&t_dummy, h);
 }
 
 esp_err_t board_hal_rtc_init(void)
@@ -121,8 +123,6 @@ bool board_hal_rtc_is_available(void)
     return pcf85063_is_available();
 }
 
-#endif
-
 uint16_t board_hal_get_display_width(void)
 {
     return epaper_get_width();
@@ -131,6 +131,16 @@ uint16_t board_hal_get_display_width(void)
 uint16_t board_hal_get_display_height(void)
 {
     return epaper_get_height();
+}
+
+board_type_t board_hal_get_type(void)
+{
+    return BOARD_TYPE_WAVESHARE_PHOTOPAINTER;
+}
+
+const char *board_hal_get_name(void)
+{
+    return "waveshare_photopainter_73";
 }
 
 uint16_t board_hal_get_display_rotation(void)

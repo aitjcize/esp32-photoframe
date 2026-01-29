@@ -210,7 +210,7 @@ static void epd_init_sequence(void)
 
 void epaper_port_init(void)
 {
-    ESP_LOGI(TAG, "Initializing XIAO EE02 E-Paper Driver (Corrected)");
+    ESP_LOGI(TAG, "Initializing XIAO EE02 E-Paper Driver");
     epd_spi_init();
 
     // EPD_WAKEUP calls EPD_INIT

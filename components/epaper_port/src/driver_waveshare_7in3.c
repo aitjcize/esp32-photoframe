@@ -86,7 +86,7 @@ static void epaper_spi_init(void)
     buscfg.max_transfer_sz = epaper_get_width() * epaper_get_height();
     spi_device_interface_config_t devcfg = {};
     devcfg.spics_io_num = -1;
-    devcfg.clock_speed_hz = 10 * 1000 * 1000;  // Clock out at 10 MHz
+    devcfg.clock_speed_hz = 20 * 1000 * 1000;  // Clock out at 20 MHz
     devcfg.mode = 0;                           // SPI mode 0
     devcfg.queue_size = 7;  // We want to be able to queue 7 transactions at a time
     devcfg.flags = SPI_DEVICE_HALFDUPLEX;

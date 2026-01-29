@@ -119,49 +119,31 @@ async function updatePreview() {
     palette.perceived = props.palette;
   }
 
-  // Use store values for device dimensions
-  const deviceWidth = appStore.systemInfo.width;
-  const deviceHeight = appStore.systemInfo.height;
-
-  // For the actual image processing, we want to match the device's native resolution.
-  // We should NOT flip these based on image orientation if the device is already portrait.
-  // The processor library handles rotation if needed (skipRotation: false).
-  // However, for the PREVIEW, if we want to show how it looks on device, we should
-  // use the device dimensions.
-
-  // Logic:
-  // If the device is Landscape (W > H), and image is Portrait, processor usually rotates it (unless skipRotation is true).
-  // If the device is Portrait (H > W), and image is Portrait, no rotation needed.
-
-  // Here for preview we just want to process it to the target dimensions.
-  const targetWidth = deviceWidth;
-  const targetHeight = deviceHeight;
-
-  // Process image for preview
-  // validRotation: true means let the processor rotate if it thinks it should (e.g. Portrait on Landscape).
-  // But for preview of "native" display, we might want to be careful.
-  // The user complained about square images.
-  // If device is 1200x1600 (Portrait), and we upload Portrait, it should stay 1200x1600.
+  // Use native hardware dimensions for processing
+  const targetWidth = appStore.systemInfo.width;
+  const targetHeight = appStore.systemInfo.height;
 
   const result = imageProcessor.processImage(sourceCanvas, {
     displayWidth: targetWidth,
     displayHeight: targetHeight,
     palette,
     params: processingParams,
-    skipRotation: false, // Let the processor decide based on fit, similar to upload
+    skipRotation: true, // Keep original orientation for "natural" preview
     usePerceivedOutput: true,
   });
 
   // Update canvas dimensions to match the processed result
-  originalCanvasRef.value.width = targetWidth;
-  originalCanvasRef.value.height = targetHeight;
-  processedCanvasRef.value.width = targetWidth;
-  processedCanvasRef.value.height = targetHeight;
+  const actualWidth = result.canvas.width;
+  const actualHeight = result.canvas.height;
+  originalCanvasRef.value.width = actualWidth;
+  originalCanvasRef.value.height = actualHeight;
+  processedCanvasRef.value.width = actualWidth;
+  processedCanvasRef.value.height = actualHeight;
 
   // Scale down the visual size if larger than 800px while maintaining aspect ratio
   const MAX_PREVIEW_SIZE = 800;
-  let styleWidth = targetWidth;
-  let styleHeight = targetHeight;
+  let styleWidth = actualWidth;
+  let styleHeight = actualHeight;
 
   if (styleWidth > MAX_PREVIEW_SIZE || styleHeight > MAX_PREVIEW_SIZE) {
     const ratio = Math.min(MAX_PREVIEW_SIZE / styleWidth, MAX_PREVIEW_SIZE / styleHeight);
@@ -180,14 +162,13 @@ async function updatePreview() {
   }
 
   // Draw original using cover mode (same as old webapp)
-  // Draw original using cover mode (same as old webapp)
-  const originalResized = imageProcessor.resizeImageCover(sourceCanvas, targetWidth, targetHeight);
+  const originalResized = imageProcessor.resizeImageCover(sourceCanvas, actualWidth, actualHeight);
   const originalCtx = originalCanvasRef.value.getContext("2d");
   originalCtx.drawImage(originalResized, 0, 0);
 
   // Draw processed result
   const processedCtx = processedCanvasRef.value.getContext("2d");
-  processedCtx.drawImage(result.canvas, 0, 0, targetWidth, targetHeight);
+  processedCtx.drawImage(result.canvas, 0, 0, actualWidth, actualHeight);
 
   emit("processed", result);
 }

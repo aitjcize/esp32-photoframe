@@ -14,7 +14,7 @@ menu "E-Paper Display Configuration"
                 Driver for WaveShare 7.3 inch Spectra 6 E-Paper display.
                 This board typically includes an AXP2101 PMIC and SD Card slot.
 
-        config EP_DRIVER_XIAO_EE02
+        config EP_DRIVER_SEEEDSTUDIO_T133A01
             bool "Seeed XIAO EE02 (13.3 Inch)"
             help
                 Driver for Seeed Studio XIAO EE02 board with 13.3 inch Spectra 6 display.

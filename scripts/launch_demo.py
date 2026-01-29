@@ -43,22 +43,26 @@ class CORSRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
 
-def build_firmware(project_root):
+def build_firmware(project_root, board="waveshare_photopainter_73"):
     """Build firmware using idf.py build."""
 
-    print("\nBuilding firmware...")
+    print(f"\nBuilding firmware for {board}...")
     print("  This may take a few minutes...")
 
     try:
         result = subprocess.run(
-            ["idf.py", "build"],
+            [
+                "idf.py",
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults." + board,
+                "build",
+            ],
             cwd=project_root,
             capture_output=True,
             text=True,
             check=True,
         )
 
-        print("  ✓ Firmware built successfully")
+        print(f"  ✓ {board} firmware built successfully")
         return True
     except subprocess.CalledProcessError as e:
         print(f"  ✗ Error building firmware: {e}")
@@ -71,9 +75,12 @@ def build_firmware(project_root):
 
 
 def download_stable_firmware(demo_dir, project_root):
-    """Download latest stable release firmware from GitHub."""
+    """Download latest stable release firmware from GitHub for all boards."""
 
     print("\nDownloading stable release firmware...")
+
+    BOARDS = ["waveshare_photopainter_73", "seeedstudio_xiao_ee02"]
+    success_count = 0
 
     try:
         # Get latest tag
@@ -92,42 +99,28 @@ def download_stable_firmware(demo_dir, project_root):
         latest_tag = result.stdout.strip()
         print(f"  Latest release: {latest_tag}")
 
-        # Get repository info from git remote
-        result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        # Get repository info (always aitjcize/esp32-photoframe)
+        repo_path = "aitjcize/esp32-photoframe"
 
-        remote_url = result.stdout.strip()
-        # Extract owner/repo from URL (works for both https and git@)
-        if "github.com" in remote_url:
-            if remote_url.startswith("git@"):
-                # git@github.com:owner/repo.git
-                repo_path = remote_url.split(":")[1].replace(".git", "")
-            else:
-                # https://github.com/owner/repo.git
-                repo_path = remote_url.split("github.com/")[1].replace(".git", "")
+        for board in BOARDS:
+            board_dir = demo_dir / board
+            board_dir.mkdir(parents=True, exist_ok=True)
 
-            # Download URL
-            download_url = f"https://github.com/{repo_path}/releases/download/{latest_tag}/photoframe-firmware-merged.bin"
-            output_file = demo_dir / "photoframe-firmware-merged.bin"
+            download_url = f"https://github.com/{repo_path}/releases/download/{latest_tag}/photoframe-firmware-{board}-merged.bin"
+            output_file = board_dir / f"photoframe-firmware-{board}-merged.bin"
 
-            print(f"  Downloading from: {download_url}")
+            print(f"  Downloading {board} from: {download_url}")
 
             try:
                 urllib.request.urlretrieve(download_url, output_file)
-                print(f"  ✓ Downloaded stable firmware ({latest_tag})")
-                return True
+                print(f"  ✓ Downloaded stable firmware for {board} ({latest_tag})")
+                success_count += 1
             except Exception as e:
-                print(f"  ⚠ Warning: Could not download stable firmware: {e}")
-                print(f"  Will use dev build as fallback")
-                return False
-        else:
-            print("  ⚠ Warning: Not a GitHub repository")
-            return False
+                print(
+                    f"  ⚠ Warning: Could not download stable firmware for {board}: {e}"
+                )
+
+        return success_count == len(BOARDS)
 
     except Exception as e:
         print(f"  ⚠ Warning: Error downloading stable firmware: {e}")
@@ -192,60 +185,67 @@ def copy_required_files(demo_dir, project_root):
         print(f"  ⚠ Warning: {src_img} not found")
 
 
-def generate_manifests(project_root):
-    """Run the manifest generation script."""
+def generate_manifests(project_root, boards=None):
+    """Run the manifest generation script for all boards."""
+
+    if boards is None:
+        boards = ["waveshare_photopainter_73", "seeedstudio_xiao_ee02"]
 
     print("\nGenerating manifests...")
-
-    # Check if firmware file exists
     demo_dir = project_root / "demo"
-    firmware_file = demo_dir / "photoframe-firmware-merged.bin"
-
-    if not firmware_file.exists():
-        print(f"  ⚠ Warning: Firmware file not found: {firmware_file}")
-        print(f"  To generate firmware:")
-        print(f"    1. Build: idf.py build")
-        print(f"    2. Generate: python3 scripts/generate_manifests.py --dev")
-        print(f"  Or create dummy file for UI testing:")
-        print(f"    touch demo/photoframe-firmware-merged.bin")
-        return False
-
     manifest_script = project_root / "scripts" / "generate_manifests.py"
 
     if not manifest_script.exists():
         print(f"  ✗ Error: {manifest_script} not found")
         return False
 
-    try:
-        # Run manifest generation with --dev and --no-copy flags
-        # We don't copy firmware here since it should already be in demo/
-        # or user should build first with: idf.py build
-        result = subprocess.run(
-            [
-                "python3",
-                str(manifest_script),
-                "--dev",
-                "--no-copy",
-                "--demo-dir",
-                "demo",
-            ],
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-            check=True,
+    success = True
+    for board in boards:
+        board_dir = demo_dir / board
+        board_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            # Run manifest generation with --dev and --no-copy flags
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(manifest_script),
+                    "--dev",
+                    "--no-copy",
+                    "--demo-dir",
+                    f"demo/{board}",
+                    "--board",
+                    board,
+                ],
+                cwd=project_root,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+            # Print output
+            if result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    print(f"  [{board}] {line}")
+
+        except subprocess.CalledProcessError as e:
+            print(f"  ✗ Error generating manifests for {board}: {e}")
+            if e.stderr:
+                print(e.stderr)
+            success = False
+
+    # Link first requested board as default at root
+    default_board = boards[0]
+    if (demo_dir / default_board / "manifest.json").exists():
+        shutil.copy2(
+            demo_dir / default_board / "manifest.json", demo_dir / "manifest.json"
+        )
+        shutil.copy2(
+            demo_dir / default_board / "manifest-dev.json",
+            demo_dir / "manifest-dev.json",
         )
 
-        # Print output
-        if result.stdout:
-            for line in result.stdout.strip().split("\n"):
-                print(f"  {line}")
-
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"  ✗ Error generating manifests: {e}")
-        if e.stderr:
-            print(e.stderr)
-        return False
+    return success
 
 
 def serve_demo(demo_dir, port=8000):
@@ -278,9 +278,9 @@ def serve_demo(demo_dir, port=8000):
     print("ESP32 PhotoFrame Demo Page")
     print("=" * 60)
     print(f"\nDemo page available at:")
-    print(f"  http://localhost:{port}/esp32-photoframe/")
+    print(f"  http://localhost:{port}/esp32-photoframe/#demo")
     print(f"\nWeb flasher available at:")
-    print(f"  http://localhost:{port}/esp32-photoframe/")
+    print(f"  http://localhost:{port}/esp32-photoframe/#flash")
     print(f"\nPress Ctrl+C to stop the server")
     print("=" * 60 + "\n")
 
@@ -321,6 +321,12 @@ def main():
         action="store_true",
         help="Use Vite dev server instead of building and serving static files",
     )
+    parser.add_argument(
+        "--board",
+        default="waveshare_photopainter_73",
+        choices=["waveshare_photopainter_73", "seeedstudio_xiao_ee02", "all"],
+        help="Board type to build (default: waveshare_photopainter_73)",
+    )
 
     args = parser.parse_args()
 
@@ -333,47 +339,57 @@ def main():
     print("ESP32 PhotoFrame Demo Launcher")
     print("=" * 60)
 
+    # Determine boards to handle
+    selected_boards = (
+        [args.board]
+        if args.board != "all"
+        else ["waveshare_photopainter_73", "seeedstudio_xiao_ee02"]
+    )
+
     # Build firmware
     if not args.skip_build:
-        if not build_firmware(project_root):
-            print("\n⚠ Warning: Firmware build failed")
-            response = input("Continue anyway? (y/n): ")
-            if response.lower() != "y":
-                sys.exit(1)
+        for board in selected_boards:
+            if not build_firmware(project_root, board):
+                print(f"\n⚠ Warning: Firmware build for {board} failed")
+                response = input("Continue anyway? (y/n): ")
+                if response.lower() != "y":
+                    sys.exit(1)
 
     # Copy dev firmware from build to demo
     if not args.skip_build:
         print("\nCopying dev firmware...")
-        build_dir = project_root / "build"
 
-        # Use generate_manifests.py to copy and merge firmware
-        try:
-            subprocess.run(
-                ["python3", str(project_root / "scripts" / "generate_manifests.py")],
-                cwd=project_root,
-                check=True,
-            )
+        for board in selected_boards:
+            board_dir = demo_dir / board
+            board_dir.mkdir(parents=True, exist_ok=True)
 
-            # Copy merged firmware as dev version
-            src_firmware = demo_dir / "photoframe-firmware-merged.bin"
-            dst_firmware = demo_dir / "photoframe-firmware-dev.bin"
-            if src_firmware.exists():
-                shutil.copy2(src_firmware, dst_firmware)
-                print("  ✓ Copied dev firmware")
-        except Exception as e:
-            print(f"  ⚠ Warning: Could not copy dev firmware: {e}")
+            # Use generate_manifests.py to copy and merge firmware
+            try:
+                subprocess.run(
+                    [
+                        "python3",
+                        str(project_root / "scripts" / "generate_manifests.py"),
+                        "--board",
+                        board,
+                        "--demo-dir",
+                        f"demo/{board}",
+                    ],
+                    cwd=project_root,
+                    check=True,
+                )
+
+                # Copy merged firmware as dev version
+                src_firmware = board_dir / f"photoframe-firmware-{board}-merged.bin"
+                dst_firmware = board_dir / f"photoframe-firmware-{board}-dev.bin"
+                if src_firmware.exists():
+                    shutil.copy2(src_firmware, dst_firmware)
+                    print(f"  ✓ Copied dev firmware for {board}")
+            except Exception as e:
+                print(f"  ⚠ Warning: Could not copy dev firmware for {board}: {e}")
 
     # Download stable firmware
     if not args.skip_download:
-        stable_downloaded = download_stable_firmware(demo_dir, project_root)
-
-        # If download failed, use dev build as fallback
-        if not stable_downloaded:
-            dev_firmware = demo_dir / "photoframe-firmware-dev.bin"
-            stable_firmware = demo_dir / "photoframe-firmware-merged.bin"
-            if dev_firmware.exists() and not stable_firmware.exists():
-                shutil.copy2(dev_firmware, stable_firmware)
-                print("  ✓ Using dev build as stable fallback")
+        download_stable_firmware(demo_dir, project_root)
 
     # Copy required files
     if not args.skip_copy:
@@ -381,7 +397,7 @@ def main():
 
     # Generate manifests
     if not args.skip_manifests:
-        if not generate_manifests(project_root):
+        if not generate_manifests(project_root, boards=selected_boards):
             print("\n⚠ Warning: Manifest generation failed, but continuing...")
 
     # Handle --dev mode: use Vite dev server

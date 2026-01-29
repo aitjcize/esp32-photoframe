@@ -521,26 +521,28 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
     int final_width = outimg.width;
     int final_height = outimg.height;
 
-    // Check if image is portrait and needs rotation for display
-    bool is_portrait = outimg.height > outimg.width;
-    ESP_LOGI(TAG, "Image orientation check: %dx%d (width x height), is_portrait=%d", outimg.width,
-             outimg.height, is_portrait);
+    // Check if orientation mismatch requires rotation
+    bool image_is_portrait = outimg.height > outimg.width;
+    bool board_is_portrait = board_hal_get_display_height() > board_hal_get_display_width();
+    bool needs_rotation = image_is_portrait != board_is_portrait;
+
+    ESP_LOGI(TAG, "Orientation check: image_portrait=%d, board_portrait=%d, needs_rotation=%d",
+             image_is_portrait, board_is_portrait, needs_rotation);
 
     // STEP 1: Resize to appropriate target size immediately to free large decoded buffer
     int target_width, target_height;
 
-    if (is_portrait) {
-        // Portrait: resize to fit display width after rotation
-        // Target height = display width (800), maintain aspect ratio
+    if (needs_rotation) {
+        // Mismatch: resize to fit display width/height after rotation (swap target dims)
         target_width = (outimg.width * board_hal_get_display_width()) / outimg.height;
         target_height = board_hal_get_display_width();
-        ESP_LOGI(TAG, "Portrait image: resizing %dx%d -> %dx%d (will rotate after)", final_width,
-                 final_height, target_width, target_height);
+        ESP_LOGI(TAG, "Orientation mismatch: resizing %dx%d -> %dx%d (will rotate after)",
+                 final_width, final_height, target_width, target_height);
     } else {
-        // Landscape: resize directly to display size
+        // Matches: resize directly to display size
         target_width = board_hal_get_display_width();
         target_height = board_hal_get_display_height();
-        ESP_LOGI(TAG, "Landscape image: resizing %dx%d -> %dx%d", final_width, final_height,
+        ESP_LOGI(TAG, "Orientation matches: resizing %dx%d -> %dx%d", final_width, final_height,
                  target_width, target_height);
     }
 
@@ -561,8 +563,8 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
         ESP_LOGI(TAG, "Resize complete: %dx%d", final_width, final_height);
     }
 
-    // STEP 2: Rotate portrait images (now working with smaller buffer)
-    if (is_portrait) {
+    // STEP 2: Rotate if orientation mismatch detected (now working with smaller buffer)
+    if (needs_rotation) {
         size_t rotated_size = final_width * final_height * 3;
         ESP_LOGI(TAG, "Rotating portrait image, allocating %zu bytes", rotated_size);
 

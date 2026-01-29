@@ -172,6 +172,16 @@ uint16_t board_hal_get_display_height(void)
     return epaper_get_height();
 }
 
+board_type_t board_hal_get_type(void)
+{
+    return BOARD_TYPE_SEEEDSTUDIO_XIAO_EE02;
+}
+
+const char *board_hal_get_name(void)
+{
+    return "seeedstudio_xiao_ee02";
+}
+
 uint16_t board_hal_get_display_rotation(void)
 {
     return 0;

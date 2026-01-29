@@ -24,7 +24,7 @@ set(INCLUDE_DIRS ".")
 set(MAIN_REQUIRES esp_driver_gpio esp_driver_sdmmc nvs_flash esp_wifi esp_netif esp_event esp_http_server fatfs espressif__cjson espressif__esp_jpeg ListLib espressif__mdns espressif__libpng)
 
 # WaveShare-specific dependencies (AXP power management, I2C bus)
-if(CONFIG_BOARD_DRIVER_WAVESHARE_PHOTOPAINTER)
+if(CONFIG_BOARD_DRIVER_WAVESHARE_PHOTOPAINTER_73)
     list(APPEND MAIN_REQUIRES axpPower i2c_bsp)
 endif()
 

@@ -86,14 +86,18 @@ async function uploadImage() {
       compressDynamicRange: settingsStore.params.compressDynamicRange,
     };
 
-    // Process image with theoretical palette for device (skipRotation: false)
+    // Use native board dimensions for upload
+    const targetWidth = displayWidth.value;
+    const targetHeight = displayHeight.value;
     const palette = imageProcessor.SPECTRA6;
+
+    // Process image with theoretical palette for device
     const result = imageProcessor.processImage(sourceCanvas.value, {
-      displayWidth: displayWidth.value,
-      displayHeight: displayHeight.value,
+      displayWidth: targetWidth,
+      displayHeight: targetHeight,
       palette,
       params,
-      skipRotation: false, // Rotate for device
+      skipRotation: false, // Ensure image is rotated to fit the hardware's native physical resolution
       usePerceivedOutput: false, // Use theoretical palette
     });
 
