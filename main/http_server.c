@@ -1971,26 +1971,15 @@ static esp_err_t processing_settings_handler(httpd_req_t *req)
             processing_settings_get_defaults(&settings);
         }
 
-        cJSON *response = cJSON_CreateObject();
-        cJSON_AddNumberToObject(response, "exposure", settings.exposure);
-        cJSON_AddNumberToObject(response, "saturation", settings.saturation);
-        cJSON_AddStringToObject(response, "toneMode", settings.tone_mode);
-        cJSON_AddNumberToObject(response, "contrast", settings.contrast);
-        cJSON_AddNumberToObject(response, "strength", settings.strength);
-        cJSON_AddNumberToObject(response, "shadowBoost", settings.shadow_boost);
-        cJSON_AddNumberToObject(response, "highlightCompress", settings.highlight_compress);
-        cJSON_AddNumberToObject(response, "midpoint", settings.midpoint);
-        cJSON_AddStringToObject(response, "colorMethod", settings.color_method);
-        cJSON_AddStringToObject(response, "processingMode", settings.processing_mode);
-        cJSON_AddStringToObject(response, "ditherAlgorithm", settings.dither_algorithm);
-        cJSON_AddBoolToObject(response, "compressDynamicRange", settings.compress_dynamic_range);
+        char *json_str = processing_settings_to_json(&settings);
+        if (!json_str) {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
 
-        char *json_str = cJSON_Print(response);
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, json_str);
-
         free(json_str);
-        cJSON_Delete(response);
         return ESP_OK;
 
     } else if (req->method == HTTP_POST) {

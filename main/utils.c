@@ -115,6 +115,7 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
             .user_data = &ctx,
             .max_redirection_count = 5,
             .user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            .buffer_size_tx = 2048,
         };
 
         esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -167,6 +168,17 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_bmp_path, s
             client, "X-Display-Orientation",
             config_manager_get_display_orientation() == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape"
                                                                                       : "portrait");
+
+        // Add processing settings as JSON header
+        processing_settings_t proc_settings;
+        if (processing_settings_load(&proc_settings) != ESP_OK) {
+            processing_settings_get_defaults(&proc_settings);
+        }
+        char *settings_json = processing_settings_to_json(&proc_settings);
+        if (settings_json) {
+            esp_http_client_set_header(client, "X-Processing-Settings", settings_json);
+            free(settings_json);
+        }
 
         err = esp_http_client_perform(client);
 

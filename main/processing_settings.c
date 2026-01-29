@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "cJSON.h"
 #include "config.h"
 #include "esp_log.h"
 #include "nvs.h"
@@ -165,4 +166,30 @@ esp_err_t processing_settings_load(processing_settings_t *settings)
     nvs_close(nvs_handle);
 
     return ESP_OK;
+}
+
+char *processing_settings_to_json(const processing_settings_t *settings)
+{
+    cJSON *json = cJSON_CreateObject();
+    if (!json) {
+        return NULL;
+    }
+
+    cJSON_AddNumberToObject(json, "exposure", settings->exposure);
+    cJSON_AddNumberToObject(json, "saturation", settings->saturation);
+    cJSON_AddStringToObject(json, "toneMode", settings->tone_mode);
+    cJSON_AddNumberToObject(json, "contrast", settings->contrast);
+    cJSON_AddNumberToObject(json, "strength", settings->strength);
+    cJSON_AddNumberToObject(json, "shadowBoost", settings->shadow_boost);
+    cJSON_AddNumberToObject(json, "highlightCompress", settings->highlight_compress);
+    cJSON_AddNumberToObject(json, "midpoint", settings->midpoint);
+    cJSON_AddStringToObject(json, "colorMethod", settings->color_method);
+    cJSON_AddStringToObject(json, "processingMode", settings->processing_mode);
+    cJSON_AddStringToObject(json, "ditherAlgorithm", settings->dither_algorithm);
+    cJSON_AddBoolToObject(json, "compressDynamicRange", settings->compress_dynamic_range);
+
+    char *json_str = cJSON_PrintUnformatted(json);
+    cJSON_Delete(json);
+
+    return json_str;
 }
