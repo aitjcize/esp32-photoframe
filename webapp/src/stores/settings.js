@@ -48,7 +48,7 @@ export const useSettingsStore = defineStore("settings", () => {
     // Home Assistant
     haUrl: "",
     // Advanced
-    imageOrientation: 180,
+    displayRotationDeg: 180,
   });
 
   // Original config from server (for change detection)
@@ -153,7 +153,7 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.rotateHours = Math.floor(rotateIntervalSeconds / 3600);
       deviceSettings.value.rotateMinutes = Math.floor((rotateIntervalSeconds % 3600) / 60);
 
-      deviceSettings.value.imageOrientation = data.image_orientation ?? 180;
+      deviceSettings.value.displayRotationDeg = data.display_rotation_deg ?? 180;
       deviceSettings.value.imageUrl = data.image_url || "https://loremflickr.com/800/480";
       deviceSettings.value.deepSleepEnabled = data.deep_sleep_enabled !== false;
       deviceSettings.value.haUrl = data.ha_url || "";
@@ -227,7 +227,7 @@ export const useSettingsStore = defineStore("settings", () => {
       auto_rotate: deviceSettings.value.autoRotate,
       auto_rotate_aligned: deviceSettings.value.autoRotateAligned,
       rotate_interval: rotateInterval,
-      image_orientation: deviceSettings.value.imageOrientation,
+      display_rotation_deg: deviceSettings.value.displayRotationDeg,
       rotation_mode: deviceSettings.value.rotationMode,
       image_url: deviceSettings.value.imageUrl,
       ha_url: deviceSettings.value.haUrl,

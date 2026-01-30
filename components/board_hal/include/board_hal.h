@@ -143,11 +143,11 @@ uint16_t board_hal_get_display_width(void);
 uint16_t board_hal_get_display_height(void);
 
 /**
- * @brief Get default display rotation
+ * @brief Get default display rotation in degrees
  *
  * @return uint16_t Rotation in degrees (0, 90, 180, 270)
  */
-uint16_t board_hal_get_display_rotation(void);
+uint16_t board_hal_get_display_rotation_deg(void);
 
 /**
  * @brief Check if external RTC is available/initialized

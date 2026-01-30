@@ -1306,7 +1306,12 @@ static esp_err_t config_handler(httpd_req_t *req)
 
     if (req->method == HTTP_GET) {
         cJSON *root = cJSON_CreateObject();
-        cJSON_AddNumberToObject(root, "image_orientation", config_manager_get_image_orientation());
+        cJSON_AddStringToObject(
+            root, "display_orientation",
+            config_manager_get_display_orientation() == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape"
+                                                                                      : "portrait");
+        cJSON_AddNumberToObject(root, "display_rotation_deg",
+                                config_manager_get_display_rotation_deg());
         cJSON_AddNumberToObject(root, "rotate_interval", config_manager_get_rotate_interval());
         cJSON_AddBoolToObject(root, "auto_rotate", config_manager_get_auto_rotate());
         cJSON_AddBoolToObject(root, "auto_rotate_aligned",
@@ -1324,10 +1329,6 @@ static esp_err_t config_handler(httpd_req_t *req)
         const char *ha_url = config_manager_get_ha_url();
         cJSON_AddStringToObject(root, "ha_url", ha_url ? ha_url : "");
 
-        cJSON_AddStringToObject(
-            root, "display_orientation",
-            config_manager_get_display_orientation() == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape"
-                                                                                      : "portrait");
         cJSON_AddBoolToObject(root, "sleep_schedule_enabled",
                               config_manager_get_sleep_schedule_enabled());
         cJSON_AddNumberToObject(root, "sleep_schedule_start",
@@ -1374,9 +1375,19 @@ static esp_err_t config_handler(httpd_req_t *req)
             return ESP_FAIL;
         }
 
-        cJSON *img_orientation_obj = cJSON_GetObjectItem(root, "image_orientation");
-        if (img_orientation_obj && cJSON_IsNumber(img_orientation_obj)) {
-            config_manager_set_image_orientation(img_orientation_obj->valueint);
+        cJSON *display_orient_obj = cJSON_GetObjectItem(root, "display_orientation");
+        if (display_orient_obj && cJSON_IsString(display_orient_obj)) {
+            const char *orient_str = cJSON_GetStringValue(display_orient_obj);
+            if (strcmp(orient_str, "portrait") == 0) {
+                config_manager_set_display_orientation(DISPLAY_ORIENTATION_PORTRAIT);
+            } else {
+                config_manager_set_display_orientation(DISPLAY_ORIENTATION_LANDSCAPE);
+            }
+        }
+
+        cJSON *disp_rot_deg_obj = cJSON_GetObjectItem(root, "display_rotation_deg");
+        if (disp_rot_deg_obj && cJSON_IsNumber(disp_rot_deg_obj)) {
+            config_manager_set_display_rotation_deg(disp_rot_deg_obj->valueint);
             display_manager_initialize_paint();
         }
 
@@ -1427,16 +1438,6 @@ static esp_err_t config_handler(httpd_req_t *req)
         if (ha_url_obj && cJSON_IsString(ha_url_obj)) {
             const char *url = cJSON_GetStringValue(ha_url_obj);
             config_manager_set_ha_url(url);
-        }
-
-        cJSON *display_orient_obj = cJSON_GetObjectItem(root, "display_orientation");
-        if (display_orient_obj && cJSON_IsString(display_orient_obj)) {
-            const char *orient_str = cJSON_GetStringValue(display_orient_obj);
-            if (strcmp(orient_str, "portrait") == 0) {
-                config_manager_set_display_orientation(DISPLAY_ORIENTATION_PORTRAIT);
-            } else {
-                config_manager_set_display_orientation(DISPLAY_ORIENTATION_LANDSCAPE);
-            }
         }
 
         cJSON *sleep_sched_enabled_obj = cJSON_GetObjectItem(root, "sleep_schedule_enabled");

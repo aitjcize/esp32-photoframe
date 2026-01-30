@@ -143,7 +143,7 @@ const char *board_hal_get_name(void)
     return "waveshare_photopainter_73";
 }
 
-uint16_t board_hal_get_display_rotation(void)
+uint16_t board_hal_get_display_rotation_deg(void)
 {
     // Waveshare 7.3" native landscape requires 180 flip for this enclosure
     return 180;

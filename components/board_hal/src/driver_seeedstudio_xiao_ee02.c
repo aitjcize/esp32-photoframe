@@ -183,7 +183,7 @@ const char *board_hal_get_name(void)
     return "seeedstudio_xiao_ee02";
 }
 
-uint16_t board_hal_get_display_rotation(void)
+uint16_t board_hal_get_display_rotation_deg(void)
 {
     return 0;
 }

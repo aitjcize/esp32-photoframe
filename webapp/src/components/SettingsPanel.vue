@@ -197,11 +197,11 @@ async function saveSettings() {
             </v-col>
             <v-col cols="12" md="6">
               <v-select
-                v-model="settingsStore.deviceSettings.imageOrientation"
+                v-model="settingsStore.deviceSettings.displayRotationDeg"
                 :items="rotationOptions"
                 item-title="title"
                 item-value="value"
-                label="Display Rotation"
+                label="Display Rotation (deg)"
                 variant="outlined"
               />
             </v-col>

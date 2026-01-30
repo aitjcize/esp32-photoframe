@@ -12,7 +12,7 @@ static const char *TAG = "config_manager";
 
 static char device_name[DEVICE_NAME_MAX_LEN] = {0};
 static int rotate_interval = IMAGE_ROTATE_INTERVAL_SEC;
-static int image_orientation = 0;
+static int display_rotation_deg = 0;
 static bool auto_rotate_enabled = false;
 static bool auto_rotate_aligned = true;
 static char image_url[IMAGE_URL_MAX_LEN] = {0};
@@ -58,11 +58,12 @@ esp_err_t config_manager_init(void)
                      auto_rotate_aligned ? "yes" : "no");
         }
 
-        int32_t stored_image_orientation = board_hal_get_display_rotation();
-        if (nvs_get_i32(nvs_handle, NVS_IMAGE_ORIENTATION_KEY, &stored_image_orientation) ==
+        display_rotation_deg = board_hal_get_display_rotation_deg();
+        int32_t stored_display_rotation_deg = 0;
+        if (nvs_get_i32(nvs_handle, NVS_DISPLAY_ROTATION_DEG_KEY, &stored_display_rotation_deg) ==
             ESP_OK) {
-            image_orientation = stored_image_orientation;
-            ESP_LOGI(TAG, "Loaded image orientation from NVS: %d degrees", image_orientation);
+            display_rotation_deg = stored_display_rotation_deg;
+            ESP_LOGI(TAG, "Loaded display rotation from NVS: %d degrees", display_rotation_deg);
         }
 
         size_t url_len = IMAGE_URL_MAX_LEN;
@@ -246,23 +247,23 @@ int config_manager_get_rotate_interval(void)
     return rotate_interval;
 }
 
-void config_manager_set_image_orientation(int orientation)
+void config_manager_set_display_rotation_deg(int rotation_deg)
 {
-    image_orientation = orientation;
+    display_rotation_deg = rotation_deg;
 
     nvs_handle_t nvs_handle;
     if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-        nvs_set_i32(nvs_handle, NVS_IMAGE_ORIENTATION_KEY, orientation);
+        nvs_set_i32(nvs_handle, NVS_DISPLAY_ROTATION_DEG_KEY, rotation_deg);
         nvs_commit(nvs_handle);
         nvs_close(nvs_handle);
     }
 
-    ESP_LOGI(TAG, "Image orientation set to %d degrees", orientation);
+    ESP_LOGI(TAG, "Display rotation set to %d degrees", rotation_deg);
 }
 
-int config_manager_get_image_orientation(void)
+int config_manager_get_display_rotation_deg(void)
 {
-    return image_orientation;
+    return display_rotation_deg;
 }
 
 void config_manager_set_auto_rotate(bool enabled)

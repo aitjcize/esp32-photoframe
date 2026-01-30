@@ -68,9 +68,6 @@ typedef enum {
 
 #define IMAGE_ROTATE_INTERVAL_SEC 3600
 
-// Use Board HAL to get default orientation
-#define IMAGE_ORIENTATION_DEG board_hal_get_display_rotation()
-
 #define NVS_NAMESPACE "photoframe"
 #define NVS_DEVICE_NAME_KEY "device_name"
 #define NVS_WIFI_SSID_KEY "wifi_ssid"
@@ -78,7 +75,7 @@ typedef enum {
 #define NVS_ROTATE_INTERVAL_KEY "rotate_int"
 #define NVS_AUTO_ROTATE_KEY "auto_rotate"
 #define NVS_AUTO_ROTATE_ALIGNED_KEY "ar_align"
-#define NVS_IMAGE_ORIENTATION_KEY "image_ori"
+#define NVS_DISPLAY_ROTATION_DEG_KEY "disp_rot_deg"
 #define NVS_DEEP_SLEEP_KEY "deep_sleep"
 #define NVS_ENABLED_ALBUMS_KEY "enabled_albums"
 #define NVS_IMAGE_URL_KEY "image_url"

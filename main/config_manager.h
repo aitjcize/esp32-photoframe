@@ -20,8 +20,8 @@ bool config_manager_get_auto_rotate(void);
 void config_manager_set_auto_rotate_aligned(bool enabled);
 bool config_manager_get_auto_rotate_aligned(void);
 
-void config_manager_set_image_orientation(int orientation);
-int config_manager_get_image_orientation(void);
+void config_manager_set_display_rotation_deg(int rotation_deg);
+int config_manager_get_display_rotation_deg(void);
 
 void config_manager_set_image_url(const char *url);
 const char *config_manager_get_image_url(void);
