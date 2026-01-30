@@ -528,7 +528,7 @@ async function processImageFile(
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
   // 5. Write output file (BMP or PNG)
-  const format = options.format || "png";
+  const format = processingOptions.format || "png";
   if (format === "png") {
     const outputPng = outputBmp.replace(/\.bmp$/, ".png");
     console.log(`  Writing PNG: ${outputPng}`);
@@ -542,7 +542,7 @@ async function processImageFile(
   }
 
   // 6. Generate thumbnail if requested (from EXIF-corrected source, not processed image)
-  if (options.generateThumbnail && outputThumb) {
+  if (processingOptions.generateThumbnail && outputThumb) {
     console.log(`  Generating thumbnail: ${outputThumb}`);
 
     // Use shared thumbnail generation function
