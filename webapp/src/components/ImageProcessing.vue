@@ -38,6 +38,44 @@ let isReady = ref(false);
 // Reactive palette for ToneCurve (will be set after imageProcessor loads)
 const effectivePalette = ref(null);
 
+// Histogram data for ToneCurve (256 bins for luminance values 0-255)
+const histogram = ref(null);
+
+// Calculate luminance histogram from source canvas
+function calculateHistogram(canvas) {
+  if (!canvas) return null;
+
+  const ctx = canvas.getContext("2d");
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+
+  // Initialize 256 bins
+  const bins = new Array(256).fill(0);
+
+  // Sample pixels (skip some for performance on large images)
+  const step = Math.max(1, Math.floor(data.length / 4 / 100000)); // Max ~100k samples
+
+  for (let i = 0; i < data.length; i += 4 * step) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+
+    // Calculate perceived luminance (same formula as in ToneCurve)
+    const luminance = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+    bins[Math.min(255, Math.max(0, luminance))]++;
+  }
+
+  // Normalize to 0-1 range (relative to max bin)
+  const maxBin = Math.max(...bins);
+  if (maxBin > 0) {
+    for (let i = 0; i < bins.length; i++) {
+      bins[i] = bins[i] / maxBin;
+    }
+  }
+
+  return bins;
+}
+
 onMounted(async () => {
   // Load the image processing library
   try {
@@ -153,6 +191,17 @@ async function updatePreview() {
     usePerceivedOutput: true,
   });
 
+  // Process again without dithering to get histogram of tone-mapped image
+  const preDitherResult = imageProcessor.processImage(sourceCanvas, {
+    displayWidth: targetWidth,
+    displayHeight: targetHeight,
+    palette,
+    params: processingParams,
+    skipRotation: true,
+    skipDithering: true,
+  });
+  histogram.value = calculateHistogram(preDitherResult.canvas);
+
   // Update canvas dimensions to match the processed result
   const actualWidth = result.canvas.width;
   const actualHeight = result.canvas.height;
@@ -267,7 +316,12 @@ onUnmounted(() => {
           <v-card variant="outlined" class="tone-curve-card">
             <v-card-subtitle class="pt-2"> Tone Curve </v-card-subtitle>
             <div class="d-flex justify-center pa-4">
-              <ToneCurve :params="params" :palette="effectivePalette" class="curve-canvas" />
+              <ToneCurve
+                :params="params"
+                :palette="effectivePalette"
+                :histogram="histogram"
+                class="curve-canvas"
+              />
             </div>
           </v-card>
         </div>

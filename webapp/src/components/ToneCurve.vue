@@ -16,6 +16,10 @@ const props = defineProps({
     type: Object,
     default: null,
   },
+  histogram: {
+    type: Array,
+    default: null,
+  },
 });
 
 const attrs = useAttrs();
@@ -53,6 +57,24 @@ function drawToneCurve() {
 
   ctx.fillStyle = "#f5f5f5";
   ctx.fillRect(0, 0, size, size);
+
+  // Draw histogram if available (behind everything)
+  if (props.histogram && props.histogram.length === 256) {
+    ctx.fillStyle = "rgba(180, 180, 180, 0.4)";
+    ctx.beginPath();
+    ctx.moveTo(0, size);
+
+    for (let i = 0; i < 256; i++) {
+      const x = (i / 255) * size;
+      const height = props.histogram[i] * size * 0.8; // Scale to 80% of canvas height
+      const y = size - height;
+      ctx.lineTo(x, y);
+    }
+
+    ctx.lineTo(size, size);
+    ctx.closePath();
+    ctx.fill();
+  }
 
   ctx.strokeStyle = "#e0e0e0";
   ctx.lineWidth = 1;
@@ -161,6 +183,14 @@ watch(
     scheduleDraw();
   },
   { deep: true }
+);
+
+watch(
+  () => props.histogram,
+  async () => {
+    await nextTick();
+    scheduleDraw();
+  }
 );
 </script>
 
