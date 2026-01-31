@@ -18,31 +18,41 @@ cd <path to esp-idf>
 . ./export.sh
 ```
 
-### 2. Configure the Project
+### 2. Build the Project
+
+We provide a `build.py` helper script that handles configuration and building for different boards.
 
 ```bash
 cd <path to photoframe-api>
 
-# Set target to ESP32-S3
-idf.py set-target esp32s3
+# Build for Waveshare PhotoPainter (7.3" 7-color e-paper)
+./build.py --board waveshare_photopainter_73
 
-# Configure project (optional - defaults should work)
-idf.py menuconfig
+# Build for Seeed Studio XIAO EE02 (13.3" e-paper)
+./build.py --board seeedstudio_xiao_ee02
+
+# Clean build (optional)
+./build.py --board waveshare_photopainter_73 --fullclean
 ```
 
-### 3. Build and Flash
+The script automatically:
+1. Builds the frontend webapp (`webapp/`)
+2. Sets the correct `sdkconfig.defaults` for the selected board
+3. Runs `idf.py build` OR `idf.py build` with correct options
+
+### 3. Flash and Monitor
 
 The project uses ESP Component Manager to automatically download the `esp_jpeg` component during the first build.
 
 ```bash
-# Build the project (will download esp_jpeg on first build)
-idf.py build
-
 # Flash to device (replace PORT with your serial port, e.g., /dev/cu.usbserial-*)
 idf.py -p PORT flash
 
 # Monitor output
 idf.py -p PORT monitor
+
+# Flash and monitor in one go
+idf.py -p PORT flash monitor
 ```
 
 **Note:** On the first build, ESP-IDF will automatically download the `esp_jpeg` component from the component registry. This requires an internet connection.

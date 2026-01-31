@@ -2,9 +2,7 @@
 
 ![PhotoFrame](.img/esp32-photoframe.png)
 
-A modern, feature-rich firmware for the **Waveshare ESP32-S3-PhotoPainter** that replaces the stock firmware with a powerful RESTful API, web interface, and **significantly better image quality**. This firmware provides superior image management, automatic rotation handling, drag-and-drop uploads, and intelligent power management.
-
-**Product Page**: [Waveshare ESP32-S3-PhotoPainter](https://www.waveshare.com/wiki/ESP32-S3-PhotoPainter)
+A modern, feature-rich firmware for ESP32-S3 based e-paper photo frames (currently supporting **Waveshare PhotoPainter** and **Seeed Studio XIAO EE02**). This firmware replaces stock firmware with a powerful RESTful API, web interface, and **significantly better image quality**.
 
 **🏠 Home Assistant Integration**: [ha-esp32-photoframe](https://github.com/aitjcize/ha-esp32-photoframe) - Companion integration for comprehensive control and monitoring through Home Assistant
 
@@ -82,12 +80,21 @@ The measured palette accounts for the fact that e-paper displays show darker, mo
 
 Configure via web interface **Settings** section.
 
-## Hardware Requirements
+## Supported Hardware
 
-- **[Waveshare ESP32-S3-PhotoPainter](https://www.waveshare.com/wiki/ESP32-S3-PhotoPainter)**
-- MicroSD card (FAT32)
-- 2.4GHz WiFi network
-- USB-C cable
+### Waveshare ESP32-S3-PhotoPainter
+- **Product**: [Waveshare Wiki](https://www.waveshare.com/wiki/ESP32-S3-PhotoPainter)
+- **Board Name**: `waveshare_photopainter_73`
+- **Features**: 7.3" 7-color e-paper, integrated ESP32-S3, SD card slot
+
+### Seeed Studio XIAO EE02
+- **Product**: [Seeed Studio XIAO EE02](https://www.seeedstudio.com/XIAO-ePaper-Display-Board-ESP32-S3-EE02-p-6639.html)
+- **Board Name**: `seeedstudio_xiao_ee02`
+- **Configuration**: Setup using Seeed Studio XIAO EE02 (ESP32S3 + TI 13.3" ePaper display)
+
+### Known Issues / Work in Progress 🚧
+
+- **XIAO EE02 Charging**: Battery charging functionality for the Seeed Studio XIAO EE02 board is currently **WIP** and not yet supported. Please power via USB-C or use an external charger for now.
 
 ## Installation
 
@@ -105,7 +112,22 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 phot
 
 **Device not detected?** Hold BOOT button + press PWR to enter download mode.
 
-**Build from source:** See [DEV.md](docs/DEV.md)
+**Build from source:**
+
+We provide a `build.py` helper script to simplify building for different boards.
+
+```bash
+# Build for Waveshare PhotoPainter (default)
+./build.py --board waveshare_photopainter_73
+
+# Build for Seeed Studio XIAO EE02
+./build.py --board seeedstudio_xiao_ee02
+
+# Flash the firmware
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+For more details, see [DEV.md](docs/DEV.md)
 
 ## Setup
 
