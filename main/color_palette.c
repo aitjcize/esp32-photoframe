@@ -13,12 +13,12 @@ static const char *NVS_KEY_PALETTE = "palette";
 
 void color_palette_get_defaults(color_palette_t *palette)
 {
-    palette->black = (color_rgb_t){10, 10, 10};
-    palette->white = (color_rgb_t){200, 215, 225};
-    palette->yellow = (color_rgb_t){225, 222, 8};
-    palette->red = (color_rgb_t){149, 36, 23};
-    palette->blue = (color_rgb_t){25, 76, 181};
-    palette->green = (color_rgb_t){51, 117, 93};
+    palette->black = (color_rgb_t){2, 2, 2};
+    palette->white = (color_rgb_t){190, 190, 190};
+    palette->yellow = (color_rgb_t){205, 202, 0};
+    palette->red = (color_rgb_t){135, 19, 0};
+    palette->blue = (color_rgb_t){5, 64, 158};
+    palette->green = (color_rgb_t){39, 102, 60};
 }
 
 esp_err_t color_palette_init(void)
