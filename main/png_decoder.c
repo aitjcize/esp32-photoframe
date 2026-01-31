@@ -5,7 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "config.h"
+#include "board_hal.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -121,9 +121,9 @@ esp_err_t png_decode_to_bmp(const char *png_path, const char *bmp_path)
     ESP_LOGI(TAG, "PNG: %dx%d, color_type=%d, bit_depth=%d", width, height, color_type, bit_depth);
 
     // Validate resolution
-    if (width != DISPLAY_WIDTH || height != DISPLAY_HEIGHT) {
+    if (width != BOARD_HAL_DISPLAY_WIDTH || height != BOARD_HAL_DISPLAY_HEIGHT) {
         ESP_LOGE(TAG, "Invalid PNG resolution: %dx%d (expected %dx%d)", width, height,
-                 DISPLAY_WIDTH, DISPLAY_HEIGHT);
+                 BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT);
         ret = ESP_ERR_INVALID_SIZE;
         goto cleanup;
     }

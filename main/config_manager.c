@@ -12,7 +12,7 @@ static const char *TAG = "config_manager";
 
 static char device_name[DEVICE_NAME_MAX_LEN] = {0};
 static int rotate_interval = IMAGE_ROTATE_INTERVAL_SEC;
-static int display_rotation_deg = 0;
+static int display_rotation_deg = BOARD_HAL_DISPLAY_ROTATION_DEG;
 static bool auto_rotate_enabled = false;
 static bool auto_rotate_aligned = true;
 static char image_url[IMAGE_URL_MAX_LEN] = {0};
@@ -58,7 +58,6 @@ esp_err_t config_manager_init(void)
                      auto_rotate_aligned ? "yes" : "no");
         }
 
-        display_rotation_deg = board_hal_get_display_rotation_deg();
         int32_t stored_display_rotation_deg = 0;
         if (nvs_get_i32(nvs_handle, NVS_DISPLAY_ROTATION_DEG_KEY, &stored_display_rotation_deg) ==
             ESP_OK) {

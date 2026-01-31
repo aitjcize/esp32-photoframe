@@ -53,9 +53,6 @@ typedef enum {
 #define CURRENT_IMAGE_LINK TEMP_MOUNT_POINT "/.current.lnk"
 #define CURRENT_CALIBRATION_PATH TEMP_MOUNT_POINT "/.calibration.png"
 
-#define DISPLAY_WIDTH board_hal_get_display_width()
-#define DISPLAY_HEIGHT board_hal_get_display_height()
-
 #ifdef DEBUG_DEEP_SLEEP_WAKE
 #define AUTO_SLEEP_TIMEOUT_SEC 60
 #else

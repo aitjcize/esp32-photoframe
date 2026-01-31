@@ -341,7 +341,7 @@ void app_main(void)
         break;
     }
     ESP_LOGI(TAG, "PhotoFrame starting... (Reset reason: %s)", reset_reason_str);
-    ESP_LOGI(TAG, "Board type: %s", board_hal_get_name());
+    ESP_LOGI(TAG, "Board type: %s", BOARD_HAL_NAME);
 
     // Log initial memory state
     ESP_LOGI(TAG, "Free heap: %lu bytes, Largest free block: %lu bytes", esp_get_free_heap_size(),

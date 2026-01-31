@@ -226,7 +226,7 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
     bool found_binary = false;
     cJSON *asset = NULL;
 
-    const char *board_name = board_hal_get_name();
+    const char *board_name = BOARD_HAL_NAME;
 
     char target_binary[64];
     snprintf(target_binary, sizeof(target_binary), "esp32-photoframe-%s.bin", board_name);

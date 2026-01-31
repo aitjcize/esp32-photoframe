@@ -1790,9 +1790,9 @@ static esp_err_t system_info_handler(httpd_req_t *req)
     cJSON *response = cJSON_CreateObject();
 
     cJSON_AddStringToObject(response, "device_name", config_manager_get_device_name());
-    cJSON_AddNumberToObject(response, "width", board_hal_get_display_width());
-    cJSON_AddNumberToObject(response, "height", board_hal_get_display_height());
-    cJSON_AddStringToObject(response, "board_name", board_hal_get_name());
+    cJSON_AddNumberToObject(response, "width", BOARD_HAL_DISPLAY_WIDTH);
+    cJSON_AddNumberToObject(response, "height", BOARD_HAL_DISPLAY_HEIGHT);
+    cJSON_AddStringToObject(response, "board_name", BOARD_HAL_NAME);
 #ifdef CONFIG_HAS_SDCARD
     cJSON_AddBoolToObject(response, "has_sdcard", true);
 #else

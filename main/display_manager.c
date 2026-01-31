@@ -8,6 +8,7 @@
 #include "GUI_PNGfile.h"
 #include "GUI_Paint.h"
 #include "album_manager.h"
+#include "board_hal.h"
 #include "config.h"
 #include "config_manager.h"
 #include "epaper_port.h"
@@ -87,8 +88,9 @@ esp_err_t display_manager_init(void)
 
     epaper_port_init();
 
-    image_buffer_size =
-        ((DISPLAY_WIDTH % 2 == 0) ? (DISPLAY_WIDTH / 2) : (DISPLAY_WIDTH / 2 + 1)) * DISPLAY_HEIGHT;
+    image_buffer_size = ((BOARD_HAL_DISPLAY_WIDTH % 2 == 0) ? (BOARD_HAL_DISPLAY_WIDTH / 2)
+                                                            : (BOARD_HAL_DISPLAY_WIDTH / 2 + 1)) *
+                        BOARD_HAL_DISPLAY_HEIGHT;
     epd_image_buffer = (uint8_t *) heap_caps_malloc(image_buffer_size, MALLOC_CAP_SPIRAM);
     if (!epd_image_buffer) {
         ESP_LOGE(TAG, "Failed to allocate image buffer");
@@ -104,7 +106,7 @@ esp_err_t display_manager_init(void)
 
 void display_manager_initialize_paint(void)
 {
-    Paint_NewImage(epd_image_buffer, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+    Paint_NewImage(epd_image_buffer, BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT,
                    config_manager_get_display_rotation_deg() % 360, EPD_7IN3E_WHITE);
     Paint_SetScale(6);
     Paint_SelectImage(epd_image_buffer);

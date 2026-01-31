@@ -162,28 +162,3 @@ esp_err_t board_hal_get_humidity(float *h)
 {
     return ESP_ERR_NOT_SUPPORTED;
 }
-
-uint16_t board_hal_get_display_width(void)
-{
-    return epaper_get_width();
-}
-
-uint16_t board_hal_get_display_height(void)
-{
-    return epaper_get_height();
-}
-
-board_type_t board_hal_get_type(void)
-{
-    return BOARD_TYPE_SEEEDSTUDIO_XIAO_EE02;
-}
-
-const char *board_hal_get_name(void)
-{
-    return "seeedstudio_xiao_ee02";
-}
-
-uint16_t board_hal_get_display_rotation_deg(void)
-{
-    return 0;
-}

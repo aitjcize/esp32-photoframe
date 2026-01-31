@@ -68,11 +68,11 @@ static const uint8_t rb1DataBuf[] = {0x02};
 // Resolution
 uint16_t epaper_get_width(void)
 {
-    return EPD_WIDTH;
+    return 1200;
 }
 uint16_t epaper_get_height(void)
 {
-    return EPD_HEIGHT;
+    return 1600;
 }
 
 // --- SPI Helpers (Manual CS) ---

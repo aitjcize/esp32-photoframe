@@ -122,29 +122,3 @@ bool board_hal_rtc_is_available(void)
 {
     return pcf85063_is_available();
 }
-
-uint16_t board_hal_get_display_width(void)
-{
-    return epaper_get_width();
-}
-
-uint16_t board_hal_get_display_height(void)
-{
-    return epaper_get_height();
-}
-
-board_type_t board_hal_get_type(void)
-{
-    return BOARD_TYPE_WAVESHARE_PHOTOPAINTER;
-}
-
-const char *board_hal_get_name(void)
-{
-    return "waveshare_photopainter_73";
-}
-
-uint16_t board_hal_get_display_rotation_deg(void)
-{
-    // Waveshare 7.3" native landscape requires 180 flip for this enclosure
-    return 180;
-}

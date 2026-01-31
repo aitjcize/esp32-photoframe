@@ -6,17 +6,8 @@
 #include <time.h>
 
 #include "driver/gpio.h"
+#include "epaper_port.h"
 #include "esp_err.h"
-
-#ifdef CONFIG_BOARD_DRIVER_WAVESHARE_PHOTOPAINTER_73
-#include "board_waveshare_photopainter_73.h"
-#elif defined(CONFIG_BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02)
-#include "board_seeedstudio_xiao_ee02.h"
-#else
-// Default definitions if no board selected (fallback)
-#define BOARD_HAL_WAKEUP_KEY GPIO_NUM_0
-#define BOARD_HAL_ROTATE_KEY GPIO_NUM_NC
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,19 +19,14 @@ typedef enum {
     BOARD_TYPE_UNKNOWN
 } board_type_t;
 
-/**
- * @brief Get the board type
- *
- * @return board_type_t The current board type
- */
-board_type_t board_hal_get_type(void);
-
-/**
- * @brief Get the board name
- *
- * @return const char* The internal name of the board (used for OTA binaries, etc.)
- */
-const char *board_hal_get_name(void);
+#ifdef CONFIG_BOARD_DRIVER_WAVESHARE_PHOTOPAINTER_73
+#include "board_waveshare_photopainter_73.h"
+#elif defined(CONFIG_BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02)
+#include "board_seeedstudio_xiao_ee02.h"
+#else
+// Default definitions if no board selected (fallback)
+#error "No board selected! Please define CONFIG_BOARD_DRIVER_..."
+#endif
 
 /**
  * @brief Initialize the power management HAL
@@ -139,27 +125,6 @@ esp_err_t board_hal_rtc_get_time(time_t *t);
  * @return esp_err_t ESP_OK on success
  */
 esp_err_t board_hal_rtc_set_time(time_t t);
-
-/**
- * @brief Get display width
- *
- * @return uint16_t Width in pixels
- */
-uint16_t board_hal_get_display_width(void);
-
-/**
- * @brief Get display height
- *
- * @return uint16_t Height in pixels
- */
-uint16_t board_hal_get_display_height(void);
-
-/**
- * @brief Get default display rotation in degrees
- *
- * @return uint16_t Rotation in degrees (0, 90, 180, 270)
- */
-uint16_t board_hal_get_display_rotation_deg(void);
 
 /**
  * @brief Check if external RTC is available/initialized
