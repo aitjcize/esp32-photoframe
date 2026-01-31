@@ -15,7 +15,7 @@
     "format:check": "prettier --check \"src/**/*.{vue,js,jsx,ts,tsx,css,scss,json}\""
   },
   "dependencies": {
-    "@aitjcize/epaper-image-convert": "^0.1.7",
+    "@aitjcize/epaper-image-convert": "^0.1.8",
     "pinia": "^2.1.7",
     "vue": "^3.5.24",
     "vue-router": "^4.3.0",

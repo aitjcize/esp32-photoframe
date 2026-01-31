@@ -13,7 +13,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@aitjcize/epaper-image-convert": "^0.1.7",
+    "@aitjcize/epaper-image-convert": "^0.1.8",
     "canvas": "^2.11.2",
     "commander": "^11.1.0",
     "exif-parser": "^0.1.12",
