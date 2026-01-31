@@ -2114,6 +2114,7 @@ static esp_err_t time_handler(httpd_req_t *req)
         cJSON *response = cJSON_CreateObject();
         cJSON_AddStringToObject(response, "time", time_str);
         cJSON_AddNumberToObject(response, "timestamp", (double) now);
+        cJSON_AddStringToObject(response, "timezone", config_manager_get_timezone());
 
         char *json_str = cJSON_Print(response);
         httpd_resp_set_type(req, "application/json");
@@ -2134,7 +2135,7 @@ static esp_err_t time_sync_handler(httpd_req_t *req)
         ESP_LOGI(TAG, "Manual NTP sync requested");
 
         // Force SNTP sync
-        esp_err_t err = periodic_tasks_force_run("sntp_sync");
+        esp_err_t err = periodic_tasks_force_run(SNTP_TASK_NAME);
         if (err != ESP_OK) {
             cJSON *response = cJSON_CreateObject();
             cJSON_AddStringToObject(response, "status", "error");
@@ -2165,6 +2166,7 @@ static esp_err_t time_sync_handler(httpd_req_t *req)
         cJSON_AddStringToObject(response, "status", "success");
         cJSON_AddStringToObject(response, "time", time_str);
         cJSON_AddNumberToObject(response, "timestamp", (double) now);
+        cJSON_AddStringToObject(response, "timezone", config_manager_get_timezone());
 
         char *json_str = cJSON_Print(response);
         httpd_resp_set_type(req, "application/json");

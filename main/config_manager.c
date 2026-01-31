@@ -525,6 +525,9 @@ void config_manager_set_timezone(const char *tz)
 
 const char *config_manager_get_timezone(void)
 {
+    if (tz_string[0] == '\0') {
+        return "UTC0";
+    }
     return tz_string;
 }
 

@@ -19,9 +19,36 @@ function updateDisplayTime() {
   // Calculate current device time based on elapsed local time
   const elapsed = Math.floor((Date.now() - localTimeOffset) / 1000);
   const currentTimestamp = deviceTimestamp + elapsed;
-  const date = new Date(currentTimestamp * 1000);
-  // Format as YYYY-MM-DD HH:MM:SS (ISO format without timezone)
+
+  // Apply timezone offset for display
+  // We shift the timestamp by the offset so that toISOString() (which is UTC)
+  // displays the correct local time numbers.
+  const offsetHours = settingsStore.deviceSettings.timezoneOffset || 0;
+  const adjustedTimestamp = currentTimestamp + offsetHours * 3600;
+
+  const date = new Date(adjustedTimestamp * 1000);
+  // Format as YYYY-MM-DD HH:MM:SS
   deviceTime.value = date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+async function parseTimezone(timezoneStr) {
+  if (!timezoneStr) return;
+
+  // Posix format: UTC[+/-]H[:MM] (e.g., UTC-8 or UTC+5:30)
+  // Note: POSIX sign is inverted relative to ISO8601
+  let offset = 0;
+  const match = timezoneStr.match(/UTC([+-]?)(\d+)(?::(\d+))?/);
+  if (match) {
+    const sign = match[1] === "-" ? 1 : -1; // POSIX Inverted
+    const hours = parseInt(match[2]) || 0;
+    const minutes = parseInt(match[3]) || 0;
+    offset = sign * (hours + minutes / 60);
+
+    // Update store if different, to keep UI in sync
+    if (settingsStore.deviceSettings.timezoneOffset !== offset) {
+      settingsStore.deviceSettings.timezoneOffset = offset;
+    }
+  }
 }
 
 async function fetchDeviceTime() {
@@ -31,6 +58,7 @@ async function fetchDeviceTime() {
       const data = await response.json();
       deviceTimestamp = data.timestamp;
       localTimeOffset = Date.now();
+      await parseTimezone(data.timezone);
       updateDisplayTime();
     }
   } catch (error) {
@@ -47,6 +75,7 @@ async function syncTime() {
       if (data.status === "success") {
         deviceTimestamp = data.timestamp;
         localTimeOffset = Date.now();
+        await parseTimezone(data.timezone);
         updateDisplayTime();
       }
     }
