@@ -13,10 +13,6 @@ typedef enum {
     DISPLAY_ORIENTATION_PORTRAIT = 1
 } display_orientation_t;
 
-#define BOOT_BUTTON_GPIO GPIO_NUM_0
-#define PWR_BUTTON_GPIO GPIO_NUM_5
-#define KEY_BUTTON_GPIO GPIO_NUM_4
-
 #define LED_RED_GPIO GPIO_NUM_45
 #define LED_GREEN_GPIO GPIO_NUM_42
 

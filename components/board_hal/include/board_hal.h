@@ -1,10 +1,22 @@
 #pragma once
 
+#include <hal/gpio_types.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
 
+#include "driver/gpio.h"
 #include "esp_err.h"
+
+#ifdef CONFIG_BOARD_DRIVER_WAVESHARE_PHOTOPAINTER_73
+#include "board_waveshare_photopainter_73.h"
+#elif defined(CONFIG_BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02)
+#include "board_seeedstudio_xiao_ee02.h"
+#else
+// Default definitions if no board selected (fallback)
+#define BOARD_HAL_WAKEUP_KEY GPIO_NUM_0
+#define BOARD_HAL_ROTATE_KEY GPIO_NUM_NC
+#endif
 
 #ifdef __cplusplus
 extern "C" {

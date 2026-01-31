@@ -109,7 +109,7 @@ UBYTE GUI_ReadPng_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
     }
 
     // Process image row by row
-    ESP_LOGI(TAG, "PNG decoded successfully (stream processing)");
+    ESP_LOGI(TAG, "PNG decoded successfully");
 
     for (int y = 0; y < height; y++) {
         png_read_row(png_ptr, (png_bytep) rgb_buffer, NULL);

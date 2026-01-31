@@ -237,10 +237,12 @@ esp_err_t power_manager_init(void)
         // ESP32-S3 only supports EXT1, check which GPIO triggered it
         ext1_wakeup_pin_mask = esp_sleep_get_ext1_wakeup_status();
 
-        if (ext1_wakeup_pin_mask & (1ULL << BOOT_BUTTON_GPIO)) {
-            ESP_LOGI(TAG, "Wakeup caused by BOOT button (GPIO %d)", BOOT_BUTTON_GPIO);
-        } else if (ext1_wakeup_pin_mask & (1ULL << KEY_BUTTON_GPIO)) {
-            ESP_LOGI(TAG, "Wakeup caused by KEY button (GPIO %d)", KEY_BUTTON_GPIO);
+        if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC &&
+            (ext1_wakeup_pin_mask & (1ULL << BOARD_HAL_WAKEUP_KEY))) {
+            ESP_LOGI(TAG, "Wakeup caused by BOOT button (GPIO %d)", BOARD_HAL_WAKEUP_KEY);
+        } else if (BOARD_HAL_ROTATE_KEY != GPIO_NUM_NC &&
+                   (ext1_wakeup_pin_mask & (1ULL << BOARD_HAL_ROTATE_KEY))) {
+            ESP_LOGI(TAG, "Wakeup caused by KEY button (GPIO %d)", BOARD_HAL_ROTATE_KEY);
         } else {
             ESP_LOGI(TAG, "Wakeup caused by EXT1 (unknown GPIO: 0x%llx)", ext1_wakeup_pin_mask);
         }
@@ -250,19 +252,32 @@ esp_err_t power_manager_init(void)
     }
 
     // Configure button GPIOs as input with pull-ups
-    // NOTE: PWR_BUTTON_GPIO (GPIO 5) is NOT configured here - it's PMIC specific
-    gpio_config_t io_conf = {.intr_type = GPIO_INTR_DISABLE,
-                             .mode = GPIO_MODE_INPUT,
-                             .pin_bit_mask = (1ULL << BOOT_BUTTON_GPIO) | (1ULL << KEY_BUTTON_GPIO),
-                             .pull_down_en = GPIO_PULLDOWN_DISABLE,
-                             .pull_up_en = GPIO_PULLUP_ENABLE};
-    gpio_config(&io_conf);
+    uint64_t pin_mask = 0;
+    if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC) {
+        pin_mask |= (1ULL << BOARD_HAL_WAKEUP_KEY);
+    }
+    if (BOARD_HAL_ROTATE_KEY != GPIO_NUM_NC) {
+        pin_mask |= (1ULL << BOARD_HAL_ROTATE_KEY);
+    }
 
-    // Hold GPIO state during deep sleep to prevent floating
-    // This prevents false EXT1 wake-ups when timer fires
-    gpio_hold_en(BOOT_BUTTON_GPIO);
-    gpio_hold_en(KEY_BUTTON_GPIO);
-    gpio_deep_sleep_hold_en();
+    if (pin_mask != 0) {
+        gpio_config_t io_conf = {.intr_type = GPIO_INTR_DISABLE,
+                                 .mode = GPIO_MODE_INPUT,
+                                 .pin_bit_mask = pin_mask,
+                                 .pull_down_en = GPIO_PULLDOWN_DISABLE,
+                                 .pull_up_en = GPIO_PULLUP_ENABLE};
+        gpio_config(&io_conf);
+
+        // Hold GPIO state during deep sleep to prevent floating
+        // This prevents false EXT1 wake-ups when timer fires
+        if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC) {
+            gpio_hold_en(BOARD_HAL_WAKEUP_KEY);
+        }
+        if (BOARD_HAL_ROTATE_KEY != GPIO_NUM_NC) {
+            gpio_hold_en(BOARD_HAL_ROTATE_KEY);
+        }
+        gpio_deep_sleep_hold_en();
+    }
 
     // Configure LED GPIOs as output and turn them off
     gpio_config_t led_conf = {.intr_type = GPIO_INTR_DISABLE,
@@ -315,8 +330,17 @@ void power_manager_enter_sleep(void)
     }
 
     // Enable boot button and key button wake-up (ESP32-S3 only supports EXT1)
-    esp_sleep_enable_ext1_wakeup((1ULL << BOOT_BUTTON_GPIO) | (1ULL << KEY_BUTTON_GPIO),
-                                 ESP_EXT1_WAKEUP_ANY_LOW);
+    uint64_t wakeup_mask = 0;
+    if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC) {
+        wakeup_mask |= (1ULL << BOARD_HAL_WAKEUP_KEY);
+    }
+    if (BOARD_HAL_ROTATE_KEY != GPIO_NUM_NC) {
+        wakeup_mask |= (1ULL << BOARD_HAL_ROTATE_KEY);
+    }
+
+    if (wakeup_mask != 0) {
+        esp_sleep_enable_ext1_wakeup(wakeup_mask, ESP_EXT1_WAKEUP_ANY_LOW);
+    }
 
     ESP_LOGI(TAG, "Configuring Board HAL for deep sleep");
     board_hal_prepare_for_sleep();
@@ -353,14 +377,20 @@ bool power_manager_is_ext1_wakeup(void)
 
 bool power_manager_is_boot_button_wakeup(void)
 {
+    if (BOARD_HAL_WAKEUP_KEY == GPIO_NUM_NC) {
+        return false;
+    }
     return (last_wakeup_cause == ESP_SLEEP_WAKEUP_EXT1) &&
-           (ext1_wakeup_pin_mask & (1ULL << BOOT_BUTTON_GPIO));
+           (ext1_wakeup_pin_mask & (1ULL << BOARD_HAL_WAKEUP_KEY));
 }
 
 bool power_manager_is_key_button_wakeup(void)
 {
+    if (BOARD_HAL_ROTATE_KEY == GPIO_NUM_NC) {
+        return false;
+    }
     return (last_wakeup_cause == ESP_SLEEP_WAKEUP_EXT1) &&
-           (ext1_wakeup_pin_mask & (1ULL << KEY_BUTTON_GPIO));
+           (ext1_wakeup_pin_mask & (1ULL << BOARD_HAL_ROTATE_KEY));
 }
 
 void power_manager_set_deep_sleep_enabled(bool enabled)

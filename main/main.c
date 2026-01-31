@@ -189,44 +189,57 @@ static esp_err_t init_sdcard(void)
 
 static void button_task(void *arg)
 {
-    bool last_boot_state = gpio_get_level(BOOT_BUTTON_GPIO);
-    bool last_key_state = gpio_get_level(KEY_BUTTON_GPIO);
+    bool last_boot_state = 1;  // Default distinct from current to avoid triggers if NC
+    if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC) {
+        last_boot_state = gpio_get_level(BOARD_HAL_WAKEUP_KEY);
+    }
+
+    bool last_key_state = 1;
+    if (BOARD_HAL_ROTATE_KEY != GPIO_NUM_NC) {
+        last_key_state = gpio_get_level(BOARD_HAL_ROTATE_KEY);
+    }
+
     bool current_boot_state, current_key_state;
     uint32_t boot_press_time = 0;
     uint32_t key_press_time = 0;
 
     while (1) {
-        current_boot_state = gpio_get_level(BOOT_BUTTON_GPIO);
-        current_key_state = gpio_get_level(KEY_BUTTON_GPIO);
+        if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC) {
+            current_boot_state = gpio_get_level(BOARD_HAL_WAKEUP_KEY);
 
-        // Handle BOOT button
-        if (current_boot_state == 0 && last_boot_state == 1) {
-            boot_press_time = xTaskGetTickCount();
-        } else if (current_boot_state == 1 && last_boot_state == 0) {
-            uint32_t duration = (xTaskGetTickCount() - boot_press_time) * portTICK_PERIOD_MS;
+            // Handle BOOT button
+            if (current_boot_state == 0 && last_boot_state == 1) {
+                boot_press_time = xTaskGetTickCount();
+            } else if (current_boot_state == 1 && last_boot_state == 0) {
+                uint32_t duration = (xTaskGetTickCount() - boot_press_time) * portTICK_PERIOD_MS;
 
-            if (duration > 50 && duration < 3000) {
-                ESP_LOGI(TAG, "Boot button pressed, resetting sleep timer");
-                power_manager_reset_sleep_timer();
+                if (duration > 50 && duration < 3000) {
+                    ESP_LOGI(TAG, "Boot button pressed, resetting sleep timer");
+                    power_manager_reset_sleep_timer();
+                }
             }
+            last_boot_state = current_boot_state;
         }
 
-        // Handle KEY button - trigger rotation
-        if (current_key_state == 0 && last_key_state == 1) {
-            key_press_time = xTaskGetTickCount();
-        } else if (current_key_state == 1 && last_key_state == 0) {
-            uint32_t duration = (xTaskGetTickCount() - key_press_time) * portTICK_PERIOD_MS;
+        if (BOARD_HAL_ROTATE_KEY != GPIO_NUM_NC) {
+            current_key_state = gpio_get_level(BOARD_HAL_ROTATE_KEY);
 
-            if (duration > 50 && duration < 3000) {
-                ESP_LOGI(TAG, "Key button pressed, triggering rotation");
-                power_manager_reset_sleep_timer();
-                trigger_image_rotation();
-                ha_notify_update();
+            // Handle KEY button - trigger rotation
+            if (current_key_state == 0 && last_key_state == 1) {
+                key_press_time = xTaskGetTickCount();
+            } else if (current_key_state == 1 && last_key_state == 0) {
+                uint32_t duration = (xTaskGetTickCount() - key_press_time) * portTICK_PERIOD_MS;
+
+                if (duration > 50 && duration < 3000) {
+                    ESP_LOGI(TAG, "Key button pressed, triggering rotation");
+                    power_manager_reset_sleep_timer();
+                    trigger_image_rotation();
+                    ha_notify_update();
+                }
             }
+            last_key_state = current_key_state;
         }
 
-        last_boot_state = current_boot_state;
-        last_key_state = current_key_state;
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
