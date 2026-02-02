@@ -33,7 +33,20 @@ esp_err_t board_hal_init(void)
 {
     ESP_LOGI(TAG, "Initializing XIAO EE02 Power HAL (BQ24070)");
 
-    // Do nothing for now.
+    // Initialize E-Paper Display Port
+    // Note: T133A01 driver uses CS1 and ENABLE
+    epaper_config_t ep_cfg = {
+        .pin_cs = BOARD_HAL_EPD_CS_PIN,
+        .pin_dc = BOARD_HAL_EPD_DC_PIN,
+        .pin_rst = BOARD_HAL_EPD_RST_PIN,
+        .pin_busy = BOARD_HAL_EPD_BUSY_PIN,
+        .pin_sck = BOARD_HAL_EPD_SCK_PIN,
+        .pin_mosi = BOARD_HAL_EPD_MOSI_PIN,
+        .pin_cs1 = BOARD_HAL_EPD_CS1_PIN,
+        .pin_enable = BOARD_HAL_EPD_ENABLE_PIN,
+    };
+    epaper_port_init(&ep_cfg);
+
     return ESP_OK;
 
     // Initialize ADC for battery voltage

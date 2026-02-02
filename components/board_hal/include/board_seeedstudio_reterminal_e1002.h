@@ -1,0 +1,34 @@
+#ifndef BOARD_SEEEDSTUDIO_RETERMINAL_E1002_H
+#define BOARD_SEEEDSTUDIO_RETERMINAL_E1002_H
+
+#include "driver/gpio.h"
+
+// Board Info
+#define BOARD_HAL_NAME "seeedstudio_reterminal_e1002"
+#define BOARD_HAL_TYPE BOARD_TYPE_SEEEDSTUDIO_RETERMINAL_E1002
+
+// Button Definitions
+#define BOARD_HAL_WAKEUP_KEY GPIO_NUM_3  // Green Button (Wake/Select)
+#define BOARD_HAL_ROTATE_KEY GPIO_NUM_5  // Left Button (Rotate)
+#define BOARD_HAL_CLEAR_KEY GPIO_NUM_4   // Right Button (Clear)
+
+// E-Paper Display Pins (Spectra E6)
+#define BOARD_HAL_EPD_DC_PIN GPIO_NUM_11
+#define BOARD_HAL_EPD_CS_PIN GPIO_NUM_10
+#define BOARD_HAL_EPD_SCK_PIN GPIO_NUM_7
+#define BOARD_HAL_EPD_MOSI_PIN GPIO_NUM_9
+#define BOARD_HAL_EPD_RST_PIN GPIO_NUM_12
+#define BOARD_HAL_EPD_BUSY_PIN GPIO_NUM_13
+
+// Power Management
+#define BOARD_HAL_BAT_ADC_PIN ADC_CHANNEL_0  // GPIO 1
+#define BOARD_HAL_BAT_EN_PIN GPIO_NUM_21
+#define BOARD_HAL_SD_PWR_PIN GPIO_NUM_16
+#define BOARD_HAL_SD_CS_PIN GPIO_NUM_14
+
+// Display Configuration
+#define BOARD_HAL_DISPLAY_ROTATION_DEG 0
+#define BOARD_HAL_DISPLAY_WIDTH 800
+#define BOARD_HAL_DISPLAY_HEIGHT 480
+
+#endif  // BOARD_SEEEDSTUDIO_RETERMINAL_E1002_H

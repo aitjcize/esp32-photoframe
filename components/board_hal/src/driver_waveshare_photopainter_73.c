@@ -27,6 +27,20 @@ esp_err_t board_hal_init(void)
     } else {
         ESP_LOGW(TAG, "SHTC3 sensor initialization failed (sensor may not be present)");
     }
+
+    // Initialize E-Paper Display Port
+    // Note: Waveshare header now defines these pins locally (or via Kconfig fallback if we kept it)
+    epaper_config_t ep_cfg = {
+        .pin_cs = BOARD_HAL_EPD_CS_PIN,
+        .pin_dc = BOARD_HAL_EPD_DC_PIN,
+        .pin_rst = BOARD_HAL_EPD_RST_PIN,
+        .pin_busy = BOARD_HAL_EPD_BUSY_PIN,
+        .pin_sck = BOARD_HAL_EPD_SCK_PIN,
+        .pin_mosi = BOARD_HAL_EPD_MOSI_PIN,
+        .pin_enable = -1,
+    };
+    epaper_port_init(&ep_cfg);
+
     return ESP_OK;
 }
 

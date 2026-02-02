@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <driver/gpio.h>
 #include <driver/spi_master.h>
 #include <esp_log.h>
@@ -11,14 +12,17 @@
 static const char *TAG = "epaper_seeedstudio_t133a01";
 
 // Pin definition for Seeed XIAO EE02 (verified from Seeed_GFX)
-#define EPD_DC_PIN GPIO_NUM_10
-#define EPD_CS_PIN GPIO_NUM_44
-#define EPD_CS1_PIN GPIO_NUM_41
-#define EPD_SCK_PIN GPIO_NUM_7
-#define EPD_MOSI_PIN GPIO_NUM_9
-#define EPD_RST_PIN GPIO_NUM_38
-#define EPD_BUSY_PIN GPIO_NUM_4
-#define EPD_ENABLE_PIN GPIO_NUM_43
+// Local config storage
+static epaper_config_t g_ep_config = {0};
+
+#define EPD_DC_PIN g_ep_config.pin_dc
+#define EPD_CS_PIN g_ep_config.pin_cs
+#define EPD_CS1_PIN g_ep_config.pin_cs1
+#define EPD_SCK_PIN g_ep_config.pin_sck
+#define EPD_MOSI_PIN g_ep_config.pin_mosi
+#define EPD_RST_PIN g_ep_config.pin_rst
+#define EPD_BUSY_PIN g_ep_config.pin_busy
+#define EPD_ENABLE_PIN g_ep_config.pin_enable
 
 #define EPD_HOST SPI2_HOST
 #define EPD_WIDTH 1200
@@ -208,8 +212,11 @@ static void epd_init_sequence(void)
     vTaskDelay(pdMS_TO_TICKS(10));
 }
 
-void epaper_port_init(void)
+void epaper_port_init(const epaper_config_t *cfg)
 {
+    assert(cfg != NULL);
+    memcpy(&g_ep_config, cfg, sizeof(epaper_config_t));
+
     ESP_LOGI(TAG, "Initializing XIAO EE02 E-Paper Driver");
     epd_spi_init();
 
@@ -254,6 +261,11 @@ void epaper_port_clear(uint8_t *buffer, uint8_t color)
     memset(buffer, packed, size);
 }
 
+void epaper_port_enter_deepsleep(void)
+{
+    // Not implemented for T133A01 yet
+}
+
 void epaper_port_display(uint8_t *buffer)
 {
     // Implementation of EPD_PUSH_NEW_COLORS
@@ -295,7 +307,7 @@ void epaper_port_display(uint8_t *buffer)
     CS_L();  // CS LOW
 
     gpio_set_level(EPD_DC_PIN, 0);  // CMD
-    spi_transaction_t t_dtm = {.length = 8, .tx_buffer = (uint8_t[]){R10_DTM}};
+    spi_transaction_t t_dtm = {.length = 8, .tx_buffer = (uint8_t[]) {R10_DTM}};
     spi_device_transmit(spi, &t_dtm);
 
     gpio_set_level(EPD_DC_PIN, 1);  // DATA

@@ -7,13 +7,15 @@
 #include "epaper_port.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+// Local config storage
+static epaper_config_t g_ep_config = {0};
 
-#define EPD_DC_PIN 8
-#define EPD_CS_PIN 9
-#define EPD_SCK_PIN 10
-#define EPD_MOSI_PIN 11
-#define EPD_RST_PIN 12
-#define EPD_BUSY_PIN 13
+#define EPD_DC_PIN g_ep_config.pin_dc
+#define EPD_CS_PIN g_ep_config.pin_cs
+#define EPD_SCK_PIN g_ep_config.pin_sck
+#define EPD_MOSI_PIN g_ep_config.pin_mosi
+#define EPD_RST_PIN g_ep_config.pin_rst
+#define EPD_BUSY_PIN g_ep_config.pin_busy
 
 #define epaper_rst_1 gpio_set_level(EPD_RST_PIN, 1)
 #define epaper_rst_0 gpio_set_level(EPD_RST_PIN, 0)
@@ -26,7 +28,7 @@
 static spi_device_handle_t spi;
 static void spi_send_byte(uint8_t cmd);
 
-static const char *TAG = "epaper_waveshare_7in3";
+static const char *TAG = "epaper_spectra_e6";
 
 static void epaper_gpio_init(void)
 {
@@ -213,8 +215,13 @@ static void epaper_TurnOnDisplay(void)
 /*
 epaper init
 */
-void epaper_port_init(void)
+void epaper_port_init(const epaper_config_t *cfg)
 {
+    assert(cfg != NULL);
+    memcpy(&g_ep_config, cfg, sizeof(epaper_config_t));
+
+    ESP_LOGI(TAG, "Initializing Spectra 6 E-Paper Driver");
+
     epaper_spi_init();   // spi init
     epaper_gpio_init();  // ws gpio init
     epaper_reset();      // reset
@@ -339,4 +346,22 @@ void epaper_port_display(uint8_t *Image)
     ESP_LOGI(TAG, "Buffer sent, turning on display...");
     epaper_TurnOnDisplay();
     ESP_LOGI(TAG, "Display update complete");
+}
+
+/*
+ Enter Deep Sleep
+*/
+void epaper_port_enter_deepsleep(void)
+{
+    ESP_LOGI(TAG, "Requesting deep sleep");
+    // Power OFF
+    epaper_SendCommand(0x02);
+    epaper_SendData(0x00);
+    epaper_readbusyh();
+
+    // Deep Sleep Command (0x07 + 0xA5 is common)
+    // Note: Some references suggest 0x10, but 0x10 is used for Data Start here.
+    // Using 0x07 which is standard for most E-Ink controllers.
+    epaper_SendCommand(0x07);
+    epaper_SendData(0xA5);
 }

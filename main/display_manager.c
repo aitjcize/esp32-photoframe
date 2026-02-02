@@ -87,7 +87,7 @@ esp_err_t display_manager_init(void)
         return ESP_FAIL;
     }
 
-    epaper_port_init();
+    // epaper_port_init() is now called by board_hal_init()
 
     image_buffer_size = ((BOARD_HAL_DISPLAY_WIDTH % 2 == 0) ? (BOARD_HAL_DISPLAY_WIDTH / 2)
                                                             : (BOARD_HAL_DISPLAY_WIDTH / 2 + 1)) *

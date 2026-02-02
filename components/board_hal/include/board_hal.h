@@ -16,6 +16,7 @@ extern "C" {
 typedef enum {
     BOARD_TYPE_WAVESHARE_PHOTOPAINTER,
     BOARD_TYPE_SEEEDSTUDIO_XIAO_EE02,
+    BOARD_TYPE_SEEEDSTUDIO_RETERMINAL_E1002,
     BOARD_TYPE_UNKNOWN
 } board_type_t;
 
@@ -23,6 +24,8 @@ typedef enum {
 #include "board_waveshare_photopainter_73.h"
 #elif defined(CONFIG_BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02)
 #include "board_seeedstudio_xiao_ee02.h"
+#elif defined(CONFIG_BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002)
+#include "board_seeedstudio_reterminal_e1002.h"
 #else
 // Default definitions if no board selected (fallback)
 #error "No board selected! Please define CONFIG_BOARD_DRIVER_..."

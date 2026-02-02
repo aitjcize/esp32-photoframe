@@ -16,7 +16,7 @@ jobs:
       contents: write
     strategy:
       matrix:
-        board: [waveshare_photopainter_73, seeedstudio_xiao_ee02]
+        board: [waveshare_photopainter_73, seeedstudio_xiao_ee02, seeedstudio_reterminal_e1002]
       fail-fast: false
     
     steps:
@@ -168,7 +168,7 @@ jobs:
         # Find latest tag
         LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
         
-        BOARDS="waveshare_photopainter_73 seeedstudio_xiao_ee02"
+        BOARDS="waveshare_photopainter_73 seeedstudio_xiao_ee02 seeedstudio_reterminal_e1002"
         
         for board in $BOARDS; do
           mkdir -p "demo/$board"

@@ -2,17 +2,15 @@ menu "E-Paper Display Configuration"
 
     choice EP_DISPLAY_DRIVER
         prompt "Display Driver"
-        default EP_DRIVER_WAVESHARE_7IN3
+        default EP_DRIVER_SPECTRA_E6
         help
             Select the E-Paper display driver to use.
 
-        config EP_DRIVER_WAVESHARE_7IN3
-            bool "WaveShare 7.3 Inch (Spectra 6)"
-            select HAS_PMIC
-            select HAS_SDCARD
+        config EP_DRIVER_SPECTRA_E6
+            bool "Spectra E6 (7.3 Inch: Waveshare/reTerminal)"
             help
-                Driver for WaveShare 7.3 inch Spectra 6 E-Paper display.
-                This board typically includes an AXP2101 PMIC and SD Card slot.
+                Driver for 7.3 inch Spectra 6 E-Paper displays (Waveshare, Seeed reTerminal E1002).
+                This board typically includes an AXP2101 PMIC and/or SD Card slot.
 
         config EP_DRIVER_SEEEDSTUDIO_T133A01
             bool "Seeed XIAO EE02 (13.3 Inch)"
@@ -21,17 +19,5 @@ menu "E-Paper Display Configuration"
                 This board does NOT have an AXP PMIC or SD Card slot.
 
     endchoice
-
-    config HAS_PMIC
-        bool
-        default n
-        help
-            Selected by drivers that require PMIC support.
-
-    config HAS_SDCARD
-        bool
-        default n
-        help
-            Selected by drivers that have SD Card support.
 
 endmenu

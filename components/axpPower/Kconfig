@@ -1,0 +1,9 @@
+menu "AXP Power Management"
+
+    config PMIC_DRIVER_AXP2101
+        bool
+        default n
+        help
+            Selected by board drivers that require AXP2101 PMIC support.
+
+endmenu

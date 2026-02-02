@@ -8,6 +8,8 @@ menu "Board Configuration"
 
         config BOARD_DRIVER_WAVESHARE_PHOTOPAINTER_73
             bool "WaveShare PhotoPainter 7.3in"
+            select HAS_SDCARD
+            select PMIC_DRIVER_AXP2101
             help
                 Driver for WaveShare PhotoPainter 7.3in (Spectra 6) board.
                 Includes AXP2101 PMIC initialization and SHTC3 sensor sleep management.
@@ -20,6 +22,19 @@ menu "Board Configuration"
                 Voltage is read via ADC. Percentage is estimated.
                 Charging status via GPIO.
 
+        config BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002
+            bool "Seeed reTerminal E1002 (Spectra E6)"
+            help
+                Driver for Seeed reTerminal E1002 with 7.3" Spectra E6 display.
+                Includes battery monitoring and deep sleep support.
+
     endchoice
+
+
+    config HAS_SDCARD
+        bool
+        default n
+        help
+            Selected by board drivers that have SD Card support.
 
 endmenu

@@ -5,7 +5,7 @@ import sys
 import os
 
 # Define BOARDS at a higher scope if it's meant to be a constant
-BOARDS = ["waveshare_photopainter_73", "seeedstudio_xiao_ee02"]
+BOARDS = ["waveshare_photopainter_73", "seeedstudio_xiao_ee02", "seeedstudio_reterminal_e1002"]
 
 def main():
     parser = argparse.ArgumentParser(description="Build firmware for different boards")

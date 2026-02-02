@@ -1,6 +1,6 @@
 set(srcs "")
-if(CONFIG_EP_DRIVER_WAVESHARE_7IN3)
-    list(APPEND srcs "src/driver_waveshare_7in3.c")
+if(CONFIG_EP_DRIVER_SPECTRA_E6)
+    list(APPEND srcs "src/driver_spectra_e6.c")
 elseif(CONFIG_EP_DRIVER_SEEEDSTUDIO_T133A01)
     list(APPEND srcs "src/driver_seeedstudio_t133a01.c")
 endif()
