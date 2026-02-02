@@ -1306,45 +1306,44 @@ static esp_err_t config_handler(httpd_req_t *req)
 
     if (req->method == HTTP_GET) {
         cJSON *root = cJSON_CreateObject();
+        // General
+        const char *device_name = config_manager_get_device_name();
+        cJSON_AddStringToObject(root, "device_name", device_name ? device_name : "PhotoFrame");
+
+        const char *timezone = config_manager_get_timezone();
+        cJSON_AddStringToObject(root, "timezone", timezone ? timezone : "UTC0");
+
         cJSON_AddStringToObject(
             root, "display_orientation",
             config_manager_get_display_orientation() == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape"
                                                                                       : "portrait");
         cJSON_AddNumberToObject(root, "display_rotation_deg",
                                 config_manager_get_display_rotation_deg());
-        cJSON_AddNumberToObject(root, "rotate_interval", config_manager_get_rotate_interval());
+
+        // Auto Rotate
         cJSON_AddBoolToObject(root, "auto_rotate", config_manager_get_auto_rotate());
+        cJSON_AddNumberToObject(root, "rotate_interval", config_manager_get_rotate_interval());
         cJSON_AddBoolToObject(root, "auto_rotate_aligned",
                               config_manager_get_auto_rotate_aligned());
-        cJSON_AddStringToObject(
-            root, "rotation_mode",
-            config_manager_get_rotation_mode() == ROTATION_MODE_URL ? "url" : "sdcard");
-        cJSON_AddStringToObject(root, "sd_rotation_mode",
-                                config_manager_get_sd_rotation_mode() == SD_ROTATION_SEQUENTIAL
-                                    ? "sequential"
-                                    : "random");
-        cJSON_AddBoolToObject(root, "save_downloaded_images",
-                              config_manager_get_save_downloaded_images());
-        cJSON_AddBoolToObject(root, "deep_sleep_enabled", power_manager_get_deep_sleep_enabled());
-
-        const char *image_url = config_manager_get_image_url();
-        cJSON_AddStringToObject(root, "image_url", image_url ? image_url : "");
-
-        const char *ha_url = config_manager_get_ha_url();
-        cJSON_AddStringToObject(root, "ha_url", ha_url ? ha_url : "");
-
         cJSON_AddBoolToObject(root, "sleep_schedule_enabled",
                               config_manager_get_sleep_schedule_enabled());
         cJSON_AddNumberToObject(root, "sleep_schedule_start",
                                 config_manager_get_sleep_schedule_start());
         cJSON_AddNumberToObject(root, "sleep_schedule_end",
                                 config_manager_get_sleep_schedule_end());
+        cJSON_AddStringToObject(
+            root, "rotation_mode",
+            config_manager_get_rotation_mode() == ROTATION_MODE_URL ? "url" : "sdcard");
 
-        const char *device_name = config_manager_get_device_name();
-        cJSON_AddStringToObject(root, "device_name", device_name ? device_name : "PhotoFrame");
+        // Auto Rotate - SDCARD
+        cJSON_AddStringToObject(root, "sd_rotation_mode",
+                                config_manager_get_sd_rotation_mode() == SD_ROTATION_SEQUENTIAL
+                                    ? "sequential"
+                                    : "random");
 
-        const char *timezone = config_manager_get_timezone();
-        cJSON_AddStringToObject(root, "timezone", timezone ? timezone : "UTC0");
+        // Auto Rotate - URL
+        const char *image_url = config_manager_get_image_url();
+        cJSON_AddStringToObject(root, "image_url", image_url ? image_url : "");
 
         const char *access_token = config_manager_get_access_token();
         cJSON_AddStringToObject(root, "access_token", access_token ? access_token : "");
@@ -1355,6 +1354,16 @@ static esp_err_t config_handler(httpd_req_t *req)
         const char *http_header_value = config_manager_get_http_header_value();
         cJSON_AddStringToObject(root, "http_header_value",
                                 http_header_value ? http_header_value : "");
+
+        cJSON_AddBoolToObject(root, "save_downloaded_images",
+                              config_manager_get_save_downloaded_images());
+
+        // Home Assistant
+        const char *ha_url = config_manager_get_ha_url();
+        cJSON_AddStringToObject(root, "ha_url", ha_url ? ha_url : "");
+
+        // Other
+        cJSON_AddBoolToObject(root, "deep_sleep_enabled", power_manager_get_deep_sleep_enabled());
 
         char *json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");
@@ -1379,6 +1388,25 @@ static esp_err_t config_handler(httpd_req_t *req)
             return ESP_FAIL;
         }
 
+        // General
+        cJSON *device_name_obj = cJSON_GetObjectItem(root, "device_name");
+        if (device_name_obj && cJSON_IsString(device_name_obj)) {
+            const char *new_name = cJSON_GetStringValue(device_name_obj);
+            const char *current_name = config_manager_get_device_name();
+
+            // Only update mDNS if the device name actually changed
+            if (strcmp(new_name, current_name) != 0) {
+                config_manager_set_device_name(new_name);
+                mdns_service_update_hostname();
+            }
+        }
+
+        cJSON *timezone_obj = cJSON_GetObjectItem(root, "timezone");
+        if (timezone_obj && cJSON_IsString(timezone_obj)) {
+            const char *tz = cJSON_GetStringValue(timezone_obj);
+            config_manager_set_timezone(tz);
+        }
+
         cJSON *display_orient_obj = cJSON_GetObjectItem(root, "display_orientation");
         if (display_orient_obj && cJSON_IsString(display_orient_obj)) {
             const char *orient_str = cJSON_GetStringValue(display_orient_obj);
@@ -1395,15 +1423,16 @@ static esp_err_t config_handler(httpd_req_t *req)
             display_manager_initialize_paint();
         }
 
-        cJSON *interval_obj = cJSON_GetObjectItem(root, "rotate_interval");
-        if (interval_obj && cJSON_IsNumber(interval_obj)) {
-            config_manager_set_rotate_interval(interval_obj->valueint);
-            power_manager_reset_rotate_timer();
-        }
-
+        // Auto Rotate
         cJSON *auto_rotate_obj = cJSON_GetObjectItem(root, "auto_rotate");
         if (auto_rotate_obj && cJSON_IsBool(auto_rotate_obj)) {
             config_manager_set_auto_rotate(cJSON_IsTrue(auto_rotate_obj));
+            power_manager_reset_rotate_timer();
+        }
+
+        cJSON *interval_obj = cJSON_GetObjectItem(root, "rotate_interval");
+        if (interval_obj && cJSON_IsNumber(interval_obj)) {
+            config_manager_set_rotate_interval(interval_obj->valueint);
             power_manager_reset_rotate_timer();
         }
 
@@ -1411,45 +1440,6 @@ static esp_err_t config_handler(httpd_req_t *req)
         if (auto_rotate_aligned_obj && cJSON_IsBool(auto_rotate_aligned_obj)) {
             config_manager_set_auto_rotate_aligned(cJSON_IsTrue(auto_rotate_aligned_obj));
             power_manager_reset_rotate_timer();
-        }
-
-        cJSON *rotation_mode_obj = cJSON_GetObjectItem(root, "rotation_mode");
-        if (rotation_mode_obj && cJSON_IsString(rotation_mode_obj)) {
-            const char *mode_str = cJSON_GetStringValue(rotation_mode_obj);
-            rotation_mode_t mode =
-                (strcmp(mode_str, "url") == 0) ? ROTATION_MODE_URL : ROTATION_MODE_SDCARD;
-            config_manager_set_rotation_mode(mode);
-        }
-
-        cJSON *sd_rotation_mode_obj = cJSON_GetObjectItem(root, "sd_rotation_mode");
-        if (sd_rotation_mode_obj && cJSON_IsString(sd_rotation_mode_obj)) {
-            const char *mode_str = cJSON_GetStringValue(sd_rotation_mode_obj);
-            sd_rotation_mode_t mode =
-                (strcmp(mode_str, "sequential") == 0) ? SD_ROTATION_SEQUENTIAL : SD_ROTATION_RANDOM;
-            config_manager_set_sd_rotation_mode(mode);
-        }
-
-        cJSON *save_dl_obj = cJSON_GetObjectItem(root, "save_downloaded_images");
-        if (save_dl_obj && cJSON_IsBool(save_dl_obj)) {
-            bool save_dl = cJSON_IsTrue(save_dl_obj);
-            config_manager_set_save_downloaded_images(save_dl);
-        }
-
-        cJSON *deep_sleep_obj = cJSON_GetObjectItem(root, "deep_sleep_enabled");
-        if (deep_sleep_obj && cJSON_IsBool(deep_sleep_obj)) {
-            power_manager_set_deep_sleep_enabled(cJSON_IsTrue(deep_sleep_obj));
-        }
-
-        cJSON *image_url_obj = cJSON_GetObjectItem(root, "image_url");
-        if (image_url_obj && cJSON_IsString(image_url_obj)) {
-            const char *url = cJSON_GetStringValue(image_url_obj);
-            config_manager_set_image_url(url);
-        }
-
-        cJSON *ha_url_obj = cJSON_GetObjectItem(root, "ha_url");
-        if (ha_url_obj && cJSON_IsString(ha_url_obj)) {
-            const char *url = cJSON_GetStringValue(ha_url_obj);
-            config_manager_set_ha_url(url);
         }
 
         cJSON *sleep_sched_enabled_obj = cJSON_GetObjectItem(root, "sleep_schedule_enabled");
@@ -1470,22 +1460,28 @@ static esp_err_t config_handler(httpd_req_t *req)
             config_manager_set_sleep_schedule_end(end_minutes);
         }
 
-        cJSON *device_name_obj = cJSON_GetObjectItem(root, "device_name");
-        if (device_name_obj && cJSON_IsString(device_name_obj)) {
-            const char *new_name = cJSON_GetStringValue(device_name_obj);
-            const char *current_name = config_manager_get_device_name();
-
-            // Only update mDNS if the device name actually changed
-            if (strcmp(new_name, current_name) != 0) {
-                config_manager_set_device_name(new_name);
-                mdns_service_update_hostname();
-            }
+        cJSON *rotation_mode_obj = cJSON_GetObjectItem(root, "rotation_mode");
+        if (rotation_mode_obj && cJSON_IsString(rotation_mode_obj)) {
+            const char *mode_str = cJSON_GetStringValue(rotation_mode_obj);
+            rotation_mode_t mode =
+                (strcmp(mode_str, "url") == 0) ? ROTATION_MODE_URL : ROTATION_MODE_SDCARD;
+            config_manager_set_rotation_mode(mode);
         }
 
-        cJSON *timezone_obj = cJSON_GetObjectItem(root, "timezone");
-        if (timezone_obj && cJSON_IsString(timezone_obj)) {
-            const char *tz = cJSON_GetStringValue(timezone_obj);
-            config_manager_set_timezone(tz);
+        // Auto Rotate - SDCARD
+        cJSON *sd_rotation_mode_obj = cJSON_GetObjectItem(root, "sd_rotation_mode");
+        if (sd_rotation_mode_obj && cJSON_IsString(sd_rotation_mode_obj)) {
+            const char *mode_str = cJSON_GetStringValue(sd_rotation_mode_obj);
+            sd_rotation_mode_t mode =
+                (strcmp(mode_str, "sequential") == 0) ? SD_ROTATION_SEQUENTIAL : SD_ROTATION_RANDOM;
+            config_manager_set_sd_rotation_mode(mode);
+        }
+
+        // Auto Rotate - URL
+        cJSON *image_url_obj = cJSON_GetObjectItem(root, "image_url");
+        if (image_url_obj && cJSON_IsString(image_url_obj)) {
+            const char *url = cJSON_GetStringValue(image_url_obj);
+            config_manager_set_image_url(url);
         }
 
         cJSON *access_token_obj = cJSON_GetObjectItem(root, "access_token");
@@ -1504,6 +1500,25 @@ static esp_err_t config_handler(httpd_req_t *req)
         if (http_header_value_obj && cJSON_IsString(http_header_value_obj)) {
             const char *value = cJSON_GetStringValue(http_header_value_obj);
             config_manager_set_http_header_value(value);
+        }
+
+        cJSON *save_dl_obj = cJSON_GetObjectItem(root, "save_downloaded_images");
+        if (save_dl_obj && cJSON_IsBool(save_dl_obj)) {
+            bool save_dl = cJSON_IsTrue(save_dl_obj);
+            config_manager_set_save_downloaded_images(save_dl);
+        }
+
+        // Home Assistant
+        cJSON *ha_url_obj = cJSON_GetObjectItem(root, "ha_url");
+        if (ha_url_obj && cJSON_IsString(ha_url_obj)) {
+            const char *url = cJSON_GetStringValue(ha_url_obj);
+            config_manager_set_ha_url(url);
+        }
+
+        // Other
+        cJSON *deep_sleep_obj = cJSON_GetObjectItem(root, "deep_sleep_enabled");
+        if (deep_sleep_obj && cJSON_IsBool(deep_sleep_obj)) {
+            power_manager_set_deep_sleep_enabled(cJSON_IsTrue(deep_sleep_obj));
         }
 
         cJSON_Delete(root);

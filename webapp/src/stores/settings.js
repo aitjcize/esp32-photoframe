@@ -18,31 +18,32 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // Device settings (UI representation)
   const deviceSettings = ref({
+    // General
     deviceName: "PhotoFrame",
-    displayOrientation: "landscape",
     timezoneOffset: 0,
-    // Auto rotate
+    displayOrientation: "landscape",
+    displayRotationDeg: 180,
+    // Auto Rotate
     autoRotate: true,
-    autoRotateAligned: true,
     rotateHours: 1,
     rotateMinutes: 0,
-    rotationMode: "sdcard",
-    sdRotationMode: "random",
-    imageUrl: "https://loremflickr.com/800/480",
-    saveDownloadedImages: true,
-    accessToken: "",
-    httpHeaderKey: "",
-    httpHeaderValue: "",
-    // Sleep schedule
+    autoRotateAligned: true,
     sleepScheduleEnabled: false,
     sleepScheduleStart: "23:00",
     sleepScheduleEnd: "07:00",
-    // Power
-    deepSleepEnabled: true,
+    rotationMode: "sdcard",
+    // Auto Rotate - SDCARD
+    sdRotationMode: "random",
+    // Auto Rotate - URL
+    imageUrl: "https://loremflickr.com/800/480",
+    accessToken: "",
+    httpHeaderKey: "",
+    httpHeaderValue: "",
+    saveDownloadedImages: true,
     // Home Assistant
     haUrl: "",
-    // Advanced
-    displayRotationDeg: 180,
+    // Power (not in config_manager, managed by power_manager)
+    deepSleepEnabled: true,
   });
 
   // Original config from server (for change detection)

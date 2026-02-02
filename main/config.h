@@ -63,30 +63,43 @@ typedef enum {
 
 #define IMAGE_ROTATE_INTERVAL_SEC 3600
 
-#define NVS_NAMESPACE "photoframe"
-#define NVS_DEVICE_NAME_KEY "device_name"
+// WiFi
 #define NVS_WIFI_SSID_KEY "wifi_ssid"
 #define NVS_WIFI_PASS_KEY "wifi_pass"
-#define NVS_ROTATE_INTERVAL_KEY "rotate_int"
-#define NVS_AUTO_ROTATE_KEY "auto_rotate"
-#define NVS_AUTO_ROTATE_ALIGNED_KEY "ar_align"
-#define NVS_SD_ROTATION_MODE_KEY "sd_rot_mode"
-#define NVS_LAST_INDEX_KEY "last_idx"
-#define NVS_DISPLAY_ROTATION_DEG_KEY "disp_rot_deg"
-#define NVS_DEEP_SLEEP_KEY "deep_sleep"
-#define NVS_ENABLED_ALBUMS_KEY "enabled_albums"
-#define NVS_IMAGE_URL_KEY "image_url"
-#define NVS_ROTATION_MODE_KEY "rotation_mode"
-#define NVS_SAVE_DOWNLOADED_KEY "save_dl"
-#define NVS_HA_URL_KEY "ha_url"
+
+// General
+#define NVS_NAMESPACE "photoframe"
+#define NVS_DEVICE_NAME_KEY "device_name"
+#define NVS_TIMEZONE_KEY "timezone"
 #define NVS_DISPLAY_ORIENTATION_KEY "disp_orient"
+#define NVS_DISPLAY_ROTATION_DEG_KEY "disp_rot_deg"
+
+// Auto Rotate
+#define NVS_AUTO_ROTATE_KEY "auto_rotate"
+#define NVS_ROTATE_INTERVAL_KEY "rotate_int"
+#define NVS_AUTO_ROTATE_ALIGNED_KEY "ar_align"
+#define NVS_ROTATION_MODE_KEY "rotation_mode"
 #define NVS_SLEEP_SCHEDULE_ENABLED_KEY "sleep_sched_en"
 #define NVS_SLEEP_SCHEDULE_START_KEY "sleep_start"
 #define NVS_SLEEP_SCHEDULE_END_KEY "sleep_end"
-#define NVS_TIMEZONE_KEY "timezone"
+
+// Auto Rotate - SDCard
+#define NVS_SD_ROTATION_MODE_KEY "sd_rot_mode"
+#define NVS_LAST_INDEX_KEY "last_idx"
+#define NVS_ENABLED_ALBUMS_KEY "enabled_albums"
+
+// Auto Rotate - URL
+#define NVS_IMAGE_URL_KEY "image_url"
 #define NVS_ACCESS_TOKEN_KEY "access_token"
 #define NVS_HTTP_HEADER_KEY_KEY "http_hdr_key"
 #define NVS_HTTP_HEADER_VALUE_KEY "http_hdr_val"
+#define NVS_SAVE_DOWNLOADED_KEY "save_dl"
+
+// Power
+#define NVS_DEEP_SLEEP_KEY "deep_sleep"
+
+// Home Assistant
+#define NVS_HA_URL_KEY "ha_url"
 
 // OTA Configuration
 #define GITHUB_API_URL "https://api.github.com/repos/aitjcize/esp32-photoframe/releases/latest"
