@@ -23,6 +23,7 @@
 #include "ha_integration.h"
 #include "image_processor.h"
 #include "mdns_service.h"
+#include "nvs_flash.h"
 #include "ota_manager.h"
 #include "periodic_tasks.h"
 #include "power_manager.h"
@@ -2027,6 +2028,42 @@ static esp_err_t keep_alive_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static void restart_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(1000));  // Wait 1 second for response to be sent
+    ESP_LOGI(TAG, "Restarting device...");
+    esp_restart();
+}
+
+static esp_err_t factory_reset_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Factory reset requested");
+
+    // Erase all NVS data first
+    ESP_LOGI(TAG, "Erasing NVS flash...");
+    esp_err_t ret = nvs_flash_erase();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to erase NVS: %s", esp_err_to_name(ret));
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Failed to erase NVS\"}");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "NVS erased successfully");
+
+    // Send success response
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(
+        req,
+        "{\"status\":\"success\",\"message\":\"Factory reset initiated. Device will restart.\"}");
+
+    // Schedule restart in a separate task to allow HTTP response to be sent
+    xTaskCreate(restart_task, "restart_task", 2048, NULL, 5, NULL);
+
+    return ESP_OK;
+}
+
 static esp_err_t display_calibration_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "Displaying calibration pattern on e-paper");
@@ -2639,6 +2676,12 @@ esp_err_t http_server_init(void)
                                                 .handler = color_palette_handler,
                                                 .user_ctx = NULL};
         httpd_register_uri_handler(server, &color_palette_delete_uri);
+
+        httpd_uri_t factory_reset_uri = {.uri = "/api/factory-reset",
+                                         .method = HTTP_POST,
+                                         .handler = factory_reset_handler,
+                                         .user_ctx = NULL};
+        httpd_register_uri_handler(server, &factory_reset_uri);
 
         httpd_uri_t display_calibration_uri = {.uri = "/api/calibration/display",
                                                .method = HTTP_POST,

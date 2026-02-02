@@ -419,6 +419,27 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }
 
+  async function factoryReset() {
+    try {
+      const response = await fetch(`${API_BASE}/api/factory-reset`, {
+        method: "POST",
+      });
+
+      if (response.ok) {
+        return {
+          success: true,
+          message:
+            "Factory reset successful. Device is restarting... Connect to the 'PhotoFrame' WiFi network to reconfigure.",
+        };
+      } else {
+        return { success: false, message: "Failed to perform factory reset" };
+      }
+    } catch (error) {
+      console.error("Error performing factory reset:", error);
+      return { success: false, message: "Error performing factory reset" };
+    }
+  }
+
   return {
     activeSettingsTab,
     params,
@@ -433,5 +454,6 @@ export const useSettingsStore = defineStore("settings", () => {
     loadPalette,
     saveSettings,
     savePalette,
+    factoryReset,
   };
 });
