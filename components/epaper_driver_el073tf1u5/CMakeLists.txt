@@ -1,6 +1,6 @@
 set(srcs "")
-if(CONFIG_EP_DRIVER_SEEEDSTUDIO_T133A01)
-    list(APPEND srcs "src/driver_t133a01.c")
+if(CONFIG_EP_DRIVER_EL073TF1U5)
+    list(APPEND srcs "src/driver_el073tf1u5.c")
 endif()
 
 idf_component_register(

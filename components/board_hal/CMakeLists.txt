@@ -1,6 +1,6 @@
 set(srcs "")
-set(priv_reqs "sdcard" "pmic_driver_axp2101" "rtc_driver_pcf85063" "epaper_driver_spectra_e6" "sensor_driver_shtc3"
-    "epaper_driver_t133a01" "sensor_driver_sht40")
+set(priv_reqs "sdcard" "pmic_driver_axp2101" "rtc_driver_pcf85063" "epaper_driver_el073tf1u5" "sensor_driver_shtc3"
+    "epaper_driver_el133uf1" "sensor_driver_sht40")
 
 if(CONFIG_BOARD_DRIVER_WAVESHARE_PHOTOPAINTER_73)
     list(APPEND srcs "src/driver_waveshare_photopainter_73.c")

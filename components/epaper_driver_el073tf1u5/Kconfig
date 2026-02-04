@@ -1,0 +1,4 @@
+config EP_DRIVER_EL073TF1U5
+    bool "E-Ink EL073TF1U5 (Spectra 6 800x480)"
+    help
+        Driver for 7.3 inch Spectra 6 E-Paper displays from e-ink holdings (compatible with Waveshare, Seeed reTerminal E1002).

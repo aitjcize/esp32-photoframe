@@ -1,5 +1,0 @@
-config EP_DRIVER_SEEEDSTUDIO_T133A01
-    bool "Seeed XIAO EE02 (13.3 Inch)"
-    help
-        Driver for Seeed Studio XIAO EE02 board with 13.3 inch Spectra 6 display.
-        This board does NOT have an AXP PMIC or SD Card slot.

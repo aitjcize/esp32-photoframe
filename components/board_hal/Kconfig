@@ -12,7 +12,7 @@ menu "Board Configuration"
             select SDCARD_DRIVER_SDIO
             select SENSOR_DRIVER_SHTC3
             select RTC_DRIVER_PCF85063
-            select EP_DRIVER_SPECTRA_E6
+            select EP_DRIVER_EL073TF1U5
             help
                 Driver for WaveShare PhotoPainter 7.3in (Spectra 6) board.
                 Includes AXP2101 PMIC initialization and SHTC3 sensor sleep management.
@@ -20,7 +20,7 @@ menu "Board Configuration"
 
         config BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02
             bool "Seeed XIAO EE02 (BQ24070)"
-            select EP_DRIVER_SEEEDSTUDIO_T133A01
+            select EP_DRIVER_EL133UF1
             help
                 Driver for Seeed Studio XIAO EE02 board.
                 Uses BQ24070 Linear Charger.
@@ -32,7 +32,7 @@ menu "Board Configuration"
             bool "Seeed reTerminal E1002 (Spectra E6)"
             select SDCARD_DRIVER_SPI
             select SENSOR_DRIVER_SHT40
-            select EP_DRIVER_SPECTRA_E6
+            select EP_DRIVER_EL073TF1U5
             help
                 Driver for Seeed reTerminal E1002 with 7.3" Spectra E6 display.
                 Includes battery monitoring and deep sleep support.

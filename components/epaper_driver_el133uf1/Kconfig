@@ -1,0 +1,4 @@
+config EP_DRIVER_EL133UF1
+    bool "E-Ink EL133UF1 (Spectra 6 1200x1600)"
+    help
+        Driver for 13.3 inch Spectra 6 E-Paper displays from e-ink holdings (compatible with SeeedStudio T133A01)

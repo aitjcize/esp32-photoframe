@@ -30,7 +30,7 @@ static epaper_config_t g_cfg;
 static spi_device_handle_t spi;
 static void spi_send_byte(uint8_t cmd);
 
-static const char *TAG = "epaper_spectra_e6";
+static const char *TAG = "epaper_el073tf1u5";
 
 static void epaper_gpio_init(void)
 {

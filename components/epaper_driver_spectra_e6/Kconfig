@@ -1,5 +1,0 @@
-config EP_DRIVER_SPECTRA_E6
-    bool "Spectra E6 (7.3 Inch: Waveshare/reTerminal)"
-    help
-        Driver for 7.3 inch Spectra 6 E-Paper displays (Waveshare, Seeed reTerminal E1002).
-        This board typically includes an AXP2101 PMIC and/or SD Card slot.

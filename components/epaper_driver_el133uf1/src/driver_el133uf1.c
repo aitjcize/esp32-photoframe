@@ -9,7 +9,7 @@
 
 #include "epaper.h"
 
-static const char *TAG = "epaper_t133a01";
+static const char *TAG = "epaper_el133uf1";
 
 static epaper_config_t g_cfg;
 

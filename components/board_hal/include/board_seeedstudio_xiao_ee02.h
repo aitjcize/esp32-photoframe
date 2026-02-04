@@ -12,7 +12,7 @@
 #define BOARD_HAL_ROTATE_KEY GPIO_NUM_2  // Button 1
 #define BOARD_HAL_CLEAR_KEY GPIO_NUM_3   // Button 2
 
-// E-Paper Display Pins (Seeed T133A01 13.3")
+// E-Paper Display Pins (E-Ink EL133UF1 / Seeed T133A01 13.3")
 #define BOARD_HAL_EPD_DC_PIN GPIO_NUM_10
 #define BOARD_HAL_EPD_CS_PIN GPIO_NUM_44
 #define BOARD_HAL_EPD_CS1_PIN GPIO_NUM_41
