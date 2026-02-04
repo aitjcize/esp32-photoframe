@@ -5,9 +5,10 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "i2c_bsp.h"
 
 static const char *TAG = "shtc3_sensor";
+
+#define SHTC3_I2C_ADDR 0x70
 
 // SHTC3 Commands
 #define SHTC3_CMD_WAKEUP 0x3517
@@ -16,6 +17,7 @@ static const char *TAG = "shtc3_sensor";
 #define SHTC3_CMD_READ_ID 0xEFC8
 #define SHTC3_CMD_MEASURE_NORMAL 0x7866  // Normal mode, T first, clock stretching disabled
 
+static i2c_master_dev_handle_t shtc3_dev_handle = NULL;
 static bool sensor_initialized = false;
 static bool sensor_available = false;
 
@@ -36,7 +38,7 @@ static uint8_t calculate_crc(const uint8_t *data, size_t length)
     return crc;
 }
 
-esp_err_t shtc3_init(void)
+esp_err_t shtc3_init(i2c_master_bus_handle_t i2c_bus)
 {
     esp_err_t ret;
     uint8_t cmd[2];
@@ -44,10 +46,23 @@ esp_err_t shtc3_init(void)
 
     ESP_LOGI(TAG, "Initializing SHTC3 sensor");
 
+    // Create device handle
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = SHTC3_I2C_ADDR,
+        .scl_speed_hz = 100000,
+    };
+
+    ret = i2c_master_bus_add_device(i2c_bus, &dev_cfg, &shtc3_dev_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to add SHTC3 device: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
     // Wake up sensor
     cmd[0] = (SHTC3_CMD_WAKEUP >> 8) & 0xFF;
     cmd[1] = SHTC3_CMD_WAKEUP & 0xFF;
-    ret = i2c_write_buff(shtc3_handle, -1, cmd, 2);
+    ret = i2c_master_transmit(shtc3_dev_handle, cmd, 2, pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to wake up SHTC3: %s", esp_err_to_name(ret));
         sensor_available = false;
@@ -60,7 +75,7 @@ esp_err_t shtc3_init(void)
     // Read ID to verify sensor presence
     cmd[0] = (SHTC3_CMD_READ_ID >> 8) & 0xFF;
     cmd[1] = SHTC3_CMD_READ_ID & 0xFF;
-    ret = i2c_master_write_read_dev(shtc3_handle, cmd, 2, id_data, 3);
+    ret = i2c_master_transmit_receive(shtc3_dev_handle, cmd, 2, id_data, 3, pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read SHTC3 ID: %s", esp_err_to_name(ret));
         sensor_available = false;
@@ -104,7 +119,7 @@ esp_err_t shtc3_read(float *temperature, float *humidity)
     // Wake up sensor
     cmd[0] = (SHTC3_CMD_WAKEUP >> 8) & 0xFF;
     cmd[1] = SHTC3_CMD_WAKEUP & 0xFF;
-    ret = i2c_write_buff(shtc3_handle, -1, cmd, 2);
+    ret = i2c_master_transmit(shtc3_dev_handle, cmd, 2, pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to wake up SHTC3: %s", esp_err_to_name(ret));
         return ret;
@@ -115,7 +130,7 @@ esp_err_t shtc3_read(float *temperature, float *humidity)
     // Trigger measurement
     cmd[0] = (SHTC3_CMD_MEASURE_NORMAL >> 8) & 0xFF;
     cmd[1] = SHTC3_CMD_MEASURE_NORMAL & 0xFF;
-    ret = i2c_write_buff(shtc3_handle, -1, cmd, 2);
+    ret = i2c_master_transmit(shtc3_dev_handle, cmd, 2, pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to trigger SHTC3 measurement: %s", esp_err_to_name(ret));
         return ret;
@@ -125,7 +140,7 @@ esp_err_t shtc3_read(float *temperature, float *humidity)
     vTaskDelay(pdMS_TO_TICKS(15));
 
     // Read measurement data
-    ret = i2c_read_buff(shtc3_handle, -1, data, 6);
+    ret = i2c_master_receive(shtc3_dev_handle, data, 6, pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read SHTC3 data: %s", esp_err_to_name(ret));
         return ret;
@@ -134,7 +149,7 @@ esp_err_t shtc3_read(float *temperature, float *humidity)
     // Put sensor back to sleep to save power
     cmd[0] = (SHTC3_CMD_SLEEP >> 8) & 0xFF;
     cmd[1] = SHTC3_CMD_SLEEP & 0xFF;
-    i2c_write_buff(shtc3_handle, -1, cmd, 2);
+    i2c_master_transmit(shtc3_dev_handle, cmd, 2, pdMS_TO_TICKS(100));
 
     // Verify temperature CRC
     uint8_t temp_crc = calculate_crc(data, 2);
@@ -185,7 +200,7 @@ esp_err_t shtc3_sleep(void)
     uint8_t cmd[2];
     cmd[0] = (SHTC3_CMD_SLEEP >> 8) & 0xFF;
     cmd[1] = SHTC3_CMD_SLEEP & 0xFF;
-    esp_err_t ret = i2c_write_buff(shtc3_handle, -1, cmd, 2);
+    esp_err_t ret = i2c_master_transmit(shtc3_dev_handle, cmd, 2, pdMS_TO_TICKS(100));
 
     if (ret == ESP_OK) {
         ESP_LOGD(TAG, "SHTC3 put to sleep");
@@ -211,7 +226,7 @@ esp_err_t shtc3_wakeup(void)
     uint8_t cmd[2];
     cmd[0] = (SHTC3_CMD_WAKEUP >> 8) & 0xFF;
     cmd[1] = SHTC3_CMD_WAKEUP & 0xFF;
-    esp_err_t ret = i2c_write_buff(shtc3_handle, -1, cmd, 2);
+    esp_err_t ret = i2c_master_transmit(shtc3_dev_handle, cmd, 2, pdMS_TO_TICKS(100));
 
     if (ret == ESP_OK) {
         vTaskDelay(pdMS_TO_TICKS(1));  // Wait for wake-up

@@ -1,0 +1,4 @@
+config SENSOR_DRIVER_SHTC3
+    bool "SHTC3 Sensor"
+    help
+        Enable support for SHTC3 temperature and humidity sensor.

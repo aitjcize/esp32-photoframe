@@ -6,7 +6,7 @@ set(include_dirs  ./
 idf_component_register(
   SRC_DIRS ${src_dirs}
   INCLUDE_DIRS ${include_dirs}
-  REQUIRES i2c_bsp driver esp_driver_gpio
+  REQUIRES driver esp_driver_gpio esp_driver_i2c
 )
 add_compile_definitions(XPOWERS_CHIP_AXP2101 CONFIG_XPOWERS_ESP_IDF_NEW_API)
 ##REQUIRES

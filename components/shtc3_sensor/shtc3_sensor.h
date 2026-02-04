@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 
+#include "driver/i2c_master.h"
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -12,9 +13,10 @@ extern "C" {
 /**
  * @brief Initialize SHTC3 temperature and humidity sensor
  *
+ * @param i2c_bus I2C bus handle from board HAL
  * @return ESP_OK on success, error code on failure
  */
-esp_err_t shtc3_init(void);
+esp_err_t shtc3_init(i2c_master_bus_handle_t i2c_bus);
 
 /**
  * @brief Read temperature and humidity from SHTC3 sensor

@@ -1,0 +1,6 @@
+config SENSOR_DRIVER_SHT40
+    bool
+    default n
+    help
+        SHT40 temperature and humidity sensor support.
+        Selected by board drivers that use SHT40 sensor.

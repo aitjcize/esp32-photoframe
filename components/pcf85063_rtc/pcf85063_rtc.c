@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include "esp_log.h"
-#include "i2c_bsp.h"
+#include "freertos/FreeRTOS.h"
 
 static const char *TAG = "pcf85063_rtc";
 
@@ -27,6 +27,7 @@ static const char *TAG = "pcf85063_rtc";
 
 static bool rtc_initialized = false;
 static bool rtc_available = false;
+static i2c_master_dev_handle_t rtc_dev_handle = NULL;
 
 // BCD conversion helpers
 static uint8_t bcd_to_dec(uint8_t bcd)
@@ -39,15 +40,29 @@ static uint8_t dec_to_bcd(uint8_t dec)
     return ((dec / 10) << 4) | (dec % 10);
 }
 
-esp_err_t pcf85063_init(void)
+esp_err_t pcf85063_init(i2c_master_bus_handle_t i2c_bus)
 {
     esp_err_t ret;
     uint8_t data;
 
     ESP_LOGI(TAG, "Initializing PCF85063ATL RTC");
 
+    // Create device handle
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = 0x51,  // PCF85063 address
+        .scl_speed_hz = 100000,
+    };
+
+    ret = i2c_master_bus_add_device(i2c_bus, &dev_cfg, &rtc_dev_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to add PCF85063 device: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
     // Try to read control register to verify device presence
-    ret = i2c_read_buff(rtc_dev_handle, PCF85063_ADDR_CONTROL_1, &data, 1);
+    ret = i2c_master_transmit_receive(rtc_dev_handle, (uint8_t[]){PCF85063_ADDR_CONTROL_1}, 1,
+                                      &data, 1, pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to communicate with PCF85063ATL: %s", esp_err_to_name(ret));
         rtc_available = false;
@@ -58,7 +73,8 @@ esp_err_t pcf85063_init(void)
     // Clear STOP bit if set (enable counting) and set CAP_SEL for 7pF (typical for PCF85063ATL)
     data &= ~PCF85063_STOP_BIT;    // Clear STOP bit
     data |= PCF85063_CAP_SEL_BIT;  // Set CAP_SEL for 7pF load capacitance
-    ret = i2c_write_buff(rtc_dev_handle, PCF85063_ADDR_CONTROL_1, &data, 1);
+    uint8_t write_buf[2] = {PCF85063_ADDR_CONTROL_1, data};
+    ret = i2c_master_transmit(rtc_dev_handle, write_buf, 2, pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to configure PCF85063ATL: %s", esp_err_to_name(ret));
         rtc_available = false;
@@ -88,7 +104,8 @@ esp_err_t pcf85063_read_time(time_t *time_out)
     esp_err_t ret;
 
     // Read time registers (seconds through years)
-    ret = i2c_read_buff(rtc_dev_handle, PCF85063_ADDR_SECONDS, data, 7);
+    ret = i2c_master_transmit_receive(rtc_dev_handle, (uint8_t[]){PCF85063_ADDR_SECONDS}, 1, data,
+                                      7, pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read time from PCF85063ATL: %s", esp_err_to_name(ret));
         return ret;
@@ -148,7 +165,11 @@ esp_err_t pcf85063_write_time(time_t time_in)
     int year = timeinfo.tm_year + 1900;
     data[6] = dec_to_bcd(year - 2000);
 
-    esp_err_t ret = i2c_write_buff(rtc_dev_handle, PCF85063_ADDR_SECONDS, data, 7);
+    uint8_t write_buf[8];
+    write_buf[0] = PCF85063_ADDR_SECONDS;
+    memcpy(&write_buf[1], data, 7);
+
+    esp_err_t ret = i2c_master_transmit(rtc_dev_handle, write_buf, 8, pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write time to PCF85063ATL: %s", esp_err_to_name(ret));
         return ret;

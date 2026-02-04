@@ -7,7 +7,9 @@
 extern "C" {
 #endif
 
-void axp_i2c_prot_init(void);
+#include "driver/i2c_master.h"
+
+void axp_init(i2c_master_bus_handle_t i2c_bus);
 void axp_cmd_init(void);
 void axp_basic_sleep_start(void);
 // void state_axp2101_task(void *arg);

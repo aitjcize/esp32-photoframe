@@ -12,5 +12,5 @@ idf_component_register(
     SRCS "${srcs}"
     INCLUDE_DIRS "include"
     REQUIRES esp_timer driver esp_adc esp_driver_gpio epaper_port
-    PRIV_REQUIRES axpPower i2c_bsp shtc3_sensor pcf85063_rtc sdcard
+    PRIV_REQUIRES axpPower shtc3_sensor sht40_sensor pcf85063_rtc sdcard
 )

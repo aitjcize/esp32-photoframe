@@ -2,9 +2,9 @@
 
 #include "axp_prot.h"
 #include "board_hal.h"
+#include "driver/i2c_master.h"
 #include "epaper_port.h"
 #include "esp_log.h"
-#include "i2c_bsp.h"
 #include "pcf85063_rtc.h"
 #include "shtc3_sensor.h"
 
@@ -14,18 +14,28 @@
 
 static const char *TAG = "board_hal_waveshare";
 
+static i2c_master_bus_handle_t i2c_bus = NULL;
+
 esp_err_t board_hal_init(void)
 {
     // Initialize I2C bus
     ESP_LOGI(TAG, "Initializing I2C bus...");
-    i2c_master_Init();
+    i2c_master_bus_config_t i2c_bus_config = {
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .i2c_port = 0,
+        .scl_io_num = 48,
+        .sda_io_num = 47,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
+    };
+    ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_config, &i2c_bus));
 
     ESP_LOGI(TAG, "Initializing WaveShare PhotoPainter Power HAL");
-    axp_i2c_prot_init();
+    axp_init(i2c_bus);
     axp_cmd_init();
 
     // Initialize SHTC3 sensor (part of this board's power/sensor hal)
-    esp_err_t shtc3_ret = shtc3_init();
+    esp_err_t shtc3_ret = shtc3_init(i2c_bus);
     if (shtc3_ret == ESP_OK) {
         ESP_LOGI(TAG, "SHTC3 sensor initialized successfully");
     } else {
@@ -141,7 +151,7 @@ esp_err_t board_hal_get_humidity(float *h)
 
 esp_err_t board_hal_rtc_init(void)
 {
-    return pcf85063_init();
+    return pcf85063_init(i2c_bus);
 }
 
 esp_err_t board_hal_rtc_get_time(time_t *t)

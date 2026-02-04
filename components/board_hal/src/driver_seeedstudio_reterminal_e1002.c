@@ -3,12 +3,14 @@
 
 #include "board_hal.h"
 #include "driver/gpio.h"
+#include "driver/i2c_master.h"
 #include "epaper_port.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "sht40_sensor.h"
 #include "soc/soc_caps.h"
 
 #ifdef CONFIG_HAS_SDCARD
@@ -16,6 +18,12 @@
 #endif
 
 static const char *TAG = "board_hal_reterminal_e1002";
+
+static i2c_master_bus_handle_t i2c_bus = NULL;
+
+// I2C Pins for reTerminal E1002 (TP_INT=3, TP_RST=4, SDA=5, SCL=6)
+#define BOARD_HAL_I2C_SDA_PIN 5
+#define BOARD_HAL_I2C_SCL_PIN 6
 
 // Battery measurement constants
 #define VBAT_ADC_CHANNEL BOARD_HAL_BAT_ADC_PIN
@@ -58,18 +66,6 @@ esp_err_t board_hal_init(void)
 {
     ESP_LOGI(TAG, "Initializing reTerminal E1002 Power HAL");
 
-    // Initialize SD Card Power (Turn ON)
-    gpio_config_t io_conf = {
-        .intr_type = GPIO_INTR_DISABLE,
-        .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = (1ULL << BOARD_HAL_SD_PWR_PIN),
-        .pull_down_en = 0,
-        .pull_up_en = 0,
-    };
-    gpio_config(&io_conf);
-    gpio_set_level(BOARD_HAL_SD_PWR_PIN, 1);
-    ESP_LOGI(TAG, "SD Card Power ON");
-
     // Initialize E-Paper Display Port
     epaper_config_t ep_cfg = {
         .pin_cs = BOARD_HAL_EPD_CS_PIN,
@@ -83,6 +79,18 @@ esp_err_t board_hal_init(void)
     epaper_port_init(&ep_cfg);
 
 #ifdef CONFIG_HAS_SDCARD
+    // Initialize SD Card Power (Turn ON)
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = (1ULL << BOARD_HAL_SD_PWR_PIN),
+        .pull_down_en = 0,
+        .pull_up_en = 0,
+    };
+    gpio_config(&io_conf);
+    gpio_set_level(BOARD_HAL_SD_PWR_PIN, 1);
+    ESP_LOGI(TAG, "SD Card Power ON");
+
     // Initialize SD card (SPI interface for reTerminal E1002)
     ESP_LOGI(TAG, "Initializing SD card (SPI)...");
     sdcard_spi_config_t sd_config = {
@@ -107,6 +115,27 @@ esp_err_t board_hal_init(void)
 
     // Initialize ADC handle
     board_hal_battery_adc_init();
+
+    // Initialize I2C Bus
+    i2c_master_bus_config_t i2c_bus_config = {
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .i2c_port = 0,
+        .scl_io_num = BOARD_HAL_I2C_SCL_PIN,
+        .sda_io_num = BOARD_HAL_I2C_SDA_PIN,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
+    };
+    esp_err_t i2c_ret = i2c_new_master_bus(&i2c_bus_config, &i2c_bus);
+    if (i2c_ret == ESP_OK) {
+        ESP_LOGI(TAG, "I2C bus initialized");
+
+        // Initialize SHT40 Sensor
+        if (sht40_init(i2c_bus) == ESP_OK) {
+            ESP_LOGI(TAG, "SHT40 sensor initialized");
+        }
+    } else {
+        ESP_LOGE(TAG, "Failed to initialize I2C bus: %s", esp_err_to_name(i2c_ret));
+    }
 
     return ESP_OK;
 }
@@ -218,9 +247,21 @@ bool board_hal_rtc_is_available(void)
 }
 esp_err_t board_hal_get_temperature(float *t)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    if (!t)
+        return ESP_ERR_INVALID_ARG;
+    if (!sht40_is_available())
+        return ESP_ERR_INVALID_STATE;
+
+    float h_dummy;
+    return sht40_read(t, &h_dummy);
 }
 esp_err_t board_hal_get_humidity(float *h)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    if (!h)
+        return ESP_ERR_INVALID_ARG;
+    if (!sht40_is_available())
+        return ESP_ERR_INVALID_STATE;
+
+    float t_dummy;
+    return sht40_read(&t_dummy, h);
 }

@@ -1,0 +1,4 @@
+config RTC_DRIVER_PCF85063
+    bool "PCF85063 RTC"
+    help
+        Enable support for PCF85063 real-time clock.
