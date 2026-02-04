@@ -239,6 +239,27 @@ TEST_F(CalculateNextWakeupIntervalTest, NonAlignedSameDaySchedule)
     EXPECT_EQ(9000, result) << "Should wake at 14:00 (2.5 hours)";
 }
 
+TEST_F(CalculateNextWakeupIntervalTest, SameDayScheduleWraparound)
+{
+    config.enabled = true;
+    config.start_minutes = 0;  // 00:00
+    config.end_minutes = 480;  // 08:00
+    SetMockTime(23, 40, 51);   // Current time 23:40:51
+
+    // Rotation interval 1 hour aligned
+    // Next aligned time would be 00:00 (tomorrow)
+    // 00:00 falls in schedule [00:00, 08:00)
+    // So should skip to 08:00 tomorrow.
+
+    int result = calculate_next_wakeup_interval(&timeinfo, 3600, true, &config);
+
+    // 23:40:51 to 08:00:00 next day
+    // 23:40:51 -> 24:00:00 = 19m 9s = 1149s
+    // 00:00:00 -> 08:00:00 = 8h = 28800s
+    // Total = 29949s
+    EXPECT_EQ(29949, result) << "Should wake at 08:00 tomorrow (wrapper around)";
+}
+
 int main(int argc, char **argv)
 {
     ::testing::InitGoogleTest(&argc, argv);

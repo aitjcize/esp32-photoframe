@@ -91,6 +91,9 @@ int calculate_next_wakeup_interval(const struct tm *timeinfo, int rotate_interva
     } else {
         // Same-day schedule
         seconds_until_wake = (int) next_wake_seconds_of_day - current_seconds_of_day;
+        if (seconds_until_wake < 0) {
+            seconds_until_wake += 86400;  // Wrap to next day
+        }
     }
 
     return seconds_until_wake;
