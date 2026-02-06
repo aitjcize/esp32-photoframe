@@ -2,6 +2,8 @@
 
 #include <limits.h>
 #include <math.h>
+#include <png.h>
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -380,176 +382,258 @@ static esp_err_t write_bmp_file(const char *filename, uint8_t *rgb_data, int wid
     return ESP_OK;
 }
 
-esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *bmp_path,
-                                             bool use_stock_mode,
-                                             dither_algorithm_t dither_algorithm)
+static esp_err_t write_png_file(const char *filename, uint8_t *rgb_data, int width, int height)
 {
-    const char *algo_names[] = {"floyd-steinberg", "stucki", "burkes", "sierra"};
-    ESP_LOGI(TAG, "Converting %s to %s (mode: %s, dither: %s)", jpg_path, bmp_path,
-             use_stock_mode ? "stock" : "enhanced", algo_names[dither_algorithm]);
-
-    FILE *fp = fopen(jpg_path, "rb");
+    FILE *fp = fopen(filename, "wb");
     if (!fp) {
-        ESP_LOGE(TAG, "Failed to open JPG file: %s", jpg_path);
+        ESP_LOGE(TAG, "Failed to open file for writing: %s", filename);
         return ESP_FAIL;
     }
 
-    fseek(fp, 0, SEEK_END);
-    long jpg_size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    uint8_t *jpg_buffer = (uint8_t *) heap_caps_malloc(jpg_size, MALLOC_CAP_SPIRAM);
-    if (!jpg_buffer) {
-        ESP_LOGE(TAG, "Failed to allocate JPG buffer");
+    png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (!png_ptr) {
+        ESP_LOGE(TAG, "Failed to create PNG write struct");
         fclose(fp);
         return ESP_FAIL;
     }
 
-    fread(jpg_buffer, 1, jpg_size, fp);
-    fclose(fp);
-
-    // First, get image info at full scale to determine if we need to scale during decode
-    esp_jpeg_image_cfg_t jpeg_cfg = {.indata = jpg_buffer,
-                                     .indata_size = jpg_size,
-                                     .outbuf = NULL,
-                                     .outbuf_size = 0,
-                                     .out_format = JPEG_IMAGE_FORMAT_RGB888,
-                                     .out_scale = JPEG_IMAGE_SCALE_0,
-                                     .flags = {
-                                         .swap_color_bytes = 0,
-                                     }};
-
-    esp_jpeg_image_output_t outimg;
-    esp_err_t ret = esp_jpeg_get_image_info(&jpeg_cfg, &outimg);
-
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to get JPEG info: %s", esp_err_to_name(ret));
-        free(jpg_buffer);
-        return ret;
-    }
-
-    ESP_LOGI(TAG, "JPEG info: %dx%d, output size: %zu bytes", outimg.width, outimg.height,
-             outimg.output_len);
-
-    // Determine optimal JPEG decode scale to reduce memory usage
-    // Scale down large images during decode to avoid memory allocation failures
-    esp_jpeg_image_scale_t decode_scale = JPEG_IMAGE_SCALE_0;
-    int scaled_width = outimg.width;
-    int scaled_height = outimg.height;
-
-    // If image is much larger than display, use JPEG decoder's built-in scaling
-    // This reduces memory usage significantly (e.g., 1/2 scale = 1/4 memory)
-    if (outimg.width > BOARD_HAL_DISPLAY_WIDTH * 2 ||
-        outimg.height > BOARD_HAL_DISPLAY_HEIGHT * 2) {
-        decode_scale = JPEG_IMAGE_SCALE_1_2;  // 1:2 scale
-        scaled_width = outimg.width / 2;
-        scaled_height = outimg.height / 2;
-        ESP_LOGI(TAG, "Image is large, using 1:2 JPEG decode scale: %dx%d -> %dx%d", outimg.width,
-                 outimg.height, scaled_width, scaled_height);
-    }
-
-    if (outimg.width > BOARD_HAL_DISPLAY_WIDTH * 4 ||
-        outimg.height > BOARD_HAL_DISPLAY_HEIGHT * 4) {
-        decode_scale = JPEG_IMAGE_SCALE_1_4;  // 1:4 scale
-        scaled_width = outimg.width / 4;
-        scaled_height = outimg.height / 4;
-        ESP_LOGI(TAG, "Image is very large, using 1:4 JPEG decode scale: %dx%d -> %dx%d",
-                 outimg.width, outimg.height, scaled_width, scaled_height);
-    }
-
-    // Check if image is still too large even after maximum scaling
-    // Maximum supported: 1:8 scale would be ~6400x3840 original -> 800x480 scaled
-    if (outimg.width > BOARD_HAL_DISPLAY_WIDTH * 8 ||
-        outimg.height > BOARD_HAL_DISPLAY_HEIGHT * 8) {
-        ESP_LOGE(TAG, "Image is too large: %dx%d (max supported: %dx%d)", outimg.width,
-                 outimg.height, BOARD_HAL_DISPLAY_WIDTH * 8, BOARD_HAL_DISPLAY_HEIGHT * 8);
-        free(jpg_buffer);
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    // Get scaled image info
-    if (decode_scale != JPEG_IMAGE_SCALE_0) {
-        jpeg_cfg.out_scale = decode_scale;
-        ret = esp_jpeg_get_image_info(&jpeg_cfg, &outimg);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to get scaled JPEG info: %s", esp_err_to_name(ret));
-            free(jpg_buffer);
-            return ret;
-        }
-        ESP_LOGI(TAG, "Scaled JPEG output: %dx%d, size: %zu bytes", outimg.width, outimg.height,
-                 outimg.output_len);
-    }
-
-    // Final safety check: ensure decoded size won't exceed available memory
-    // Typical SPIRAM: 8MB, need headroom for processing
-    const size_t MAX_DECODED_SIZE = 4 * 1024 * 1024;  // 4MB max for decoded image
-    if (outimg.output_len > MAX_DECODED_SIZE) {
-        ESP_LOGE(TAG, "Decoded image size too large: %zu bytes (max: %zu bytes)", outimg.output_len,
-                 MAX_DECODED_SIZE);
-        free(jpg_buffer);
-        return ESP_ERR_NO_MEM;
-    }
-
-    // Allocate output buffer for scaled image
-    uint8_t *rgb_buffer = (uint8_t *) heap_caps_malloc(outimg.output_len, MALLOC_CAP_SPIRAM);
-    if (!rgb_buffer) {
-        ESP_LOGE(TAG, "Failed to allocate output buffer (%zu bytes)", outimg.output_len);
-        free(jpg_buffer);
+    png_infop info_ptr = png_create_info_struct(png_ptr);
+    if (!info_ptr) {
+        ESP_LOGE(TAG, "Failed to create PNG info struct");
+        png_destroy_write_struct(&png_ptr, NULL);
+        fclose(fp);
         return ESP_FAIL;
     }
 
-    // Decode JPEG with scaling
-    jpeg_cfg.outbuf = rgb_buffer;
-    jpeg_cfg.outbuf_size = outimg.output_len;
-
-    ret = esp_jpeg_decode(&jpeg_cfg, &outimg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "JPEG decode failed: %s", esp_err_to_name(ret));
-        free(rgb_buffer);
-        free(jpg_buffer);
-        return ret;
+    if (setjmp(png_jmpbuf(png_ptr))) {
+        ESP_LOGE(TAG, "PNG encoding error");
+        png_destroy_write_struct(&png_ptr, &info_ptr);
+        fclose(fp);
+        return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Successfully decoded JPEG: %dx%d", outimg.width, outimg.height);
-    free(jpg_buffer);
+    png_init_io(png_ptr, fp);
 
+    // RGB format, 8 bit depth
+    png_set_IHDR(png_ptr, info_ptr, width, height, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+
+    png_write_info(png_ptr, info_ptr);
+
+    // Write row by row
+    png_bytep row = (png_bytep) malloc(3 * width * sizeof(png_byte));
+    if (!row) {
+        ESP_LOGE(TAG, "Failed to allocate PNG row buffer");
+        png_destroy_write_struct(&png_ptr, &info_ptr);
+        fclose(fp);
+        return ESP_ERR_NO_MEM;
+    }
+
+    for (int y = 0; y < height; y++) {
+        // Copy RGB data to row buffer
+        memcpy(row, &rgb_data[y * width * 3], width * 3);
+        png_write_row(png_ptr, row);
+    }
+
+    png_write_end(png_ptr, NULL);
+
+    free(row);
+    png_destroy_write_struct(&png_ptr, &info_ptr);
+    fclose(fp);
+
+    return ESP_OK;
+}
+
+esp_err_t image_processor_process(const char *input_path, const char *output_path,
+                                  bool use_stock_mode, dither_algorithm_t dither_algorithm)
+{
+    const char *algo_names[] = {"floyd-steinberg", "stucki", "burkes", "sierra"};
+    ESP_LOGI(TAG, "Processing %s -> %s (mode: %s, dither: %s)", input_path, output_path,
+             use_stock_mode ? "stock" : "enhanced", algo_names[dither_algorithm]);
+    ESP_LOGI(TAG, "Opening input file: %s", input_path);
+
+    FILE *fp = fopen(input_path, "rb");
+    if (!fp) {
+        ESP_LOGE(TAG, "Failed to open input file: %s", input_path);
+        return ESP_FAIL;
+    }
+
+    uint8_t sig[8];
+    size_t read = fread(sig, 1, 8, fp);
+    fclose(fp);
+
+    if (read != 8) {
+        ESP_LOGE(TAG, "Failed to read file signature");
+        return ESP_FAIL;
+    }
+
+    bool is_png = (png_sig_cmp(sig, 0, 8) == 0);
+    uint8_t *rgb_buffer = NULL;
+    int width = 0, height = 0;
+
+    if (is_png) {
+        ESP_LOGI(TAG, "Detected PNG input");
+
+        fp = fopen(input_path, "rb");
+        if (!fp) {
+            ESP_LOGE(TAG, "Failed to open input file: %s", input_path);
+            return ESP_FAIL;
+        }
+
+        png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+        if (!png_ptr) {
+            ESP_LOGE(TAG, "Failed to create PNG read struct");
+            fclose(fp);
+            return ESP_FAIL;
+        }
+
+        png_infop info_ptr = png_create_info_struct(png_ptr);
+        if (!info_ptr) {
+            ESP_LOGE(TAG, "Failed to create PNG info struct");
+            png_destroy_read_struct(&png_ptr, NULL, NULL);
+            fclose(fp);
+            return ESP_FAIL;
+        }
+
+        if (setjmp(png_jmpbuf(png_ptr))) {
+            ESP_LOGE(TAG, "setjmp failed for PNG decoding");
+            png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+            fclose(fp);
+            return ESP_FAIL;
+        }
+
+        png_init_io(png_ptr, fp);
+        png_read_png(png_ptr, info_ptr,
+                     PNG_TRANSFORM_STRIP_16 | PNG_TRANSFORM_PACKING | PNG_TRANSFORM_EXPAND |
+                         PNG_TRANSFORM_STRIP_ALPHA,
+                     NULL);
+
+        width = png_get_image_width(png_ptr, info_ptr);
+        height = png_get_image_height(png_ptr, info_ptr);
+        ESP_LOGI(TAG, "PNG Image info: %dx%d", width, height);
+
+        // Allocate buffer
+        size_t rgb_size = width * height * 3;
+
+        // Check for memory limits
+        if (rgb_size > 6 * 1024 * 1024) {  // 6MB limit
+            ESP_LOGE(TAG, "PNG image too large for memory: %zu bytes (limit 6MB)", rgb_size);
+            png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+            fclose(fp);
+            return ESP_ERR_NO_MEM;
+        }
+
+        rgb_buffer = (uint8_t *) heap_caps_malloc(rgb_size, MALLOC_CAP_SPIRAM);
+        if (!rgb_buffer) {
+            ESP_LOGE(TAG, "Failed to allocate PNG RGB buffer of %zu bytes", rgb_size);
+            png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+            fclose(fp);
+            return ESP_ERR_NO_MEM;
+        }
+
+        png_bytep *row_pointers = png_get_rows(png_ptr, info_ptr);
+
+        // Copy to linear buffer (handling potential 3/4 channel issues if any, but we requested
+        // STRIP_ALPHA)
+        int channels = png_get_channels(png_ptr, info_ptr);
+        if (channels != 3) {
+            ESP_LOGE(TAG, "Unsupported channel count: %d", channels);
+            free(rgb_buffer);
+            png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+            fclose(fp);
+            return ESP_FAIL;
+        }
+
+        for (int y = 0; y < height; y++) {
+            memcpy(rgb_buffer + y * width * 3, row_pointers[y], width * 3);
+        }
+
+        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+        fclose(fp);
+    } else {
+        ESP_LOGI(TAG, "Assuming JPG input");
+
+        fp = fopen(input_path, "rb");
+        fseek(fp, 0, SEEK_END);
+        long jpg_size = ftell(fp);
+        fseek(fp, 0, SEEK_SET);
+
+        uint8_t *jpg_buffer = (uint8_t *) heap_caps_malloc(jpg_size, MALLOC_CAP_SPIRAM);
+        if (!jpg_buffer) {
+            ESP_LOGE(TAG, "Failed to allocate JPG buffer of %ld bytes", jpg_size);
+            fclose(fp);
+            return ESP_FAIL;
+        }
+        fread(jpg_buffer, 1, jpg_size, fp);
+        fclose(fp);
+
+        esp_jpeg_image_cfg_t jpeg_cfg = {.indata = jpg_buffer,
+                                         .indata_size = jpg_size,
+                                         .out_format = JPEG_IMAGE_FORMAT_RGB888,
+                                         .out_scale = JPEG_IMAGE_SCALE_0};
+        esp_jpeg_image_output_t outimg;
+        esp_jpeg_get_image_info(&jpeg_cfg, &outimg);
+
+        // Scaling logic
+        if (outimg.width > BOARD_HAL_DISPLAY_WIDTH * 4 ||
+            outimg.height > BOARD_HAL_DISPLAY_HEIGHT * 4)
+            jpeg_cfg.out_scale = JPEG_IMAGE_SCALE_1_4;
+        else if (outimg.width > BOARD_HAL_DISPLAY_WIDTH * 2 ||
+                 outimg.height > BOARD_HAL_DISPLAY_HEIGHT * 2)
+            jpeg_cfg.out_scale = JPEG_IMAGE_SCALE_1_2;
+
+        if (jpeg_cfg.out_scale != JPEG_IMAGE_SCALE_0)
+            esp_jpeg_get_image_info(&jpeg_cfg, &outimg);
+
+        rgb_buffer = (uint8_t *) heap_caps_malloc(outimg.output_len, MALLOC_CAP_SPIRAM);
+        if (!rgb_buffer) {
+            ESP_LOGE(TAG, "Failed to allocate JPG RGB buffer of %u bytes", outimg.output_len);
+            free(jpg_buffer);
+            return ESP_FAIL;
+        }
+
+        jpeg_cfg.outbuf = rgb_buffer;
+        jpeg_cfg.outbuf_size = outimg.output_len;
+        esp_err_t decode_err = esp_jpeg_decode(&jpeg_cfg, &outimg);
+        if (decode_err != ESP_OK) {
+            ESP_LOGE(TAG, "JPG decoding failed: %s", esp_err_to_name(decode_err));
+            free(rgb_buffer);
+            free(jpg_buffer);
+            return ESP_FAIL;
+        }
+
+        width = outimg.width;
+        height = outimg.height;
+        free(jpg_buffer);
+    }
+
+    ESP_LOGI(TAG, "Decoded image: %dx%d", width, height);
+
+    // Processing Logic (Resize -> Rotate -> Dither)
     uint8_t *resized = NULL;
     uint8_t *rotated = NULL;
     uint8_t *final_image = rgb_buffer;
-    int final_width = outimg.width;
-    int final_height = outimg.height;
+    int final_width = width;
+    int final_height = height;
 
-    // Check if orientation mismatch requires rotation
-    bool image_is_portrait = outimg.height > outimg.width;
+    bool image_is_portrait = height > width;
     bool board_is_portrait = BOARD_HAL_DISPLAY_HEIGHT > BOARD_HAL_DISPLAY_WIDTH;
     bool needs_rotation = image_is_portrait != board_is_portrait;
 
-    ESP_LOGI(TAG, "Orientation check: image_portrait=%d, board_portrait=%d, needs_rotation=%d",
-             image_is_portrait, board_is_portrait, needs_rotation);
-
-    // STEP 1: Resize to appropriate target size immediately to free large decoded buffer
+    // STEP 1: Resize for target orientation
     int target_width, target_height;
-
     if (needs_rotation) {
-        // Mismatch: resize to fit display width/height after rotation (swap target dims)
-        target_width = (outimg.width * BOARD_HAL_DISPLAY_WIDTH) / outimg.height;
+        target_width = (width * BOARD_HAL_DISPLAY_WIDTH) / height;
         target_height = BOARD_HAL_DISPLAY_WIDTH;
-        ESP_LOGI(TAG, "Orientation mismatch: resizing %dx%d -> %dx%d (will rotate after)",
-                 final_width, final_height, target_width, target_height);
     } else {
-        // Matches: resize directly to display size
         target_width = BOARD_HAL_DISPLAY_WIDTH;
         target_height = BOARD_HAL_DISPLAY_HEIGHT;
-        ESP_LOGI(TAG, "Orientation matches: resizing %dx%d -> %dx%d", final_width, final_height,
-                 target_width, target_height);
     }
 
-    // Only resize if needed
     if (final_width != target_width || final_height != target_height) {
         resized = resize_image(final_image, final_width, final_height, target_width, target_height);
         if (!resized) {
-            ESP_LOGE(TAG, "Failed to resize image from %dx%d to %dx%d", final_width, final_height,
-                     target_width, target_height);
+            ESP_LOGE(TAG, "Failed to resize image to %dx%d", target_width, target_height);
             free(rgb_buffer);
             return ESP_FAIL;
         }
@@ -558,17 +642,14 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
         final_image = resized;
         final_width = target_width;
         final_height = target_height;
-        ESP_LOGI(TAG, "Resize complete: %dx%d", final_width, final_height);
     }
 
-    // STEP 2: Rotate if orientation mismatch detected (now working with smaller buffer)
+    // STEP 2: Rotate
     if (needs_rotation) {
         size_t rotated_size = final_width * final_height * 3;
-        ESP_LOGI(TAG, "Rotating portrait image, allocating %zu bytes", rotated_size);
-
         rotated = (uint8_t *) heap_caps_malloc(rotated_size, MALLOC_CAP_SPIRAM);
         if (!rotated) {
-            ESP_LOGE(TAG, "Failed to allocate rotation buffer (%zu bytes)", rotated_size);
+            ESP_LOGE(TAG, "Failed to allocate rotation buffer of %zu bytes", rotated_size);
             if (resized)
                 free(resized);
             else if (rgb_buffer)
@@ -576,23 +657,17 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
             return ESP_FAIL;
         }
 
-        ESP_LOGI(TAG, "Performing 90° clockwise rotation");
-
-        // Rotate 90° clockwise: swap dimensions and rotate pixels
         for (int y = 0; y < final_height; y++) {
             for (int x = 0; x < final_width; x++) {
                 int src_idx = (y * final_width + x) * 3;
                 int dst_x = final_height - 1 - y;
                 int dst_y = x;
                 int dst_idx = (dst_y * final_height + dst_x) * 3;
-
                 rotated[dst_idx] = final_image[src_idx];
                 rotated[dst_idx + 1] = final_image[src_idx + 1];
                 rotated[dst_idx + 2] = final_image[src_idx + 2];
             }
         }
-
-        ESP_LOGI(TAG, "Rotation complete");
         if (resized)
             free(resized);
         else if (rgb_buffer)
@@ -600,80 +675,63 @@ esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *b
         rgb_buffer = NULL;
         resized = NULL;
         final_image = rotated;
-
-        // Swap dimensions after rotation
         int temp = final_width;
         final_width = final_height;
         final_height = temp;
-        ESP_LOGI(TAG, "After rotation: %dx%d", final_width, final_height);
     }
 
-    // STEP 3: Final resize if still needed (shouldn't happen normally)
+    // STEP 3: Final fit check
     if (final_width != BOARD_HAL_DISPLAY_WIDTH || final_height != BOARD_HAL_DISPLAY_HEIGHT) {
-        ESP_LOGE(TAG, "Unexpected dimensions %dx%d after processing, expected %dx%d", final_width,
-                 final_height, BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT);
         uint8_t *final_resized = resize_image(final_image, final_width, final_height,
                                               BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT);
         if (!final_resized) {
-            ESP_LOGE(TAG, "Final resize failed from %dx%d to %dx%d", final_width, final_height,
-                     BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT);
-            if (rotated)
-                free(rotated);
-            else if (resized)
-                free(resized);
-            else if (rgb_buffer)
-                free(rgb_buffer);
+            ESP_LOGE(TAG, "Failed to final resize image to %dx%d", BOARD_HAL_DISPLAY_WIDTH,
+                     BOARD_HAL_DISPLAY_HEIGHT);
+            free(final_image);
+            if (final_image == rotated)
+                rotated = NULL;
+            if (final_image == resized)
+                resized = NULL;
+            if (final_image == rgb_buffer)
+                rgb_buffer = NULL;
             return ESP_FAIL;
         }
-        if (rotated) {
-            free(rotated);
+        free(final_image);
+        if (final_image == rotated)
             rotated = NULL;
-        } else if (resized) {
-            free(resized);
+        if (final_image == resized)
             resized = NULL;
-        } else if (rgb_buffer) {
-            free(rgb_buffer);
+        if (final_image == rgb_buffer)
             rgb_buffer = NULL;
-        }
+
         final_image = final_resized;
         final_width = BOARD_HAL_DISPLAY_WIDTH;
         final_height = BOARD_HAL_DISPLAY_HEIGHT;
     }
 
-    // Apply dithering based on processing mode
-    // Stock mode: use theoretical palette (matches original Waveshare algorithm)
-    // Enhanced mode: use measured palette (accurate error diffusion)
+    // Apply Dithering
     const rgb_t *dither_palette = use_stock_mode ? palette : palette_measured;
-
-    // Use dithering algorithm directly (already an enum)
-    ESP_LOGI(TAG, "Applying %s dithering with %s palette", algo_names[dither_algorithm],
-             use_stock_mode ? "theoretical" : "measured");
     apply_error_diffusion_dither(final_image, final_width, final_height, dither_palette,
                                  dither_algorithm);
 
-    // Write BMP file
-    ESP_LOGI(TAG, "Writing BMP file");
-    ret = write_bmp_file(bmp_path, final_image, final_width, final_height);
-
-    // Cleanup - free final_image (which could be rotated, resized, final_resized, or rgb_buffer)
-    free(final_image);
-
-    // These should already be NULL if they were freed earlier, but check anyway
-    if (rgb_buffer && rgb_buffer != final_image) {
-        free(rgb_buffer);
-    }
-    if (resized && resized != final_image) {
-        free(resized);
-    }
-    if (rotated && rotated != final_image) {
-        free(rotated);
-    }
-
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Successfully converted %s to %s", jpg_path, bmp_path);
+    // Write Output
+    esp_err_t ret;
+    if (strstr(output_path, ".png") || strstr(output_path, ".PNG")) {
+        ESP_LOGI(TAG, "Writing PNG output");
+        ret = write_png_file(output_path, final_image, final_width, final_height);
     } else {
-        ESP_LOGE(TAG, "Failed to write BMP file");
+        ESP_LOGI(TAG, "Writing BMP output");
+        ret = write_bmp_file(output_path, final_image, final_width, final_height);
     }
+
+    free(final_image);
+    // Cleanup any lingering buffers (should be handled, but safe to check)
+    if (rgb_buffer && rgb_buffer != final_image)
+        free(rgb_buffer);
+    if (resized && resized != final_image)
+        free(resized);
+    if (rotated && rotated != final_image)
+        free(rotated);
 
     return ret;
 }

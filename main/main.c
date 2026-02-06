@@ -5,6 +5,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "ai_manager.h"
 #include "board_hal.h"
 #include "color_palette.h"
 #include "config.h"
@@ -405,6 +406,8 @@ void app_main(void)
     ESP_ERROR_CHECK(power_manager_init());
 
     ESP_ERROR_CHECK(ota_manager_init());
+
+    ESP_ERROR_CHECK(ai_manager_init());
 
 #ifdef CONFIG_HAS_SDCARD
     ESP_ERROR_CHECK(album_manager_init());

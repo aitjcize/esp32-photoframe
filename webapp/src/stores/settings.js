@@ -46,10 +46,21 @@ export const useSettingsStore = defineStore("settings", () => {
     haUrl: "",
     // Power (not in config_manager, managed by power_manager)
     deepSleepEnabled: true,
+    // AI Settings
+    aiSettings: {
+      openaiApiKey: "",
+      googleApiKey: "",
+      aiPrompt: "",
+      aiProvider: 0, // 0: OpenAI, 1: Google
+      aiModel: "gpt-image-1.5",
+    },
   });
+
+  // ... (existing code)
 
   // Original config from server (for change detection)
   let originalConfig = {};
+
   let originalParams = {};
 
   // Palette - use defaults from epaper-image-convert library
@@ -166,6 +177,13 @@ export const useSettingsStore = defineStore("settings", () => {
       // Don't load password from server for security
       deviceSettings.value.wifiPassword = "";
 
+      // AI Settings
+      deviceSettings.value.aiSettings.openaiApiKey = data.openai_api_key || "";
+      deviceSettings.value.aiSettings.googleApiKey = data.google_api_key || "";
+      deviceSettings.value.aiSettings.aiPrompt = data.ai_prompt || "";
+      deviceSettings.value.aiSettings.aiProvider = data.ai_provider || 0;
+      deviceSettings.value.aiSettings.aiModel = data.ai_model || "gpt-image-1.5";
+
       // Sleep schedule
       deviceSettings.value.sleepScheduleEnabled = data.sleep_schedule_enabled || false;
 
@@ -245,6 +263,12 @@ export const useSettingsStore = defineStore("settings", () => {
       http_header_key: deviceSettings.value.httpHeaderKey,
       http_header_value: deviceSettings.value.httpHeaderValue,
       wifi_ssid: deviceSettings.value.wifiSsid,
+      // AI Settings
+      openai_api_key: deviceSettings.value.aiSettings.openaiApiKey,
+      google_api_key: deviceSettings.value.aiSettings.googleApiKey,
+      ai_prompt: deviceSettings.value.aiSettings.aiPrompt,
+      ai_provider: deviceSettings.value.aiSettings.aiProvider,
+      ai_model: deviceSettings.value.aiSettings.aiModel,
     };
 
     // Only include password if it's been changed (not empty)
@@ -451,6 +475,7 @@ export const useSettingsStore = defineStore("settings", () => {
     loadSettings,
     loadDeviceSettings,
     saveDeviceSettings,
+
     loadPalette,
     saveSettings,
     savePalette,

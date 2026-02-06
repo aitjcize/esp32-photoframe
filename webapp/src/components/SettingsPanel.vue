@@ -123,7 +123,10 @@ const rotationOptions = [
 ];
 
 const rotationModeOptions = computed(() => {
-  const options = [{ title: "URL - Fetch image from URL", value: "url" }];
+  const options = [
+    { title: "URL - Fetch image from URL", value: "url" },
+    { title: "AI - Generate using AI", value: "ai" },
+  ];
   if (appStore.systemInfo.sdcard_inserted) {
     options.unshift({ title: "SD Card - Rotate through images", value: "sdcard" });
   }
@@ -151,6 +154,14 @@ const toneModeOptions = [
 const colorMethodOptions = [
   { title: "Simple RGB", value: "rgb" },
   { title: "LAB Color Space", value: "lab" },
+];
+
+const aiProviderOptions = [{ title: "OpenAI", value: 0 }];
+
+const aiModelOptions = [
+  { title: "GPT Image 1.5", value: "gpt-image-1.5" },
+  { title: "GPT Image 1", value: "gpt-image-1" },
+  { title: "GPT Image 1 Mini", value: "gpt-image-1-mini" },
 ];
 
 const ditherOptions = getDitherOptions();
@@ -230,6 +241,7 @@ async function performFactoryReset() {
         <v-tab value="power"> Power </v-tab>
         <v-tab value="homeAssistant"> Home Assistant </v-tab>
         <v-tab value="processing"> Processing </v-tab>
+        <v-tab value="ai"> AI Generation </v-tab>
         <v-tab value="calibration"> Palette Calibration </v-tab>
       </v-tabs>
 
@@ -481,6 +493,57 @@ async function performFactoryReset() {
                         />
                       </v-col>
                     </v-row>
+                  </v-card-text>
+                </v-card>
+              </v-expand-transition>
+
+              <v-expand-transition>
+                <v-card
+                  v-if="settingsStore.deviceSettings.rotationMode === 'ai'"
+                  variant="tonal"
+                  class="mb-4"
+                >
+                  <v-card-text>
+                    <v-select
+                      v-model="settingsStore.deviceSettings.aiSettings.aiProvider"
+                      :items="aiProviderOptions"
+                      item-title="title"
+                      item-value="value"
+                      label="AI Provider"
+                      variant="outlined"
+                      class="mb-4"
+                      hide-details
+                    />
+                    <v-select
+                      v-model="settingsStore.deviceSettings.aiSettings.aiModel"
+                      :items="aiModelOptions"
+                      item-title="title"
+                      item-value="value"
+                      label="AI Model"
+                      variant="outlined"
+                      class="mb-4"
+                      hide-details
+                    />
+                    <v-textarea
+                      v-model="settingsStore.deviceSettings.aiSettings.aiPrompt"
+                      label="Default Prompt"
+                      variant="outlined"
+                      rows="3"
+                      hide-details="auto"
+                      class="mb-2"
+                      hint="Describe the image you want to generate. Use {random} for random seed."
+                      persistent-hint
+                    />
+                    <div
+                      v-if="
+                        !settingsStore.deviceSettings.aiSettings.openaiApiKey &&
+                        !settingsStore.deviceSettings.aiSettings.googleApiKey
+                      "
+                      class="text-caption text-warning mt-2"
+                    >
+                      <v-icon icon="mdi-alert" size="small" class="mr-1" />
+                      Please configure API keys in the <strong>AI Generation</strong> tab.
+                    </div>
                   </v-card-text>
                 </v-card>
               </v-expand-transition>
@@ -774,6 +837,70 @@ async function performFactoryReset() {
                 </v-card>
               </v-expand-transition>
             </div>
+          </v-tabs-window-item>
+
+          <!-- AI Generation Tab -->
+          <v-tabs-window-item value="ai">
+            <v-select
+              v-model="settingsStore.deviceSettings.aiSettings.aiProvider"
+              :items="aiProviderOptions"
+              item-title="title"
+              item-value="value"
+              label="AI Provider"
+              variant="outlined"
+              class="mb-4"
+            />
+            <v-select
+              v-model="settingsStore.deviceSettings.aiSettings.aiModel"
+              :items="aiModelOptions"
+              item-title="title"
+              item-value="value"
+              label="AI Model"
+              variant="outlined"
+              class="mb-4"
+            />
+
+            <v-expand-transition>
+              <div v-if="settingsStore.deviceSettings.aiSettings.aiProvider === 0">
+                <v-text-field
+                  v-model="settingsStore.deviceSettings.aiSettings.openaiApiKey"
+                  label="OpenAI API Key"
+                  variant="outlined"
+                  type="password"
+                  hint="sk-..."
+                  persistent-hint
+                />
+                <div class="text-caption text-grey ml-2 mb-4">
+                  Get your API key at
+                  <a
+                    href="https://platform.openai.com/api-keys"
+                    target="_blank"
+                    class="text-primary text-decoration-none"
+                    >platform.openai.com</a
+                  >
+                </div>
+              </div>
+            </v-expand-transition>
+
+            <v-expand-transition>
+              <div v-if="settingsStore.deviceSettings.aiSettings.aiProvider === 1">
+                <v-text-field
+                  v-model="settingsStore.deviceSettings.aiSettings.googleApiKey"
+                  label="Google Gemini API Key"
+                  variant="outlined"
+                  type="password"
+                />
+                <div class="text-caption text-grey ml-2 mb-4">
+                  Get your API key at
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    class="text-primary text-decoration-none"
+                    >aistudio.google.com</a
+                  >
+                </div>
+              </div>
+            </v-expand-transition>
           </v-tabs-window-item>
 
           <!-- Calibration Tab -->

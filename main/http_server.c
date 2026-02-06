@@ -15,7 +15,6 @@
 #include "config.h"
 #include "config_manager.h"
 #include "display_manager.h"
-#include "epaper.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
@@ -449,18 +448,24 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             }
             display_path = temp_bmp_path;
         } else {
-            // Assume JPEG, convert to BMP
+            // Assume JPEG, convert to PNG
+            processing_settings_t settings;
+            if (processing_settings_load(&settings) != ESP_OK) {
+                processing_settings_get_defaults(&settings);
+            }
+            bool use_stock_mode = (strcmp(settings.processing_mode, "stock") == 0);
             dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
-            err = image_processor_convert_jpg_to_bmp(result.image_path, temp_bmp_path, false, algo);
+
+            err = image_processor_process(result.image_path, temp_png_path, use_stock_mode, algo);
             unlink(result.image_path);
             if (err != ESP_OK) {
                 if (result.has_thumbnail)
                     unlink(result.thumbnail_path);
                 httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                    "Failed to convert image");
+                                    "Failed to process image");
                 return ESP_FAIL;
             }
-            display_path = temp_bmp_path;
+            display_path = temp_png_path;
         }
 
         // Handle thumbnail if provided
@@ -603,11 +608,12 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         display_path = temp_png_path;
         ESP_LOGI(TAG, "PNG saved: %s", temp_png_path);
     } else {
-        // Convert JPG to BMP using image processor
+        // Convert JPG to PNG using image processor
+        bool use_stock_mode = (strcmp(proc_settings.processing_mode, "stock") == 0);
         dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
-        err = image_processor_convert_jpg_to_bmp(temp_upload_path, temp_bmp_path, false, algo);
+        err = image_processor_process(temp_upload_path, temp_png_path, use_stock_mode, algo);
         if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to convert JPG to BMP: %s", esp_err_to_name(err));
+            ESP_LOGE(TAG, "Failed to process JPG: %s", esp_err_to_name(err));
             unlink(temp_upload_path);
 
             // Provide specific error messages based on error type
@@ -1344,9 +1350,13 @@ static esp_err_t config_handler(httpd_req_t *req)
                                 config_manager_get_sleep_schedule_start());
         cJSON_AddNumberToObject(root, "sleep_schedule_end",
                                 config_manager_get_sleep_schedule_end());
-        cJSON_AddStringToObject(
-            root, "rotation_mode",
-            config_manager_get_rotation_mode() == ROTATION_MODE_URL ? "url" : "sdcard");
+        const char *rotation_mode_str = "sdcard";
+        rotation_mode_t rm = config_manager_get_rotation_mode();
+        if (rm == ROTATION_MODE_URL)
+            rotation_mode_str = "url";
+        else if (rm == ROTATION_MODE_AI)
+            rotation_mode_str = "ai";
+        cJSON_AddStringToObject(root, "rotation_mode", rotation_mode_str);
 
         // Auto Rotate - SDCARD
         cJSON_AddStringToObject(root, "sd_rotation_mode",
@@ -1371,9 +1381,21 @@ static esp_err_t config_handler(httpd_req_t *req)
         cJSON_AddBoolToObject(root, "save_downloaded_images",
                               config_manager_get_save_downloaded_images());
 
+        // Auto Rotate - AI
+        const char *ai_prompt = config_manager_get_ai_prompt();
+        cJSON_AddStringToObject(root, "ai_prompt", ai_prompt ? ai_prompt : "");
+        cJSON_AddNumberToObject(root, "ai_provider", config_manager_get_ai_provider());
+        cJSON_AddStringToObject(root, "ai_model", config_manager_get_ai_model());
+
         // Home Assistant
         const char *ha_url = config_manager_get_ha_url();
         cJSON_AddStringToObject(root, "ha_url", ha_url ? ha_url : "");
+
+        // AI - Credentials
+        const char *openai_key = config_manager_get_openai_api_key();
+        const char *google_key = config_manager_get_google_api_key();
+        cJSON_AddStringToObject(root, "openai_api_key", openai_key ? openai_key : "");
+        cJSON_AddStringToObject(root, "google_api_key", google_key ? google_key : "");
 
         // Other
         cJSON_AddBoolToObject(root, "deep_sleep_enabled", power_manager_get_deep_sleep_enabled());
@@ -1532,8 +1554,11 @@ static esp_err_t config_handler(httpd_req_t *req)
         cJSON *rotation_mode_obj = cJSON_GetObjectItem(root, "rotation_mode");
         if (rotation_mode_obj && cJSON_IsString(rotation_mode_obj)) {
             const char *mode_str = cJSON_GetStringValue(rotation_mode_obj);
-            rotation_mode_t mode =
-                (strcmp(mode_str, "url") == 0) ? ROTATION_MODE_URL : ROTATION_MODE_SDCARD;
+            rotation_mode_t mode = ROTATION_MODE_SDCARD;
+            if (strcmp(mode_str, "url") == 0)
+                mode = ROTATION_MODE_URL;
+            else if (strcmp(mode_str, "ai") == 0)
+                mode = ROTATION_MODE_AI;
             config_manager_set_rotation_mode(mode);
         }
 
@@ -1582,6 +1607,35 @@ static esp_err_t config_handler(httpd_req_t *req)
         if (ha_url_obj && cJSON_IsString(ha_url_obj)) {
             const char *url = cJSON_GetStringValue(ha_url_obj);
             config_manager_set_ha_url(url);
+        }
+
+        // AI
+        cJSON *openai_key_obj = cJSON_GetObjectItem(root, "openai_api_key");
+        if (openai_key_obj && cJSON_IsString(openai_key_obj)) {
+            const char *key = cJSON_GetStringValue(openai_key_obj);
+            config_manager_set_openai_api_key(key);
+        }
+
+        cJSON *google_key_obj = cJSON_GetObjectItem(root, "google_api_key");
+        if (google_key_obj && cJSON_IsString(google_key_obj)) {
+            const char *key = cJSON_GetStringValue(google_key_obj);
+            config_manager_set_google_api_key(key);
+        }
+
+        cJSON *ai_prompt_obj = cJSON_GetObjectItem(root, "ai_prompt");
+        if (ai_prompt_obj && cJSON_IsString(ai_prompt_obj)) {
+            const char *prompt = cJSON_GetStringValue(ai_prompt_obj);
+            config_manager_set_ai_prompt(prompt);
+        }
+
+        cJSON *ai_provider_obj = cJSON_GetObjectItem(root, "ai_provider");
+        if (ai_provider_obj && cJSON_IsNumber(ai_provider_obj)) {
+            config_manager_set_ai_provider((ai_provider_t) ai_provider_obj->valueint);
+        }
+
+        cJSON *ai_model_obj = cJSON_GetObjectItem(root, "ai_model");
+        if (ai_model_obj && cJSON_IsString(ai_model_obj)) {
+            config_manager_set_ai_model(cJSON_GetStringValue(ai_model_obj));
         }
 
         // Other

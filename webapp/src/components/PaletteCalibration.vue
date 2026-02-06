@@ -44,6 +44,7 @@ const statusType = ref("info");
 const measuredPalette = ref(null);
 const calibrationCanvas = ref(null);
 const hasUploadedPhoto = ref(false);
+const showResetDialog = ref(false);
 
 const colorNames = ["black", "white", "yellow", "red", "blue", "green"];
 
@@ -485,8 +486,11 @@ async function saveCalibration() {
 }
 
 async function resetPalette() {
-  if (!confirm("Reset color palette to default values?")) return;
+  showResetDialog.value = true;
+}
 
+async function confirmResetPalette() {
+  showResetDialog.value = false;
   loading.value = true;
   try {
     const response = await fetch(`${API_BASE}/api/settings/palette`, {
@@ -539,6 +543,18 @@ async function savePalette() {
 
 <template>
   <div>
+    <v-dialog v-model="showResetDialog" max-width="400">
+      <v-card>
+        <v-card-title>Reset Palette?</v-card-title>
+        <v-card-text> Reset color palette to default values? </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showResetDialog = false"> Cancel </v-btn>
+          <v-btn color="error" @click="confirmResetPalette"> Reset </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-alert type="info" variant="tonal" class="mb-4">
       Calibrate the measured color palette for your specific E6 display batch. This improves color
       accuracy during image processing.

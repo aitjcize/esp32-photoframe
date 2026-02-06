@@ -41,7 +41,10 @@ function triggerFileSelect() {
 async function onFileSelected(event) {
   const file = event.target.files?.[0];
   if (!file) return;
+  await processFile(file);
+}
 
+async function processFile(file) {
   selectedFile.value = file;
 
   // Create preview URL
@@ -173,6 +176,115 @@ function resetUpload() {
   // Switch back to general tab after upload/cancel
   settingsStore.activeSettingsTab = "general";
 }
+
+// AI Generation Logic
+const showAiDialog = ref(false);
+const aiPrompt = ref("");
+const aiModel = ref("gpt-image-1.5");
+const generatingAi = ref(false);
+
+const aiModelOptions = [
+  { title: "GPT Image 1.5", value: "gpt-image-1.5" },
+  { title: "GPT Image 1", value: "gpt-image-1" },
+  { title: "GPT Image 1 Mini", value: "gpt-image-1-mini" },
+];
+
+const aiProvider = ref(0);
+const aiProviderOptions = [{ title: "OpenAI", value: 0 }];
+
+const snackbar = ref(false);
+const snackbarText = ref("");
+const snackbarColor = ref("info");
+
+function showMessage(text, color = "info") {
+  snackbarText.value = text;
+  snackbarColor.value = color;
+  snackbar.value = true;
+}
+
+function openAiDialog() {
+  const provider = settingsStore.deviceSettings.aiSettings.aiProvider;
+  const openaiKey = settingsStore.deviceSettings.aiSettings.openaiApiKey;
+  const googleKey = settingsStore.deviceSettings.aiSettings.googleApiKey;
+
+  if (provider === 0 && !openaiKey) {
+    showMessage("Please configure OpenAI API Key in Settings > AI Generation first.", "error");
+    settingsStore.activeSettingsTab = "ai";
+    return;
+  }
+  if (provider === 1 && !googleKey) {
+    showMessage(
+      "Please configure Google Gemini API Key in Settings > AI Generation first.",
+      "error"
+    );
+    settingsStore.activeSettingsTab = "ai";
+    return;
+  }
+
+  aiPrompt.value = "";
+  aiProvider.value = settingsStore.deviceSettings.aiSettings.aiProvider;
+  aiModel.value = settingsStore.deviceSettings.aiSettings.aiModel || "gpt-image-1.5";
+  showAiDialog.value = true;
+}
+
+async function generateAiImage() {
+  generatingAi.value = true;
+  try {
+    const provider = aiProvider.value;
+    const apiKey =
+      provider === 0
+        ? settingsStore.deviceSettings.aiSettings.openaiApiKey
+        : settingsStore.deviceSettings.aiSettings.googleApiKey;
+
+    if (provider !== 0) {
+      throw new Error("Frontend generation only supported for OpenAI currently.");
+    }
+
+    const isPortrait = settingsStore.deviceSettings.displayOrientation === "portrait";
+    const size = isPortrait ? "1024x1536" : "1536x1024";
+
+    const response = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: aiModel.value,
+        prompt: aiPrompt.value,
+        n: 1,
+        size: isPortrait ? "1024x1536" : "1536x1024",
+        quality: "high",
+        output_format: "jpeg",
+        output_compression: 90,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    if (!data.data?.[0]?.b64_json) {
+      throw new Error("Invalid response from AI API: missing image data");
+    }
+
+    const src = `data:image/jpeg;base64,${data.data[0].b64_json}`;
+
+    const res = await fetch(src);
+    const blob = await res.blob();
+    const file = new File([blob], "ai-generated.jpg", { type: "image/jpeg" });
+
+    showAiDialog.value = false;
+    await processFile(file);
+    showMessage("AI image generated successfully!", "success");
+  } catch (error) {
+    showMessage(`Generation failed: ${error.message}`, "error");
+  } finally {
+    generatingAi.value = false;
+  }
+}
 </script>
 
 <template>
@@ -205,6 +317,15 @@ function resetUpload() {
         <v-icon icon="mdi-cloud-upload" size="64" color="grey" />
         <p class="text-h6 mt-4">Click or drag image to upload</p>
         <p class="text-body-2 text-grey">Supports: JPG, PNG, HEIC, WebP, GIF, BMP</p>
+        <div class="my-3 d-flex align-center" style="width: 100%">
+          <v-divider />
+          <span class="mx-2 text-grey text-caption">OR</span>
+          <v-divider />
+        </div>
+        <v-btn color="primary" variant="tonal" @click.stop="openAiDialog">
+          <v-icon icon="mdi-magic-staff" start />
+          Generate with AI
+        </v-btn>
       </v-sheet>
 
       <!-- Preview Area with Processing -->
@@ -250,6 +371,54 @@ function resetUpload() {
 
     <!-- Upload Progress -->
     <v-progress-linear v-if="uploading" :model-value="uploadProgress" color="primary" height="4" />
+
+    <!-- AI Input Dialog -->
+    <v-dialog v-model="showAiDialog" max-width="500">
+      <v-card>
+        <v-card-title>Generate Image</v-card-title>
+        <v-card-text>
+          <v-select
+            v-model="aiProvider"
+            :items="aiProviderOptions"
+            item-title="title"
+            item-value="value"
+            label="Provider"
+            variant="outlined"
+            class="mb-4"
+          />
+          <v-select
+            v-model="aiModel"
+            :items="aiModelOptions"
+            item-title="title"
+            item-value="value"
+            label="Model"
+            variant="outlined"
+            class="mb-4"
+          />
+          <v-textarea
+            v-model="aiPrompt"
+            label="Prompt"
+            variant="outlined"
+            rows="3"
+            auto-grow
+            hint="Describe the image you want to generate"
+            persistent-hint
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showAiDialog = false">Cancel</v-btn>
+          <v-btn color="primary" :loading="generatingAi" @click="generateAiImage"> Generate </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+    <!-- Snackbar for notifications -->
+    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="4000">
+      {{ snackbarText }}
+      <template #actions>
+        <v-btn variant="text" @click="snackbar = false"> Close </v-btn>
+      </template>
+    </v-snackbar>
   </v-card>
 </template>
 

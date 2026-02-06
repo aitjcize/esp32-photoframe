@@ -93,4 +93,25 @@ bool config_manager_get_save_downloaded_images(void);
 void config_manager_set_ha_url(const char *url);
 const char *config_manager_get_ha_url(void);
 
+// ============================================================================
+// AI Generation
+// ============================================================================
+
+typedef enum { AI_PROVIDER_OPENAI = 0, AI_PROVIDER_GOOGLE = 1 } ai_provider_t;
+
+void config_manager_set_openai_api_key(const char *key);
+const char *config_manager_get_openai_api_key(void);
+
+void config_manager_set_google_api_key(const char *key);
+const char *config_manager_get_google_api_key(void);
+
+void config_manager_set_ai_prompt(const char *prompt);
+const char *config_manager_get_ai_prompt(void);
+
+void config_manager_set_ai_provider(ai_provider_t provider);
+ai_provider_t config_manager_get_ai_provider(void);
+
+void config_manager_set_ai_model(const char *model);
+const char *config_manager_get_ai_model(void);
+
 #endif

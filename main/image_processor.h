@@ -13,9 +13,9 @@ typedef enum {
 } dither_algorithm_t;
 
 esp_err_t image_processor_init(void);
-esp_err_t image_processor_convert_jpg_to_bmp(const char *jpg_path, const char *bmp_path,
-                                             bool use_stock_mode,
-                                             dither_algorithm_t dither_algorithm);
+
+esp_err_t image_processor_process(const char *input_path, const char *output_path,
+                                  bool use_stock_mode, dither_algorithm_t dither_algorithm);
 esp_err_t image_processor_reload_palette(void);
 
 #endif

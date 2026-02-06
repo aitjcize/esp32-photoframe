@@ -6,7 +6,11 @@
 // Uncomment to debug deep sleep wake
 // #define DEBUG_DEEP_SLEEP_WAKE
 
-typedef enum { ROTATION_MODE_SDCARD = 0, ROTATION_MODE_URL = 1 } rotation_mode_t;
+typedef enum {
+    ROTATION_MODE_SDCARD = 0,
+    ROTATION_MODE_URL = 1,
+    ROTATION_MODE_AI = 2
+} rotation_mode_t;
 
 typedef enum { SD_ROTATION_RANDOM = 0, SD_ROTATION_SEQUENTIAL = 1 } sd_rotation_mode_t;
 
@@ -37,7 +41,8 @@ typedef enum {
 #define DEFAULT_TIMEZONE "UTC0"
 
 #define SDCARD_MOUNT_POINT "/sdcard"
-#define IMAGE_DIRECTORY "/sdcard/images"
+#define IMAGE_DIRECTORY SDCARD_MOUNT_POINT "/images"
+#define DOWNLOAD_DIRECTORY IMAGE_DIRECTORY "/Downloads"
 #define DEFAULT_ALBUM_NAME "Default"
 
 #include "board_hal.h"
@@ -100,6 +105,17 @@ typedef enum {
 
 // Home Assistant
 #define NVS_HA_URL_KEY "ha_url"
+
+// AI Generation
+#define AI_API_KEY_MAX_LEN 256
+#define AI_PROMPT_MAX_LEN 256
+#define AI_MODEL_MAX_LEN 32
+#define DEFAULT_AI_MODEL "gpt-image-1.5"
+#define NVS_OPENAI_API_KEY_KEY "openai_key"
+#define NVS_GOOGLE_API_KEY_KEY "google_key"
+#define NVS_AI_PROMPT_KEY "ai_prompt"
+#define NVS_AI_PROVIDER_KEY "ai_provider"
+#define NVS_AI_MODEL_KEY "ai_model"
 
 // OTA Configuration
 #define GITHUB_API_URL "https://api.github.com/repos/aitjcize/esp32-photoframe/releases/latest"
