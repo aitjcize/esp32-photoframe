@@ -238,76 +238,23 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
         return ESP_FAIL;
     }
 
-    bool upload_is_bmp = strcmp(content_type, "image/bmp") == 0;
-    bool upload_is_png = strcmp(content_type, "image/png") == 0;
-    bool upload_is_jpeg = strcmp(content_type, "image/jpeg") == 0;
-    const char *final_path = NULL;
-
-    if (upload_is_bmp) {
-        // We don't have a BMP processor yet, so we just move it to PNG path conceptual or keep BMP?
-        // User wants dithered PNG files. For now, since BMP input wasn't explicitly requested
-        // as "must-process", we'll just fail or keep it?
-        // Actually, let's just stick to JPG/PNG for now as "supported inputs".
-        ESP_LOGE(TAG, "BMP input no longer supported for URL fetch. Use JPG or PNG.");
-        free(content_type);
-        unlink(temp_upload_path);
-        return ESP_FAIL;
-    } else if (upload_is_png || upload_is_jpeg) {
-        bool already_processed = false;
-        if (upload_is_png) {
-            already_processed = image_processor_is_processed(temp_upload_path);
-        }
-
-        if (already_processed) {
-            ESP_LOGI(TAG, "Image already processed, skipping processing");
-            if (rename(temp_upload_path, temp_png_path) != 0) {
-                ESP_LOGE(TAG, "Failed to rename processed image");
-                free(content_type);
-                free(thumbnail_url_buffer);
-                unlink(temp_upload_path);
-                return ESP_FAIL;
-            }
-            final_path = temp_png_path;
-        } else {
-            // Process everything (JPG or PNG) to dithered PNG
-            processing_settings_t settings;
-            if (processing_settings_load(&settings) != ESP_OK) {
-                processing_settings_get_defaults(&settings);
-            }
-            bool use_stock_mode = (strcmp(settings.processing_mode, "stock") == 0);
-            dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
-
-            err = image_processor_process(temp_upload_path, temp_png_path, use_stock_mode, algo);
-            final_path = temp_png_path;
-        }
-    } else {
-        // Unknown format
-        ESP_LOGE(TAG, "Unsupported image format: %s", content_type);
-        free(content_type);
-        free(thumbnail_url_buffer);
-        unlink(temp_upload_path);
-        return ESP_FAIL;
-    }
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
-        free(content_type);
-        free(thumbnail_url_buffer);
-        unlink(temp_upload_path);
-
-        // Provide specific error messages based on error type
-        if (err == ESP_ERR_INVALID_SIZE) {
-            ESP_LOGE(TAG, "Image is too large (max: 6400x3840)");
-        } else if (err == ESP_ERR_NO_MEM) {
-            ESP_LOGE(TAG, "Image requires too much memory to process");
-        }
-        return err;
+    // Detect format regardless of Content-Type (which might be unreliable)
+    image_format_t image_format = image_processor_detect_format(temp_upload_path);
+    if (image_format == IMAGE_FORMAT_UNKNOWN) {
+        // Fallback to Content-Type if detection failed or file is empty?
+        // Actually, detect_format is more reliable. If it fails, we trust it.
+        // But maybe we should check Content-Type as a hint if detection returned UNKNOWN?
+        // For now, let's respect the user request to use detect_format.
+        if (strcmp(content_type, "image/bmp") == 0)
+            image_format = IMAGE_FORMAT_BMP;
+        else if (strcmp(content_type, "image/png") == 0)
+            image_format = IMAGE_FORMAT_PNG;
+        else if (strcmp(content_type, "image/jpeg") == 0)
+            image_format = IMAGE_FORMAT_JPG;
     }
 
     // Free content_type after successful processing
     free(content_type);
-
-    ESP_LOGI(TAG, "Successfully processed image: %s", final_path);
 
     // Track if thumbnail was successfully downloaded
     bool thumbnail_downloaded = false;
@@ -361,8 +308,72 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
         free(thumbnail_url_buffer);
     }
 
+    const char *final_path = NULL;
+
+    // ========== STEP 1: Image Processing (always done first) ==========
+    if (image_format == IMAGE_FORMAT_BMP) {
+        // BMP: just move to temp_bmp_path (no processing needed)
+        unlink(temp_bmp_path);
+        if (rename(temp_upload_path, temp_bmp_path) != 0) {
+            ESP_LOGE(TAG, "Failed to move BMP to temp path");
+            unlink(temp_upload_path);
+            return ESP_FAIL;
+        }
+        final_path = temp_bmp_path;
+    } else if (image_format == IMAGE_FORMAT_PNG || image_format == IMAGE_FORMAT_JPG) {
+        bool needs_processing = true;
+        if (image_format == IMAGE_FORMAT_PNG && image_processor_is_processed(temp_upload_path)) {
+            needs_processing = false;
+            ESP_LOGI(TAG, "Image already processed, skipping processing");
+        }
+
+        if (!needs_processing) {
+            // Already processed PNG: just move to temp_png_path
+            unlink(temp_png_path);
+            if (rename(temp_upload_path, temp_png_path) != 0) {
+                ESP_LOGE(TAG, "Failed to rename processed image");
+                unlink(temp_upload_path);
+                return ESP_FAIL;
+            }
+        } else {
+            // Process the image to temp_png_path
+            processing_settings_t settings;
+            if (processing_settings_load(&settings) != ESP_OK) {
+                processing_settings_get_defaults(&settings);
+            }
+            bool use_stock_mode = (strcmp(settings.processing_mode, "stock") == 0);
+            dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
+
+            err = image_processor_process(temp_upload_path, temp_png_path, use_stock_mode, algo);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
+                unlink(temp_upload_path);
+                return err;
+            }
+        }
+        final_path = temp_png_path;
+
+        // Handle thumbnail for JPEG: use original as thumbnail if none was downloaded
+        if (image_format == IMAGE_FORMAT_JPG && !thumbnail_downloaded) {
+            unlink(temp_jpg_path);
+            if (rename(temp_upload_path, temp_jpg_path) != 0) {
+                ESP_LOGW(TAG, "Failed to move original JPEG to thumbnail path");
+                unlink(temp_upload_path);
+            } else {
+                ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
+            }
+        } else {
+            // Clean up original upload file
+            unlink(temp_upload_path);
+        }
+    } else {
+        ESP_LOGE(TAG, "Unsupported image format: %d", image_format);
+        unlink(temp_upload_path);
+        return ESP_FAIL;
+    }
+
+    // ========== STEP 2: Optionally save to Downloads album ==========
 #ifdef CONFIG_HAS_SDCARD
-    // Check if we should save downloaded images
     bool save_images = config_manager_get_save_downloaded_images();
 
     if (save_images && !sdcard_is_mounted()) {
@@ -371,7 +382,6 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
     }
 
     if (save_images) {
-        // Save to Downloads album
         char downloads_path[256];
         snprintf(downloads_path, sizeof(downloads_path), "%s/Downloads", IMAGE_DIRECTORY);
 
@@ -381,9 +391,8 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
             ESP_LOGI(TAG, "Creating Downloads album directory");
             if (mkdir(downloads_path, 0755) != 0) {
                 ESP_LOGE(TAG, "Failed to create Downloads directory");
-                unlink(temp_upload_path);
-                unlink(temp_bmp_path);
-                return ESP_FAIL;
+                // Processing succeeded, just can't save to album - fall through to use temp path
+                goto use_temp_path;
             }
         }
 
@@ -393,125 +402,68 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
         snprintf(filename_base, sizeof(filename_base), "download_%lld", (long long) now);
 
         char final_image_path[512];
+        bool thumbnail_saved_to_album = false;
 
-        if (upload_is_png) {
-            // Save PNG to Downloads album
-            snprintf(final_image_path, sizeof(final_image_path), "%s/%s.png", downloads_path,
-                     filename_base);
-
-            if (rename(temp_png_path, final_image_path) != 0) {
-                ESP_LOGE(TAG, "Failed to move PNG to Downloads album");
-                unlink(temp_png_path);
-                return ESP_FAIL;
-            }
-
-            // Save thumbnail if it exists
-            struct stat thumb_st;
-            if (stat(temp_jpg_path, &thumb_st) == 0) {
-                char final_thumb_path[512];
-                snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s.jpg", downloads_path,
-                         filename_base);
-
-                if (rename(temp_jpg_path, final_thumb_path) != 0) {
-                    ESP_LOGW(TAG, "Failed to move thumbnail to Downloads album");
-                    unlink(temp_jpg_path);
-                }
-            }
-
-            ESP_LOGI(TAG, "Saved to Downloads album: %s.png", filename_base);
-        } else {
-            // Save BMP to Downloads album
+        if (image_format == IMAGE_FORMAT_BMP) {
             snprintf(final_image_path, sizeof(final_image_path), "%s/%s.bmp", downloads_path,
                      filename_base);
-
-            if (rename(temp_bmp_path, final_image_path) != 0) {
-                ESP_LOGE(TAG, "Failed to move BMP to Downloads album");
-                unlink(temp_upload_path);
-                unlink(temp_bmp_path);
-                return ESP_FAIL;
+            if (rename(final_path, final_image_path) != 0) {
+                ESP_LOGW(TAG, "Failed to move BMP to Downloads album, using temp path");
+            } else {
+                final_path = NULL;  // Will be set below
             }
+        } else {
+            snprintf(final_image_path, sizeof(final_image_path), "%s/%s.png", downloads_path,
+                     filename_base);
+            if (rename(final_path, final_image_path) != 0) {
+                ESP_LOGW(TAG, "Failed to move PNG to Downloads album, using temp path");
+            } else {
+                final_path = NULL;  // Will be set below
+            }
+        }
 
-            // Save thumbnail if it exists
-            // Priority: downloaded thumbnail from X-Thumbnail-URL > original JPG (from conversion)
+        // Move thumbnail to album if we successfully moved the main image
+        if (final_path == NULL) {
             struct stat thumb_st;
-            bool thumbnail_saved = false;
-
             if (stat(temp_jpg_path, &thumb_st) == 0) {
-                // Save downloaded thumbnail from X-Thumbnail-URL header (preferred)
                 char final_thumb_path[512];
                 snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s.jpg", downloads_path,
                          filename_base);
-
-                if (rename(temp_jpg_path, final_thumb_path) != 0) {
-                    ESP_LOGW(TAG, "Failed to move thumbnail to Downloads album");
-                    unlink(temp_jpg_path);
+                if (rename(temp_jpg_path, final_thumb_path) == 0) {
+                    thumbnail_saved_to_album = true;
                 } else {
-                    thumbnail_saved = true;
+                    ESP_LOGW(TAG, "Failed to move thumbnail to Downloads album");
                 }
-            } else if (!upload_is_bmp && stat(temp_upload_path, &thumb_st) == 0) {
-                // Fallback: Save original JPG as thumbnail (from JPG conversion)
-                char final_jpg_path[512];
-                snprintf(final_jpg_path, sizeof(final_jpg_path), "%s/%s.jpg", downloads_path,
-                         filename_base);
-
-                if (rename(temp_upload_path, final_jpg_path) != 0) {
-                    ESP_LOGE(TAG, "Failed to move JPG thumbnail to Downloads album");
-                    unlink(temp_upload_path);
-                    // BMP is already moved, keep it
-                    return ESP_FAIL;
-                }
-                thumbnail_saved = true;
             }
 
-            if (thumbnail_saved) {
-                ESP_LOGI(TAG, "Saved to Downloads album: %s.bmp (with thumbnail)", filename_base);
+            if (thumbnail_saved_to_album) {
+                ESP_LOGI(TAG, "Saved to Downloads album: %s (with thumbnail)", filename_base);
             } else {
-                ESP_LOGI(TAG, "Saved to Downloads album: %s.bmp", filename_base);
+                ESP_LOGI(TAG, "Saved to Downloads album: %s", filename_base);
             }
-        }
-
-        // Return the saved image path via output parameter
-        snprintf(saved_image_path, path_size, "%s", final_image_path);
-    } else
-#endif
-    {
-        // Just use temp path without saving to album
-        ESP_LOGI(TAG, "Displaying image without saving (save_downloaded_images disabled)");
-        snprintf(saved_image_path, path_size, "%s", final_path);
-
-        if (upload_is_bmp || upload_is_png) {
-            // BMP/PNG uploads may have a thumbnail if X-Thumbnail-URL was provided
-            // .current.bmp/.current.png is referenced by current_image
-            // If no thumbnail, it's also served as fallback via /api/current_image
-            if (thumbnail_downloaded) {
-                ESP_LOGI(TAG, "Image and downloaded thumbnail saved: %s, %s", final_path,
-                         temp_jpg_path);
-            } else {
-                ESP_LOGI(TAG, "Image saved (no thumbnail): %s", final_path);
-            }
-        } else {
-            // JPEG upload: temp_upload_path still exists after conversion to BMP
-            // Keep both .current.bmp and .current.jpg for HA integration
-            // .current.bmp is referenced by current_image
-            // .current.jpg is the thumbnail served by /api/current_image
-
-            // Check if thumbnail was downloaded from server (via X-Thumbnail-URL header)
-            if (!thumbnail_downloaded) {
-                // No downloaded thumbnail, use original JPEG upload as thumbnail
-                if (rename(temp_upload_path, temp_jpg_path) != 0) {
-                    ESP_LOGE(TAG, "Failed to move upload to current JPG thumbnail");
-                    unlink(temp_upload_path);
-                    return ESP_FAIL;
-                }
-                ESP_LOGI(TAG, "Image and thumbnail saved: %s, %s", temp_bmp_path, temp_jpg_path);
-            } else {
-                // Downloaded thumbnail exists, delete original JPEG upload
-                unlink(temp_upload_path);
-                ESP_LOGI(TAG, "Image and downloaded thumbnail saved: %s, %s", temp_bmp_path,
-                         temp_jpg_path);
-            }
+            snprintf(saved_image_path, path_size, "%s", final_image_path);
         }
     }
+
+use_temp_path:
+    // If not saved to album (or save failed), use temp path
+    if (final_path != NULL) {
+        snprintf(saved_image_path, path_size, "%s", final_path);
+        ESP_LOGI(TAG, "Image processed (not saved to album): %s", final_path);
+        if (thumbnail_downloaded) {
+            ESP_LOGI(TAG, "Downloaded thumbnail available: %s", temp_jpg_path);
+        }
+    }
+#else
+    // No SD card support - just use temp path
+    snprintf(saved_image_path, path_size, "%s", final_path);
+    ESP_LOGI(TAG, "Image processed: %s", final_path);
+    if (thumbnail_downloaded) {
+        ESP_LOGI(TAG, "Downloaded thumbnail available: %s", temp_jpg_path);
+    }
+#endif
+
+    ESP_LOGI(TAG, "Successfully processed image: %s", saved_image_path);
 
     return ESP_OK;
 }

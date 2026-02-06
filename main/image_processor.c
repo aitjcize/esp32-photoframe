@@ -375,11 +375,11 @@ esp_err_t image_processor_process(const char *input_path, const char *output_pat
         return ESP_FAIL;
     }
 
-    bool is_png = (png_sig_cmp(sig, 0, 8) == 0);
+    image_format_t image_format = image_processor_detect_format(input_path);
     uint8_t *rgb_buffer = NULL;
     int width = 0, height = 0;
 
-    if (is_png) {
+    if (image_format == IMAGE_FORMAT_PNG) {
         ESP_LOGI(TAG, "Detected PNG input");
 
         fp = fopen(input_path, "rb");
@@ -458,8 +458,8 @@ esp_err_t image_processor_process(const char *input_path, const char *output_pat
 
         png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
         fclose(fp);
-    } else {
-        ESP_LOGI(TAG, "Assuming JPG input");
+    } else if (image_format == IMAGE_FORMAT_JPG) {
+        ESP_LOGI(TAG, "Detected JPG input");
 
         fp = fopen(input_path, "rb");
         fseek(fp, 0, SEEK_END);
@@ -513,6 +513,9 @@ esp_err_t image_processor_process(const char *input_path, const char *output_pat
         width = outimg.width;
         height = outimg.height;
         free(jpg_buffer);
+    } else {
+        ESP_LOGE(TAG, "Unsupported image format: %d", image_format);
+        return ESP_FAIL;
     }
 
     ESP_LOGI(TAG, "Decoded image: %dx%d", width, height);
@@ -539,6 +542,7 @@ esp_err_t image_processor_process(const char *input_path, const char *output_pat
     }
 
     if (final_width != target_width || final_height != target_height) {
+        ESP_LOGI(TAG, "Resizing image to %dx%d", target_width, target_height);
         resized = resize_image(final_image, final_width, final_height, target_width, target_height);
         if (!resized) {
             ESP_LOGE(TAG, "Failed to resize image to %dx%d", target_width, target_height);
@@ -554,6 +558,7 @@ esp_err_t image_processor_process(const char *input_path, const char *output_pat
 
     // STEP 2: Rotate
     if (needs_rotation) {
+        ESP_LOGI(TAG, "Rotating image by 90 degrees");
         size_t rotated_size = final_width * final_height * 3;
         rotated = (uint8_t *) heap_caps_malloc(rotated_size, MALLOC_CAP_SPIRAM);
         if (!rotated) {
@@ -748,8 +753,6 @@ bool image_processor_is_processed(const char *input_path)
     free(row);
     png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
     fclose(fp);
-
-    ESP_LOGI(TAG, "Image processing check: %s", valid ? "Passed" : "Failed");
     return valid;
 }
 
@@ -775,7 +778,7 @@ image_format_t image_processor_detect_format(const char *input_path)
     } else if (magic[0] == 0x42 && magic[1] == 0x4D) {
         return IMAGE_FORMAT_BMP;
     } else if (magic[0] == 0xFF && magic[1] == 0xD8) {
-        return IMAGE_FORMAT_JPEG;
+        return IMAGE_FORMAT_JPG;
     }
 
     return IMAGE_FORMAT_UNKNOWN;

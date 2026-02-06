@@ -374,6 +374,8 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         strcpy(content_type, "image/jpeg");  // Default to JPEG
     }
 
+    image_format_t image_format = IMAGE_FORMAT_UNKNOWN;
+
     // Check if this is a multipart upload (with optional thumbnail)
     bool is_multipart = (strstr(content_type, "multipart/form-data") != NULL);
 
@@ -393,24 +395,10 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             return ESP_FAIL;
         }
 
-        // Detect image type from uploaded file
-        bool upload_is_png = false;
-        bool upload_is_bmp = false;
-        FILE *test_fp = fopen(result.image_path, "rb");
-        if (test_fp) {
-            unsigned char header[8];
-            if (fread(header, 1, 8, test_fp) == 8) {
-                // PNG signature: 89 50 4E 47 0D 0A 1A 0A
-                if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E &&
-                    header[3] == 0x47) {
-                    upload_is_png = true;
-                }
-                // BMP signature: 42 4D
-                else if (header[0] == 0x42 && header[1] == 0x4D) {
-                    upload_is_bmp = true;
-                }
-            }
-            fclose(test_fp);
+        image_format = image_processor_detect_format(result.image_path);
+        if (image_format == IMAGE_FORMAT_UNKNOWN) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Unsupported image format");
+            return ESP_FAIL;
         }
 
         const char *temp_bmp_path = CURRENT_BMP_PATH;
@@ -425,7 +413,7 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         }
 
         // Process the uploaded image
-        if (upload_is_png) {
+        if (image_format == IMAGE_FORMAT_PNG) {
             unlink(temp_png_path);
 
             bool already_processed = image_processor_is_processed(result.image_path);
@@ -463,7 +451,7 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
                 }
             }
             display_path = temp_png_path;
-        } else if (upload_is_bmp) {
+        } else if (image_format == IMAGE_FORMAT_BMP) {
             unlink(temp_bmp_path);
             if (rename(result.image_path, temp_bmp_path) != 0) {
                 ESP_LOGE(TAG, "Failed to move BMP");
@@ -475,7 +463,7 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             }
             display_path = temp_bmp_path;
         } else {
-            // Assume JPEG, convert to PNG
+            // PNG or JPG
             processing_settings_t settings;
             if (processing_settings_load(&settings) != ESP_OK) {
                 processing_settings_get_defaults(&settings);
@@ -526,8 +514,13 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         return ESP_OK;
     }
 
-    bool upload_is_bmp = (strcmp(content_type, "image/bmp") == 0);
-    bool upload_is_png = (strcmp(content_type, "image/png") == 0);
+    if (strstr(content_type, "image/png")) {
+        image_format = IMAGE_FORMAT_PNG;
+    } else if (strstr(content_type, "image/bmp")) {
+        image_format = IMAGE_FORMAT_BMP;
+    } else if (strstr(content_type, "image/jpeg")) {
+        image_format = IMAGE_FORMAT_JPG;
+    }
 
     // Get content length
     size_t content_len = req->content_len;
@@ -549,9 +542,8 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    const char *format = upload_is_bmp ? "BMP" : (upload_is_png ? "PNG" : "JPG");
-    ESP_LOGI(TAG, "Receiving %s image for direct display, size: %zu bytes (%.1f KB)", format,
-             content_len, content_len / 1024.0);
+    ESP_LOGI(TAG, "Receiving image for direct display, size: %zu bytes (%.1f KB)", content_len,
+             content_len / 1024.0);
 
     // Use fixed paths for current image and thumbnail
     const char *temp_upload_path = CURRENT_UPLOAD_PATH;
@@ -605,27 +597,23 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
     free(buf);
     fclose(fp);
 
-    ESP_LOGI(TAG, "Image received successfully, processing...");
+    ESP_LOGI(TAG, "Image received successfully");
 
     // Helper function to detect format
-    image_format_t detected_format = image_processor_detect_format(temp_upload_path);
-    if (detected_format == IMAGE_FORMAT_PNG) {
-        upload_is_png = true;
-        upload_is_bmp = false;
-        ESP_LOGI(TAG, "Detected PNG format from file");
-    } else if (detected_format == IMAGE_FORMAT_BMP) {
-        upload_is_bmp = true;
-        upload_is_png = false;
-        ESP_LOGI(TAG, "Detected BMP format from file");
-    } else if (detected_format == IMAGE_FORMAT_JPEG) {
-        upload_is_png = false;
-        upload_is_bmp = false;
-        ESP_LOGI(TAG, "Detected JPG format from file");
-    } else {
-        ESP_LOGE(TAG, "Unsupported image format or format detection failed");
-        unlink(temp_upload_path);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Unsupported image format");
-        return ESP_FAIL;
+    if (image_format == IMAGE_FORMAT_UNKNOWN) {
+        image_format = image_processor_detect_format(temp_upload_path);
+        if (image_format == IMAGE_FORMAT_PNG) {
+            ESP_LOGI(TAG, "Detected PNG format from file");
+        } else if (image_format == IMAGE_FORMAT_BMP) {
+            ESP_LOGI(TAG, "Detected BMP format from file");
+        } else if (image_format == IMAGE_FORMAT_JPG) {
+            ESP_LOGI(TAG, "Detected JPG format from file");
+        } else {
+            ESP_LOGE(TAG, "Unsupported image format or format detection failed");
+            unlink(temp_upload_path);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Unsupported image format");
+            return ESP_FAIL;
+        }
     }
 
     // Load processing settings to get dithering algorithm
@@ -637,7 +625,7 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
     esp_err_t err = ESP_OK;
     const char *display_path = NULL;
 
-    if (upload_is_bmp) {
+    if (image_format == IMAGE_FORMAT_BMP) {
         // Move uploaded BMP to temp location
         if (rename(temp_upload_path, temp_bmp_path) != 0) {
             ESP_LOGE(TAG, "Failed to move uploaded BMP to temp location");
@@ -650,7 +638,7 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         // PNG or JPG - unified processing logic
         bool needs_processing = true;
 
-        if (upload_is_png) {
+        if (image_format == IMAGE_FORMAT_PNG) {
             if (image_processor_is_processed(temp_upload_path)) {
                 needs_processing = false;
             } else {
@@ -671,10 +659,10 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             bool use_stock_mode = (strcmp(proc_settings.processing_mode, "stock") == 0);
             dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
             err = image_processor_process(temp_upload_path, temp_png_path, use_stock_mode, algo);
-            unlink(temp_upload_path);  // Remove original upload
 
             if (err != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
+                unlink(temp_upload_path);
 
                 // Provide specific error messages based on error type
                 if (err == ESP_ERR_INVALID_SIZE) {
@@ -691,6 +679,19 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
                 }
                 return ESP_FAIL;
             }
+
+            // For JPEG: use original as thumbnail; for PNG: delete original
+            if (image_format == IMAGE_FORMAT_JPG) {
+                unlink(temp_jpg_path);
+                if (rename(temp_upload_path, temp_jpg_path) != 0) {
+                    ESP_LOGW(TAG, "Failed to save original JPEG as thumbnail");
+                    unlink(temp_upload_path);
+                } else {
+                    ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
+                }
+            } else {
+                unlink(temp_upload_path);
+            }
         }
         display_path = temp_png_path;
     }
@@ -698,7 +699,6 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
     // Display the image (PNG or BMP) - display_manager handles both
     err = display_manager_show_image(display_path);
     if (err != ESP_OK) {
-        unlink(temp_upload_path);
         unlink(temp_bmp_path);
         unlink(temp_png_path);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to display image");
@@ -707,21 +707,7 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
 
     ha_notify_update();
 
-    if (upload_is_bmp || upload_is_png) {
-        // BMP/PNG upload - no separate thumbnail
-        ESP_LOGI(TAG, "%s image displayed: %s", upload_is_bmp ? "BMP" : "PNG", display_path);
-    } else {
-        // JPG upload - move to thumbnail location for HA integration
-        unlink(temp_jpg_path);
-        if (rename(temp_upload_path, temp_jpg_path) != 0) {
-            ESP_LOGW(TAG, "Failed to save JPG thumbnail");
-        } else {
-            // Keep both .current.bmp and .current.jpg for HA integration
-            // .current.bmp is referenced by current_image
-            // .current.jpg is the thumbnail served by /api/current_image
-            ESP_LOGI(TAG, "Image and thumbnail saved: %s, %s", temp_bmp_path, temp_jpg_path);
-        }
-    }
+    ESP_LOGI(TAG, "Image displayed: %s", display_path);
 
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "success");
@@ -1322,6 +1308,9 @@ static esp_err_t current_image_handler(httpd_req_t *req)
         image_to_serve[len - 1] = '\0';
     }
 
+    // Detect original file extension for fallback content-type
+    char *orig_ext = strrchr(image_to_serve, '.');
+
     // Try to serve JPG version first by replacing .bmp/.png extension with .jpg
     char thumbnail_path[512];
     strncpy(thumbnail_path, image_to_serve, sizeof(thumbnail_path) - 1);
@@ -1337,9 +1326,9 @@ static esp_err_t current_image_handler(httpd_req_t *req)
     if (!fp) {
         // Fall back to original file (BMP or PNG) if JPG doesn't exist
         fp = fopen(image_to_serve, "rb");
-        if (ext && strcasecmp(ext, ".png") == 0) {
+        if (orig_ext && strcasecmp(orig_ext, ".png") == 0) {
             content_type = "image/png";
-        } else {
+        } else if (orig_ext && strcasecmp(orig_ext, ".bmp") == 0) {
             content_type = "image/bmp";
         }
 
