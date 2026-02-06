@@ -505,6 +505,16 @@ async function performFactoryReset() {
                   class="mb-4"
                 >
                   <v-card-text>
+                    <v-alert
+                      type="warning"
+                      variant="tonal"
+                      density="compact"
+                      class="mb-4"
+                      icon="mdi-battery-alert"
+                    >
+                      AI generation takes longer and consumes more battery power than other methods.
+                    </v-alert>
+
                     <v-select
                       v-model="settingsStore.deviceSettings.aiSettings.aiProvider"
                       :items="aiProviderOptions"
@@ -850,15 +860,6 @@ async function performFactoryReset() {
               label="AI Provider"
               variant="outlined"
               class="mt-2 mb-4"
-            />
-            <v-select
-              v-model="settingsStore.deviceSettings.aiSettings.aiModel"
-              :items="aiModelOptions"
-              item-title="title"
-              item-value="value"
-              label="AI Model"
-              variant="outlined"
-              class="mb-4"
             />
 
             <v-expand-transition>
