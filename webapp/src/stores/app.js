@@ -17,7 +17,6 @@ export const useAppStore = defineStore("app", () => {
     height: 480,
     has_sdcard: false,
     sdcard_inserted: false,
-    has_ai_rotation: true,
     version: "v1.0",
     project_name: "PhotoFrame",
     compile_time: "",

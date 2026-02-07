@@ -2076,11 +2076,6 @@ static esp_err_t system_info_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(response, "has_sdcard", false);
     cJSON_AddBoolToObject(response, "sdcard_inserted", false);
 #endif
-#ifdef CONFIG_DISABLE_AI_ROTATION
-    cJSON_AddBoolToObject(response, "has_ai_rotation", false);
-#else
-    cJSON_AddBoolToObject(response, "has_ai_rotation", true);
-#endif
     cJSON_AddStringToObject(response, "version", app_desc->version);
     cJSON_AddStringToObject(response, "project_name", app_desc->project_name);
     cJSON_AddStringToObject(response, "compile_time", app_desc->time);

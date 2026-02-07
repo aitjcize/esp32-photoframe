@@ -21,7 +21,6 @@ menu "Board Configuration"
         config BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02
             bool "Seeed XIAO EE02 (BQ24070)"
             select EP_DRIVER_EL133UF1
-            select DISABLE_AI_ROTATION
             help
                 Driver for Seeed Studio XIAO EE02 board.
                 Uses BQ24070 Linear Charger.
@@ -41,15 +40,4 @@ menu "Board Configuration"
                 SD card: SPI interface.
 
     endchoice
-
-    config DISABLE_AI_ROTATION
-        bool "Disable AI rotation mode"
-        default n
-        help
-            Disable AI image generation as a rotation mode option.
-            This is useful for boards with limited PSRAM that cannot
-            handle the memory requirements for AI image processing.
-            Note: This only disables AI as a rotation mode. Manual AI
-            generation from the webapp is still available.
-
 endmenu
