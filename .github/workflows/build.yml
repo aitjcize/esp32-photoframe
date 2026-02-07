@@ -84,6 +84,7 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
+        draft: true
         files: |
           firmware/photoframe-firmware-${{ matrix.board }}-merged.bin
           firmware/esp32-photoframe-${{ matrix.board }}.bin
