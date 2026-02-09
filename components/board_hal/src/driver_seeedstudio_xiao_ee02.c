@@ -85,6 +85,9 @@ esp_err_t board_hal_init(void)
 esp_err_t board_hal_prepare_for_sleep(void)
 {
     ESP_LOGI(TAG, "Preparing EE02 for sleep");
+
+    epaper_enter_deepsleep();
+
     // Disable ADC to save power
     if (adc_handle) {
         adc_oneshot_del_unit(adc_handle);
