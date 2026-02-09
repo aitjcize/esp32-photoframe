@@ -2,7 +2,7 @@ set(SRCS "")
 
 set(PRIV_REQS
     epaper_driver_ed2208_gca
-    epaper_driver_el133uf1
+    epaper_driver_ed2208_nca
     esp_driver_i2c
     esp_driver_spi
     pmic_driver_axp2101

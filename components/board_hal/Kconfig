@@ -20,7 +20,7 @@ menu "Board Configuration"
 
         config BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02
             bool "Seeed XIAO EE02 (BQ24070)"
-            select EP_DRIVER_EL133UF1
+            select EP_DRIVER_ED2208_NCA
             help
                 Driver for Seeed Studio XIAO EE02 board.
                 Uses BQ24070 Linear Charger.

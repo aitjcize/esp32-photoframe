@@ -9,7 +9,7 @@
 
 #include "epaper.h"
 
-static const char *TAG = "epaper_el133uf1";
+static const char *TAG = "epaper_ed2208_nca";
 
 static epaper_config_t g_cfg;
 
@@ -75,8 +75,6 @@ uint16_t epaper_get_height(void)
 {
     return 1600;
 }
-
-void epaper_enter_deepsleep(void) {}
 
 // --- SPI Helpers (Manual CS) ---
 
@@ -158,46 +156,69 @@ static void epd_reset(void)
     vTaskDelay(pdMS_TO_TICKS(20));
 }
 
-// Mimic EPD_INIT macro
+// Matches Seeed_GFX EPD_INIT macro from T133A01_Defines.h.
+// The 13.3" panel has two gate driver ICs: CS selects the left half,
+// CS1 selects the right half. LOW = selected.
+// Commands 0xF0 through TRES go to both controllers (CS1 LOW).
+// Commands 0x74 and PWR through 0xB1 go to left controller only (CS1 HIGH).
 static void epd_init_sequence(void)
 {
     wait_busy();
 
-    // Note: EPD_INIT macro uses TFT_CS1 for toggling around send command
-    // "digitalWrite(TFT_CS1, LOW); ... writecommanddata(...) ... digitalWrite(TFT_CS1, HIGH);"
-    // Since writecommanddata toggles CS, we have CS1 LOW + CS Toggling.
+    // 0x74 — CS1 stays HIGH (left controller only)
+    writecommanddata(0x74, r74DataBuf, sizeof(r74DataBuf));
 
-#define SEND_CMD_CS1(c, d, l)           \
-    do {                                \
-        gpio_set_level(EPD_CS1_PIN, 0); \
-        writecommanddata(c, d, l);      \
-        gpio_set_level(EPD_CS1_PIN, 1); \
-        vTaskDelay(pdMS_TO_TICKS(10));  \
-    } while (0)
+    // 0xF0 through TRES — CS1 LOW (both controllers)
+    gpio_set_level(EPD_CS1_PIN, 0);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    writecommanddata(0xF0, rf0DataBuf, sizeof(rf0DataBuf));
+    gpio_set_level(EPD_CS1_PIN, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
 
-    SEND_CMD_CS1(0x74, r74DataBuf, sizeof(r74DataBuf));
-    SEND_CMD_CS1(0xF0, rf0DataBuf, sizeof(rf0DataBuf));
-    SEND_CMD_CS1(R00_PSR, PSR_V, sizeof(PSR_V));
-    SEND_CMD_CS1(R50_CDI, CDI_V, sizeof(CDI_V));
-    SEND_CMD_CS1(0x60, r60DataBuf, sizeof(r60DataBuf));
-    SEND_CMD_CS1(0x86, r86DataBuf, sizeof(r86DataBuf));
-    SEND_CMD_CS1(RE3_PWS, PWS_V, sizeof(PWS_V));
-    SEND_CMD_CS1(R61_TRES, TRES_V, sizeof(TRES_V));
+    gpio_set_level(EPD_CS1_PIN, 0);
+    writecommanddata(R00_PSR, PSR_V, sizeof(PSR_V));
+    gpio_set_level(EPD_CS1_PIN, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
 
-    // Power On
-    SEND_CMD_CS1(R01_PWR, PWR_V, sizeof(PWR_V));
+    gpio_set_level(EPD_CS1_PIN, 0);
+    writecommanddata(R50_CDI, CDI_V, sizeof(CDI_V));
+    gpio_set_level(EPD_CS1_PIN, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
 
-    SEND_CMD_CS1(0xB6, rb6DataBuf, sizeof(rb6DataBuf));
+    gpio_set_level(EPD_CS1_PIN, 0);
+    writecommanddata(0x60, r60DataBuf, sizeof(r60DataBuf));
+    gpio_set_level(EPD_CS1_PIN, 1);
     vTaskDelay(pdMS_TO_TICKS(10));
-    SEND_CMD_CS1(R06_BTST_P, BTST_P_V, sizeof(BTST_P_V));
+
+    gpio_set_level(EPD_CS1_PIN, 0);
+    writecommanddata(0x86, r86DataBuf, sizeof(r86DataBuf));
+    gpio_set_level(EPD_CS1_PIN, 1);
     vTaskDelay(pdMS_TO_TICKS(10));
-    SEND_CMD_CS1(0xB7, rb7DataBuf, sizeof(rb7DataBuf));
+
+    gpio_set_level(EPD_CS1_PIN, 0);
+    writecommanddata(RE3_PWS, PWS_V, sizeof(PWS_V));
+    gpio_set_level(EPD_CS1_PIN, 1);
     vTaskDelay(pdMS_TO_TICKS(10));
-    SEND_CMD_CS1(R05_BTST_N, BTST_N_V, sizeof(BTST_N_V));
+
+    gpio_set_level(EPD_CS1_PIN, 0);
+    writecommanddata(R61_TRES, TRES_V, sizeof(TRES_V));
+    gpio_set_level(EPD_CS1_PIN, 1);
     vTaskDelay(pdMS_TO_TICKS(10));
-    SEND_CMD_CS1(0xB0, rb0DataBuf, sizeof(rb0DataBuf));
+
+    // PWR through 0xB1 — CS1 stays HIGH (left controller only)
+    writecommanddata(R01_PWR, PWR_V, sizeof(PWR_V));
     vTaskDelay(pdMS_TO_TICKS(10));
-    SEND_CMD_CS1(0xB1, rb1DataBuf, sizeof(rb1DataBuf));
+    writecommanddata(0xB6, rb6DataBuf, sizeof(rb6DataBuf));
+    vTaskDelay(pdMS_TO_TICKS(10));
+    writecommanddata(R06_BTST_P, BTST_P_V, sizeof(BTST_P_V));
+    vTaskDelay(pdMS_TO_TICKS(10));
+    writecommanddata(0xB7, rb7DataBuf, sizeof(rb7DataBuf));
+    vTaskDelay(pdMS_TO_TICKS(10));
+    writecommanddata(R05_BTST_N, BTST_N_V, sizeof(BTST_N_V));
+    vTaskDelay(pdMS_TO_TICKS(10));
+    writecommanddata(0xB0, rb0DataBuf, sizeof(rb0DataBuf));
+    vTaskDelay(pdMS_TO_TICKS(10));
+    writecommanddata(0xB1, rb1DataBuf, sizeof(rb1DataBuf));
     vTaskDelay(pdMS_TO_TICKS(10));
 }
 
@@ -335,4 +356,12 @@ void epaper_display(uint8_t *buffer)
     gpio_set_level(EPD_CS1_PIN, 1);
     wait_busy();
     vTaskDelay(pdMS_TO_TICKS(30));
+}
+
+void epaper_enter_deepsleep(void)
+{
+    static const uint8_t sleep_v[] = {0xA5};
+    writecommanddata(0x07, sleep_v, sizeof(sleep_v));
+    vTaskDelay(pdMS_TO_TICKS(1));
+    wait_busy();
 }

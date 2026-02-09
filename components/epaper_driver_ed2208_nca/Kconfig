@@ -1,0 +1,4 @@
+config EP_DRIVER_ED2208_NCA
+    bool "E-Ink ED2208-NCA (Spectra 6 1200x1600)"
+    help
+        Driver for 13.3 inch Spectra 6 E-Paper displays (compatible with SeeedStudio T133A01).
