@@ -148,48 +148,53 @@ jobs:
       run: |
         # Create demo directory if it doesn't exist
         mkdir -p demo
-        
+
         # Copy sample image for demo page
         cp .img/sample.jpg demo/
-        
-        # Find latest tag
-        LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
-        
+
+        # Get the latest published release tag (not draft)
+        # This avoids race conditions when tag push and main push happen simultaneously
+        STABLE_TAG=$(gh release view --latest --json tagName -q '.tagName' 2>/dev/null || echo "")
+        echo "Latest published release: ${STABLE_TAG:-none}"
+
         BOARDS="waveshare_photopainter_73 seeedstudio_xiao_ee02 seeedstudio_reterminal_e1002"
-        
+
         for board in $BOARDS; do
           mkdir -p "demo/$board"
-          
+
           # Dev firmware from this build
           cp "firmware-artifacts/photoframe-firmware-$board-merged.bin" "demo/$board/photoframe-firmware-$board-dev.bin"
-          
+
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             # For releases: use this build as stable
             cp "demo/$board/photoframe-firmware-$board-dev.bin" "demo/$board/photoframe-firmware-$board-merged.bin"
-          else
-            # For main branch: download latest stable release firmware
-            echo "Downloading stable release ${LATEST_TAG} firmware for $board..."
-            RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/${LATEST_TAG}/photoframe-firmware-$board-merged.bin"
-            
-            if curl -L -f -o "demo/$board/photoframe-firmware-$board-merged.bin" "${RELEASE_URL}"; then
-              echo "Successfully downloaded stable firmware ${LATEST_TAG} for $board"
-            elif [[ "$board" == "waveshare_photopainter_73" ]] && curl -L -f -o "demo/$board/photoframe-firmware-$board-merged.bin" "https://github.com/${{ github.repository }}/releases/download/${LATEST_TAG}/photoframe-firmware-merged.bin"; then
+          elif [[ -n "$STABLE_TAG" ]]; then
+            # For main branch: download from latest published release using gh (authenticated)
+            echo "Downloading stable release ${STABLE_TAG} firmware for $board..."
+            if gh release download "$STABLE_TAG" --pattern "photoframe-firmware-$board-merged.bin" --dir "demo/$board" --clobber; then
+              echo "Successfully downloaded stable firmware ${STABLE_TAG} for $board"
+            elif [[ "$board" == "waveshare_photopainter_73" ]] && gh release download "$STABLE_TAG" --pattern "photoframe-firmware-merged.bin" --dir "demo/$board" --clobber; then
               echo "Successfully downloaded legacy stable firmware for $board"
+              mv "demo/$board/photoframe-firmware-merged.bin" "demo/$board/photoframe-firmware-$board-merged.bin"
             else
               echo "Warning: Could not download stable firmware for $board, using dev build as fallback"
               cp "demo/$board/photoframe-firmware-$board-dev.bin" "demo/$board/photoframe-firmware-$board-merged.bin"
             fi
+          else
+            echo "Warning: No published release found, using dev build as stable for $board"
+            cp "demo/$board/photoframe-firmware-$board-dev.bin" "demo/$board/photoframe-firmware-$board-merged.bin"
           fi
-          
-          # Generate manifests for this board
-          python3 scripts/generate_manifests.py --no-copy --dev --demo-dir "demo/$board" --board "$board"
+
+          # Generate manifests for this board (pass stable version to match the firmware)
+          python3 scripts/generate_manifests.py --no-copy --dev --demo-dir "demo/$board" --board "$board" \
+            ${STABLE_TAG:+--stable-version "$STABLE_TAG"}
         done
-        
+
         # Link a default manifest at the root of demo for backward compatibility or default view
         cp demo/waveshare_photopainter_73/manifest.json demo/
         cp demo/waveshare_photopainter_73/manifest-dev.json demo/
-        # Also need a way for the webflasher to discover these. 
-        # For now, we'll keep the structure organized by board subdirs.
+      env:
+        GH_TOKEN: ${{ github.token }}
     
     - name: Setup Pages
       uses: actions/configure-pages@v4

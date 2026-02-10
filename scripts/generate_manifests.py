@@ -102,14 +102,17 @@ def generate_manifest(output_path, version, firmware_file, board, is_dev=False):
     print(f"  Firmware: {firmware_file}")
 
 
-def generate_manifests(demo_dir, board, build_dir=None, dev_mode=False):
+def generate_manifests(
+    demo_dir, board, build_dir=None, dev_mode=False, stable_version=None
+):
     """Generate manifest files for web flasher."""
 
     demo_path = Path(demo_dir)
     demo_path.mkdir(exist_ok=True)
 
-    # Get stable version (latest tag)
-    stable_version = version_module.get_stable_version()
+    # Get stable version (use provided version or auto-detect)
+    if not stable_version:
+        stable_version = version_module.get_stable_version()
 
     # Copy firmware if build_dir provided
     if build_dir:
@@ -179,6 +182,10 @@ def main():
         choices=list(SUPPORTED_BOARDS.keys()),
         help="Board type to build",
     )
+    parser.add_argument(
+        "--stable-version",
+        help="Override stable version (default: auto-detect from git/GitHub)",
+    )
 
     args = parser.parse_args()
 
@@ -190,7 +197,9 @@ def main():
 
     # Generate manifests
     print(f"Generating manifests for {args.board}...")
-    if not generate_manifests(demo_dir, args.board, build_dir, args.dev):
+    if not generate_manifests(
+        demo_dir, args.board, build_dir, args.dev, args.stable_version
+    ):
         sys.exit(1)
 
     print("\nManifests generated successfully!")
