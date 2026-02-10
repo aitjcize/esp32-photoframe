@@ -116,7 +116,7 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
 
         esp_http_client_config_t config = {
             .url = url,
-            .timeout_ms = 30000,
+            .timeout_ms = 120000,
             .event_handler = http_event_handler,
             .user_data = &ctx,
             .max_redirection_count = 5,
