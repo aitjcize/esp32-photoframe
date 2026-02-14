@@ -221,6 +221,12 @@ The ESP32 can fetch images from your computer instead of storing them on SD card
 
 See [process-cli/README.md](process-cli/README.md) for details.
 
+## Support
+
+If you find this project useful, consider buying me a coffee! ☕
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/aitjcize)
+
 ## License
 
 This project is based on the ESP32-S3-PhotoPainter sample code. Please refer to the original project for licensing information.
