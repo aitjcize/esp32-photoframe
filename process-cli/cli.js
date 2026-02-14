@@ -127,6 +127,58 @@ async function fetchDevicePalette(host) {
   });
 }
 
+// Fetch device display resolution from system info
+async function fetchDeviceResolution(host) {
+  return new Promise((resolve, reject) => {
+    const url = `http://${host}/api/system-info`;
+    console.log(`Fetching display resolution from device: ${url}`);
+
+    http
+      .get(url, (res) => {
+        let data = "";
+
+        res.on("data", (chunk) => {
+          data += chunk;
+        });
+
+        res.on("end", () => {
+          if (res.statusCode === 200) {
+            try {
+              const info = JSON.parse(data);
+              if (info.width && info.height) {
+                console.log(
+                  `Device display resolution: ${info.width}x${info.height}`,
+                );
+                resolve({ width: info.width, height: info.height });
+              } else {
+                reject(
+                  new Error("Device system info does not contain width/height"),
+                );
+              }
+            } catch (error) {
+              reject(
+                new Error(
+                  `Failed to parse device system info: ${error.message}`,
+                ),
+              );
+            }
+          } else {
+            reject(
+              new Error(
+                `HTTP ${res.statusCode}: Failed to fetch system info from device`,
+              ),
+            );
+          }
+        });
+      })
+      .on("error", (error) => {
+        reject(
+          new Error(`Failed to connect to device at ${host}: ${error.message}`),
+        );
+      });
+  });
+}
+
 // Display image directly on device without saving (via /api/display-image)
 async function displayDirectly(host, pngPath, thumbPath, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -697,6 +749,24 @@ program
             `Error: Invalid dimension format "${options.dimension}". Use WxH (e.g. 800x480)`,
           );
           process.exit(1);
+        }
+      }
+
+      // If --host is explicitly specified, query device for display resolution
+      // This overwrites any -d / --display-width / --display-height values
+      const hostExplicit = program.getOptionValueSource("host") === "cli";
+      if (hostExplicit) {
+        try {
+          const resolution = await fetchDeviceResolution(options.host);
+          options.displayWidth = resolution.width;
+          options.displayHeight = resolution.height;
+        } catch (error) {
+          console.error(
+            `Warning: Could not fetch display resolution from device: ${error.message}`,
+          );
+          console.error(
+            `  Using default resolution: ${options.displayWidth}x${options.displayHeight}`,
+          );
         }
       }
 
