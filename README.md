@@ -30,7 +30,7 @@ This project has companion tools for different use cases:
 
 | Project | Description |
 |---------|-------------|
-| [**puppet-homeassistant**](https://github.com/voxpupuli/puppet-homeassistant) | HA Puppet add-on. Generate image URL from Puppet dashboard and use it as the Auto Rotate URL in PhotoFrame settings. |
+| [**puppet**](https://github.com/balloob/home-assistant-addons/tree/main/puppet) | HA Puppet add-on. Generate image URL from Puppet dashboard and use it as the Auto Rotate URL in PhotoFrame settings. |
 
 ## Image Quality Comparison
 
