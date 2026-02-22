@@ -1,0 +1,31 @@
+#ifndef BOARD_SEEEDSTUDIO_XIAO_EE04_H
+#define BOARD_SEEEDSTUDIO_XIAO_EE04_H
+
+#include "driver/gpio.h"
+
+// Board Info
+#define BOARD_HAL_NAME "seeedstudio_xiao_ee04"
+#define BOARD_HAL_TYPE BOARD_TYPE_SEEEDSTUDIO_XIAO_EE04
+
+// Button Definitions
+#define BOARD_HAL_WAKEUP_KEY GPIO_NUM_5  // Button 3
+#define BOARD_HAL_ROTATE_KEY GPIO_NUM_2  // Button 1
+#define BOARD_HAL_CLEAR_KEY GPIO_NUM_3   // Button 2
+
+// SPI Pins
+#define BOARD_HAL_SPI_SCLK_PIN GPIO_NUM_7
+#define BOARD_HAL_SPI_MOSI_PIN GPIO_NUM_9
+#define BOARD_HAL_SPI_MISO_PIN GPIO_NUM_NC
+
+// E-Paper Display Pins (7.3" Spectra 6)
+#define BOARD_HAL_EPD_DC_PIN GPIO_NUM_10
+#define BOARD_HAL_EPD_CS_PIN GPIO_NUM_44
+#define BOARD_HAL_EPD_CS1_PIN GPIO_NUM_NC // QSPI CS1 wird für 7.3" nicht genutzt
+#define BOARD_HAL_EPD_RST_PIN GPIO_NUM_38
+#define BOARD_HAL_EPD_BUSY_PIN GPIO_NUM_4
+#define BOARD_HAL_EPD_ENABLE_PIN GPIO_NUM_43
+
+// Display Configuration
+#define BOARD_HAL_DISPLAY_ROTATION_DEG 0
+
+#endif  // BOARD_SEEEDSTUDIO_XIAO_EE04_H
