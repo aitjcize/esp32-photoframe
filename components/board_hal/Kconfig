@@ -29,6 +29,17 @@ menu "Board Configuration"
                 No SD card support.
                 AI rotation mode disabled due to limited PSRAM.
 
+        config BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE04
+            bool "Seeed XIAO EE04 (BQ24070, 7.3 inch)"
+            select EP_DRIVER_ED2208_GCA
+            help
+                Driver for Seeed Studio XIAO EE04 board.
+                Uses BQ24070 Linear Charger and 7.3" Spectra 6 display.
+                Voltage is read via ADC. Percentage is estimated.
+                Charging status via GPIO.
+                No SD card support, uses internal flash storage.
+                AI rotation mode disabled due to limited PSRAM.
+                
         config BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002
             bool "Seeed reTerminal E1002 (Spectra E6)"
             select SDCARD_DRIVER_SPI
