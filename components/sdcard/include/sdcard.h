@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#ifdef CONFIG_SDCARD_DRIVER_SDIO
+#if defined(CONFIG_SDCARD_DRIVER_SDIO)
 /**
  * @brief SD card configuration for SDIO interface
  */
@@ -23,13 +23,29 @@ typedef struct {
     gpio_num_t d3_pin;
 } sdcard_config_t;
 
-#elif CONFIG_SDCARD_DRIVER_SPI
+#elif defined(CONFIG_SDCARD_DRIVER_SPI)
 /**
  * @brief SD card configuration for SPI interface
  */
 typedef struct {
     int host_id;
     gpio_num_t cs_pin;
+} sdcard_config_t;
+
+#elif defined(CONFIG_SDCARD_DRIVER_INTERNAL_FLASH)
+/**
+ * @brief Configuration for internal flash storage
+ */
+typedef struct {
+    int dummy; // No specific pins needed, but struct must exist
+} sdcard_config_t;
+
+#else
+/**
+ * @brief Fallback empty config if no SD card driver is selected
+ */
+typedef struct {
+    int dummy;
 } sdcard_config_t;
 #endif
 
