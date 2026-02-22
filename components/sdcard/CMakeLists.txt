@@ -11,6 +11,11 @@ if(CONFIG_SDCARD_DRIVER_SPI)
     list(APPEND PRIV_REQUIRES esp_driver_spi)
 endif()
 
+if(CONFIG_SDCARD_DRIVER_INTERNAL_FLASH)
+    list(APPEND SRCS "src/sdcard_internal.c")
+    list(APPEND PRIV_REQUIRES wear_levelling)
+endif()
+
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "include"
