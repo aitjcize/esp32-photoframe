@@ -22,3 +22,11 @@ config SDCARD_DRIVER_SPI
         More flexible pin assignment but slower than SDIO.
         
         This is automatically selected by board drivers that use SPI.
+
+config SDCARD_DRIVER_INTERNAL_FLASH
+    bool "Internal Flash (Virtual SD Card)"
+    select HAS_SDCARD
+    help
+        Uses the internal ESP32 flash memory partition named "storage" 
+        as a virtual SD card using Wear Levelling and FATFS.
+        Perfect for boards without physical SD card slots.
