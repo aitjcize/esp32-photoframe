@@ -1,5 +1,7 @@
 #include "ota_manager.h"
 
+#include "esp_idf_version.h"
+
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
@@ -123,12 +125,16 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     case HTTP_EVENT_REDIRECT:
         ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
         break;
+#ifdef HTTP_EVENT_ON_HEADERS_COMPLETE
     case HTTP_EVENT_ON_HEADERS_COMPLETE:
         ESP_LOGD(TAG, "HTTP_EVENT_ON_HEADERS_COMPLETE");
         break;
+#endif
+#ifdef HTTP_EVENT_ON_STATUS_CODE
     case HTTP_EVENT_ON_STATUS_CODE:
         ESP_LOGD(TAG, "HTTP_EVENT_ON_STATUS_CODE");
         break;
+#endif
     }
     return ESP_OK;
 }
