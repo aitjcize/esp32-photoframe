@@ -244,14 +244,12 @@ static esp_err_t parse_multipart_upload(httpd_req_t *req, const char *base_dir,
                         if (require_png) {
                             // Check PNG or GZIP extension for image field
                             char *ext = strrchr(result->original_filename, '.');
-                            if (!ext ||
-                                (strcasecmp(ext, ".png") != 0 && strcasecmp(ext, ".gz") != 0 &&
-                                 strcasecmp(ext, ".epd") != 0)) {
+                            if (!ext || strcasecmp(ext, ".png") != 0) {
                                 if (fp)
                                     fclose(fp);
                                 free(buf);
                                 httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                                    "Only PNG or EPD.GZ files are allowed");
+                                                    "Only PNG files are allowed");
                                 return ESP_FAIL;
                             }
                         }
@@ -406,7 +404,6 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         const char *temp_bmp_path = CURRENT_BMP_PATH;
         const char *temp_png_path = CURRENT_PNG_PATH;
         const char *temp_jpg_path = CURRENT_JPG_PATH;
-        const char *temp_epd_path = "/storage/.current_epd.gz";
         const char *display_path = NULL;
 
         // Load processing settings to get dithering algorithm
@@ -463,18 +460,6 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
                 return ESP_FAIL;
             }
             display_path = temp_bmp_path;
-        } else if (image_format == IMAGE_FORMAT_EPD_GZ) {
-            unlink(temp_epd_path);
-            if (rename(result.image_path, temp_epd_path) != 0) {
-                ESP_LOGE(TAG, "Failed to move EPD.GZ");
-                unlink(result.image_path);
-                if (result.has_thumbnail)
-                    unlink(result.thumbnail_path);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                    "Failed to process EPD.GZ");
-                return ESP_FAIL;
-            }
-            display_path = temp_epd_path;
         } else {
             // PNG or JPG
             processing_settings_t settings;
@@ -532,9 +517,6 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         image_format = IMAGE_FORMAT_BMP;
     } else if (strstr(content_type, "image/jpeg")) {
         image_format = IMAGE_FORMAT_JPG;
-    } else if (strstr(content_type, "application/gzip") ||
-               strstr(content_type, "application/x-gzip")) {
-        image_format = IMAGE_FORMAT_EPD_GZ;
     }
 
     // Get content length
@@ -564,7 +546,6 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
     const char *temp_jpg_path = CURRENT_JPG_PATH;
     const char *temp_bmp_path = CURRENT_BMP_PATH;
     const char *temp_png_path = CURRENT_PNG_PATH;
-    const char *temp_epd_path = "/storage/.current_epd.gz";
 
     // Delete old files to prevent caching issues
     unlink(temp_upload_path);
@@ -623,8 +604,6 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             ESP_LOGI(TAG, "Detected BMP format from file");
         } else if (image_format == IMAGE_FORMAT_JPG) {
             ESP_LOGI(TAG, "Detected JPG format from file");
-        } else if (image_format == IMAGE_FORMAT_EPD_GZ) {
-            ESP_LOGI(TAG, "Detected EPD_GZ format from file");
         } else {
             ESP_LOGE(TAG, "Unsupported image format or format detection failed");
             unlink(temp_upload_path);
@@ -651,15 +630,6 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             return ESP_FAIL;
         }
         display_path = temp_bmp_path;
-    } else if (image_format == IMAGE_FORMAT_EPD_GZ) {
-        // Move uploaded EPD GZ to temp location
-        if (rename(temp_upload_path, temp_epd_path) != 0) {
-            ESP_LOGE(TAG, "Failed to move uploaded EPD.GZ to temp location");
-            unlink(temp_upload_path);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to process EPD.GZ");
-            return ESP_FAIL;
-        }
-        display_path = temp_epd_path;
     } else {
         // PNG or JPG - unified processing logic
         bool needs_processing = true;
@@ -923,19 +893,8 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
 
     // Use original filename from upload
     char filename_base[120];
-    char file_ext[16] = ".png";  // default
     char *ext = strrchr(result.original_filename, '.');
     if (ext) {
-        // Special case for .epd.gz
-        char *epd_gz = strstr(result.original_filename, ".epd.gz");
-        if (epd_gz) {
-            strncpy(file_ext, ".epd.gz", sizeof(file_ext) - 1);
-            ext = epd_gz;  // Treat base as everything before .epd.gz
-        } else {
-            strncpy(file_ext, ext, sizeof(file_ext) - 1);
-        }
-        file_ext[sizeof(file_ext) - 1] = '\0';
-
         int base_len = ext - result.original_filename;
         int safe_len = MIN(base_len, (int) sizeof(filename_base) - 1);
         snprintf(filename_base, sizeof(filename_base), "%.*s", safe_len, result.original_filename);
@@ -945,25 +904,25 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
         filename_base[sizeof(filename_base) - 1] = '\0';
     }
 
-    char image_filename[140];
-    char jpg_filename[140];
-    char final_image_path[512];
+    char png_filename[128];
+    char jpg_filename[128];
+    char final_png_path[512];
     char final_thumb_path[512];
 
     // Use original filename (will overwrite if exists)
-    snprintf(image_filename, sizeof(image_filename), "%s%s", filename_base, file_ext);
+    snprintf(png_filename, sizeof(png_filename), "%s.png", filename_base);
     snprintf(jpg_filename, sizeof(jpg_filename), "%s.jpg", filename_base);
-    snprintf(final_image_path, sizeof(final_image_path), "%s/%s", album_path, image_filename);
+    snprintf(final_png_path, sizeof(final_png_path), "%s/%s", album_path, png_filename);
     snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s", album_path, jpg_filename);
 
     // Remove old files
-    unlink(final_image_path);
+    unlink(final_png_path);
     unlink(final_thumb_path);
 
-    // Move format to final location
-    ESP_LOGI(TAG, "Saving Image: %s -> %s", result.image_path, final_image_path);
-    if (rename(result.image_path, final_image_path) != 0) {
-        ESP_LOGE(TAG, "Failed to move image to album");
+    // Move PNG to final location
+    ESP_LOGI(TAG, "Saving PNG: %s -> %s", result.image_path, final_png_path);
+    if (rename(result.image_path, final_png_path) != 0) {
+        ESP_LOGE(TAG, "Failed to move PNG to album");
         unlink(result.image_path);
         unlink(result.thumbnail_path);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save image");
@@ -976,11 +935,11 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
         unlink(result.thumbnail_path);
     }
 
-    ESP_LOGI(TAG, "Image saved successfully: %s (thumbnail: %s)", image_filename, jpg_filename);
+    ESP_LOGI(TAG, "Image saved successfully: %s (thumbnail: %s)", png_filename, jpg_filename);
 
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "success");
-    cJSON_AddStringToObject(response, "filepath", final_image_path);
+    cJSON_AddStringToObject(response, "filepath", final_png_path);
 
     char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
@@ -1033,8 +992,6 @@ static esp_err_t serve_image_handler(httpd_req_t *req)
             content_type = "image/png";
         } else if (strcasecmp(ext, ".bmp") == 0) {
             content_type = "image/bmp";
-        } else if (strcasecmp(ext, ".gz") == 0) {
-            content_type = "application/gzip";
         }
     }
 
@@ -1156,14 +1113,8 @@ static esp_err_t delete_image_handler(httpd_req_t *req)
     strncpy(jpg_filename, filepath_copy, sizeof(jpg_filename) - 1);
     jpg_filename[sizeof(jpg_filename) - 1] = '\0';
     char *ext = strrchr(jpg_filename, '.');
-    if (ext) {
-        if (strcasecmp(ext, ".gz") == 0 && strstr(jpg_filename, ".epd.gz")) {
-            ext = strstr(jpg_filename, ".epd.gz");
-        }
-        if (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
-            strcasecmp(ext, ".epd.gz") == 0) {
-            strcpy(ext, ".jpg");
-        }
+    if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0)) {
+        strcpy(ext, ".jpg");
     }
 
     char jpg_path[512];
@@ -1464,14 +1415,8 @@ static esp_err_t current_image_handler(httpd_req_t *req)
     thumbnail_path[sizeof(thumbnail_path) - 1] = '\0';
 
     char *ext = strrchr(thumbnail_path, '.');
-    if (ext) {
-        if (strcasecmp(ext, ".gz") == 0 && strstr(thumbnail_path, ".epd.gz")) {
-            ext = strstr(thumbnail_path, ".epd.gz");
-        }
-        if (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
-            strcasecmp(ext, ".epd.gz") == 0) {
-            strcpy(ext, ".jpg");
-        }
+    if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0)) {
+        strcpy(ext, ".jpg");
     }
 
     FILE *fp = fopen(thumbnail_path, "rb");
@@ -1483,9 +1428,6 @@ static esp_err_t current_image_handler(httpd_req_t *req)
             content_type = "image/png";
         } else if (orig_ext && strcasecmp(orig_ext, ".bmp") == 0) {
             content_type = "image/bmp";
-        } else if (orig_ext &&
-                   (strcasecmp(orig_ext, ".gz") == 0 || strcasecmp(orig_ext, ".epd") == 0)) {
-            content_type = "application/gzip";
         }
 
         ESP_LOGI(TAG, "Serving %s as fallback thumbnail image", image_to_serve);
@@ -2136,8 +2078,8 @@ static esp_err_t album_images_handler(httpd_req_t *req)
                 continue;
             }
             const char *ext = strrchr(entry->d_name, '.');
-            if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
-                        strcasecmp(ext, ".gz") == 0)) {
+            if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
+                        strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
                 cJSON *image_obj = cJSON_CreateObject();
                 cJSON_AddStringToObject(image_obj, "filename", entry->d_name);
                 cJSON_AddStringToObject(image_obj, "album", decoded_album_name);
@@ -2147,14 +2089,7 @@ static esp_err_t album_images_handler(httpd_req_t *req)
                 char thumbnail_path[512];
 
                 // Extract base name without extension
-                char *epd_gz = strstr(entry->d_name, ".epd.gz");
-                int base_len;
-                if (epd_gz) {
-                    base_len = epd_gz - entry->d_name;
-                } else {
-                    base_len = ext - entry->d_name;
-                }
-
+                int base_len = ext - entry->d_name;
                 snprintf(thumbnail_name, sizeof(thumbnail_name), "%.*s.jpg", base_len,
                          entry->d_name);
                 snprintf(thumbnail_path, sizeof(thumbnail_path), "%s/%s", album_path,
