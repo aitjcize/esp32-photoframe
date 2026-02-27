@@ -11,11 +11,11 @@ extern "C" {
 /**
  * @brief Initialize and mount a RAM-based virtual filesystem
  *
- * @param base_path The mount point (e.g., "/ram")
+ * @param base_path The mount point (e.g., "/storage")
  * @param max_files Maximum number of files to support
  * @return esp_err_t ESP_OK on success
  */
-esp_err_t memfs_mount(const char* base_path, size_t max_files);
+esp_err_t memfs_mount(const char *base_path, size_t max_files);
 
 /**
  * @brief Unmount and free all memory used by the RAM filesystem
@@ -23,7 +23,7 @@ esp_err_t memfs_mount(const char* base_path, size_t max_files);
  * @param base_path The mount point used during registration
  * @return esp_err_t ESP_OK on success
  */
-esp_err_t memfs_unmount(const char* base_path);
+esp_err_t memfs_unmount(const char *base_path);
 
 /**
  * @brief Get total bytes used by files in the RAM filesystem

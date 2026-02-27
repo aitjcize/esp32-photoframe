@@ -46,7 +46,8 @@ typedef enum {
 #ifdef CONFIG_HAS_SDCARD
 #define TEMP_MOUNT_POINT "/sdcard"
 #else
-#define TEMP_MOUNT_POINT "/ram"
+// Temporary storage mount point for devices without SD card
+#define TEMP_MOUNT_POINT "/storage"
 #endif
 
 #define IMAGE_DIRECTORY TEMP_MOUNT_POINT "/images"
