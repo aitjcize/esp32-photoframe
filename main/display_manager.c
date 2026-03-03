@@ -25,6 +25,10 @@
 #include "sdcard.h"
 #endif
 
+#include <zlib.h>
+
+extern bool g_littlefs_mounted;
+
 static const char *TAG = "display_manager";
 #define NVS_LAST_IMAGE_KEY "last_image"
 
@@ -138,8 +142,17 @@ esp_err_t display_manager_show_image(const char *filename)
     // Detect file type by extension
     const char *ext = strrchr(filename, '.');
     bool is_png = (ext != NULL && strcasecmp(ext, ".png") == 0);
+    // ".epd.gz" will have ext pointing to ".gz", so we must check for either ".gz" or ".epd"
+    bool is_epd_gz = (ext != NULL && (strcasecmp(ext, ".gz") == 0 || strcasecmp(ext, ".epd") == 0));
 
-    if (is_png) {
+    if (is_epd_gz) {
+        ESP_LOGI(TAG, "Reading EPD.GZ file into buffer");
+        if (display_manager_show_raw_gzip(filename) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to read EPD.GZ file");
+            xSemaphoreGive(display_mutex);
+            return ESP_FAIL;
+        }
+    } else if (is_png) {
         ESP_LOGI(TAG, "Reading PNG file into buffer");
         if (GUI_ReadPng_RGB_6Color(filename, 0, 0) != 0) {
             ESP_LOGE(TAG, "Failed to read PNG file");
@@ -219,6 +232,79 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
     xSemaphoreGive(display_mutex);
 
     ESP_LOGI(TAG, "RGB buffer displayed successfully");
+    return ESP_OK;
+}
+
+esp_err_t display_manager_show_raw_gzip(const char *filename)
+{
+    FILE *fp = fopen(filename, "rb");
+    if (!fp) {
+        ESP_LOGE(TAG, "Failed to open raw gzip file: %s", filename);
+        return ESP_FAIL;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long compressed_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    uint8_t *compressed_data = heap_caps_malloc(compressed_size, MALLOC_CAP_SPIRAM);
+    if (!compressed_data) {
+        fclose(fp);
+        return ESP_ERR_NO_MEM;
+    }
+    fread(compressed_data, 1, compressed_size, fp);
+    fclose(fp);
+
+    int width = Paint.Width;
+    int height = Paint.Height;
+    int uncompressed_size = (width * height + 1) / 2;
+
+    uint8_t *uncompressed_data = heap_caps_malloc(uncompressed_size, MALLOC_CAP_SPIRAM);
+    if (!uncompressed_data) {
+        heap_caps_free(compressed_data);
+        return ESP_ERR_NO_MEM;
+    }
+
+    z_stream strm = {0};
+    strm.avail_in = compressed_size;
+    strm.next_in = compressed_data;
+    strm.avail_out = uncompressed_size;
+    strm.next_out = uncompressed_data;
+
+    // 16 + MAX_WBITS enables gzip decoding
+    if (inflateInit2(&strm, 16 + MAX_WBITS) != Z_OK) {
+        ESP_LOGE(TAG, "inflateInit2 failed");
+        heap_caps_free(compressed_data);
+        heap_caps_free(uncompressed_data);
+        return ESP_FAIL;
+    }
+
+    int ret = inflate(&strm, Z_FINISH);
+    inflateEnd(&strm);
+    heap_caps_free(compressed_data);
+
+    if (ret != Z_STREAM_END && ret != Z_OK) {
+        ESP_LOGE(TAG, "Decompression failed: %d", ret);
+        heap_caps_free(uncompressed_data);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Decompressed raw image successfully, rendering via Paint_SetPixel");
+
+    int byteIdx = 0;
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x += 2) {
+            uint8_t byte = uncompressed_data[byteIdx++];
+            uint8_t p1 = (byte >> 4) & 0x0F;
+            uint8_t p2 = byte & 0x0F;
+            Paint_SetPixel(x, y, p1);
+            if (x + 1 < width) {
+                Paint_SetPixel(x + 1, y, p2);
+            }
+        }
+    }
+
+    heap_caps_free(uncompressed_data);
     return ESP_OK;
 }
 
@@ -395,7 +481,6 @@ const char *display_manager_get_current_image(void)
     return current_image;
 }
 
-#ifdef CONFIG_HAS_SDCARD
 static void rotate_sequential(char **enabled_albums, int album_count)
 {
     ESP_LOGI(TAG, "Sequential rotation mode");
@@ -403,6 +488,7 @@ static void rotate_sequential(char **enabled_albums, int album_count)
     int32_t target_idx = last_idx + 1;
     int32_t current_idx = 0;
     char first_image[512] = {0};
+    char target_image[512] = {0};
     bool found_target = false;
 
     for (int i = 0; i < album_count; i++) {
@@ -423,7 +509,8 @@ static void rotate_sequential(char **enabled_albums, int album_count)
 
                 const char *ext = strrchr(entry->d_name, '.');
                 if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
-                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
+                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0 ||
+                            strcmp(ext, ".gz") == 0 || strcmp(ext, ".epd") == 0)) {
                     char fullpath[512];
                     snprintf(fullpath, sizeof(fullpath), "%s/%s", album_path, entry->d_name);
 
@@ -434,23 +521,28 @@ static void rotate_sequential(char **enabled_albums, int album_count)
 
                     if (current_idx == target_idx) {
                         ESP_LOGI(TAG, "Found target index %ld: %s", (long) target_idx, fullpath);
-                        display_manager_show_image(fullpath);
-                        save_last_displayed_image(fullpath);
-                        config_manager_set_last_index(target_idx);
+                        strncpy(target_image, fullpath, sizeof(target_image) - 1);
                         found_target = true;
-                        closedir(dir);
-                        return;
+                        break;
                     }
                     current_idx++;
                 }
             }
         }
         closedir(dir);
+
+        if (found_target) {
+            break;
+        }
     }
 
-    // If we reached here, we didn't find the target index (or the list has changed and is
-    // shorter) Wrap around to the first image
-    if (!found_target) {
+    if (found_target) {
+        display_manager_show_image(target_image);
+        save_last_displayed_image(target_image);
+        config_manager_set_last_index(target_idx);
+    } else {
+        // If we reached here, we didn't find the target index (or the list has changed and is
+        // shorter) Wrap around to the first image
         if (first_image[0] != '\0') {
             ESP_LOGI(TAG, "Wrapping around to start. Displaying: %s", first_image);
             display_manager_show_image(first_image);
@@ -486,7 +578,8 @@ static void rotate_random(char **enabled_albums, int album_count)
                 }
                 const char *ext = strrchr(entry->d_name, '.');
                 if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
-                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
+                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0 ||
+                            strcmp(ext, ".gz") == 0 || strcmp(ext, ".epd") == 0)) {
                     total_image_count++;
                 }
             }
@@ -521,7 +614,9 @@ static void rotate_random(char **enabled_albums, int album_count)
 
                 const char *ext = strrchr(entry->d_name, '.');
                 if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
-                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
+                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0 ||
+                            strcmp(ext, ".gz") == 0 ||
+                            strcmp(ext, ".epd") == 0)) {  // HIER WURDE ES GEFIXT
                     char *fullpath = malloc(512);
                     snprintf(fullpath, 512, "%s/%s", album_path, entry->d_name);
                     image_list[idx] = fullpath;
@@ -579,8 +674,15 @@ void display_manager_rotate_from_sdcard(void)
         ESP_LOGI(TAG, "Rotating from SD card");
     }
 
-    if (!sdcard_is_mounted()) {
-        ESP_LOGI(TAG, "SD card not mounted - skipping auto-rotate");
+    bool storage_available = g_littlefs_mounted;
+#ifdef CONFIG_HAS_SDCARD
+    if (sdcard_is_mounted()) {
+        storage_available = true;
+    }
+#endif
+
+    if (!storage_available) {
+        ESP_LOGI(TAG, "Storage not mounted - skipping auto-rotate");
         return;
     }
 
@@ -629,4 +731,3 @@ void display_manager_rotate_from_sdcard(void)
     album_manager_free_album_list(enabled_albums, album_count);
     ESP_LOGI(TAG, "Auto-rotate complete");
 }
-#endif

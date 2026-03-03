@@ -18,7 +18,8 @@ typedef enum {
     IMAGE_FORMAT_UNKNOWN,
     IMAGE_FORMAT_PNG,
     IMAGE_FORMAT_BMP,
-    IMAGE_FORMAT_JPG
+    IMAGE_FORMAT_JPG,
+    IMAGE_FORMAT_EPD_GZ
 } image_format_t;
 
 /**
