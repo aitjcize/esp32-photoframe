@@ -2,6 +2,8 @@
 import { ref, onMounted, computed, watch } from "vue";
 import { useAppStore, useSettingsStore } from "../stores";
 import ImageProcessing from "./ImageProcessing.vue";
+import UPNG from "upng-js";
+import pako from "pako";
 
 const appStore = useAppStore();
 const settingsStore = useSettingsStore();
@@ -109,14 +111,50 @@ async function uploadImage(mode = "upload") {
       usePerceivedOutput: false, // Use theoretical palette
     });
 
-    // Convert processed canvas to PNG blob
-    const pngBlob = await new Promise((resolve) => {
-      result.canvas.toBlob(resolve, "image/png");
-    });
+    // Instead of encoding to PNG, we map the RGB pixels to exactly 4-bit indices
+    // matching the E-Ink hardware (0=Black, 1=White, 2=Yellow, 3=Red, 5=Blue, 6=Green)
+    const ctx = result.canvas.getContext("2d");
+    const imgData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+    const data = imgData.data;
+    
+    // We pack 2 pixels into one byte (4 bits per pixel)
+    const rawBuffer = new Uint8Array(Math.ceil((targetWidth * targetHeight) / 2));
+    
+    let byteIdx = 0;
+    for (let i = 0; i < data.length; i += 8) {
+      // Pixel 1
+      const r1 = data[i], g1 = data[i+1], b1 = data[i+2];
+      let p1 = 1; // Default white
+      if (r1===0 && g1===0 && b1===0) p1 = 0;           // Black
+      else if (r1===255 && g1===255 && b1===255) p1 = 1;// White
+      else if (r1===255 && g1===255 && b1===0) p1 = 2;  // Yellow
+      else if (r1===255 && g1===0 && b1===0) p1 = 3;    // Red
+      else if (r1===0 && g1===0 && b1===255) p1 = 5;    // Blue
+      else if (r1===0 && g1===255 && b1===0) p1 = 6;    // Green
 
-    // Generate filename with .png extension
+      // Pixel 2 (Handle odd widths by padding with white if out of bounds)
+      let p2 = 1;
+      if (i + 4 < data.length) {
+        const r2 = data[i+4], g2 = data[i+5], b2 = data[i+6];
+        if (r2===0 && g2===0 && b2===0) p2 = 0;
+        else if (r2===255 && g2===255 && b2===255) p2 = 1;
+        else if (r2===255 && g2===255 && b2===0) p2 = 2;
+        else if (r2===255 && g2===0 && b2===0) p2 = 3;
+        else if (r2===0 && g2===0 && b2===255) p2 = 5;
+        else if (r2===0 && g2===255 && b2===0) p2 = 6;
+      }
+      
+      // Pack into byte (p1 in high nibble, p2 in low nibble)
+      rawBuffer[byteIdx++] = (p1 << 4) | (p2 & 0x0F);
+    }
+    
+    // Compress with GZIP
+    const compressedBuffer = pako.gzip(rawBuffer);
+    const rawBlob = new Blob([compressedBuffer], { type: "application/gzip" });
+
+    // Generate filename with .epd.gz extension to tell the backend about the raw format
     const originalName = selectedFile.value.name.replace(/\.[^/.]+$/, "");
-    const pngFilename = `${originalName}.png`;
+    const rawFilename = `${originalName}.epd.gz`;
 
     // Generate thumbnail from original canvas (before rotation)
     const thumbCanvas = imageProcessor.generateThumbnail(
@@ -131,7 +169,7 @@ async function uploadImage(mode = "upload") {
 
     // Create form data
     const formData = new FormData();
-    formData.append("image", pngBlob, pngFilename);
+    formData.append("image", rawBlob, rawFilename);
     formData.append("thumbnail", thumbnailBlob, thumbFilename);
 
     // Determine upload URL based on mode and capability
@@ -148,6 +186,9 @@ async function uploadImage(mode = "upload") {
     });
 
     if (response.ok) {
+      // Reload system info to update storage numbers whether in display or album mode
+      await appStore.loadSystemInfo();
+
       if (!isDirectDisplay && canSaveToAlbum.value) {
         await appStore.loadImages(appStore.selectedAlbum);
       }
