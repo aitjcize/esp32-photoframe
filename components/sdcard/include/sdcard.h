@@ -10,28 +10,23 @@
 extern "C" {
 #endif
 
-#ifdef CONFIG_SDCARD_DRIVER_SDIO
 /**
- * @brief SD card configuration for SDIO interface
+ * @brief SD card configuration
  */
 typedef struct {
+#ifdef CONFIG_SDCARD_DRIVER_SPI
+    int host_id;
+    gpio_num_t cs_pin;
+#endif
+#ifdef CONFIG_SDCARD_DRIVER_SDIO
     gpio_num_t clk_pin;
     gpio_num_t cmd_pin;
     gpio_num_t d0_pin;
     gpio_num_t d1_pin;
     gpio_num_t d2_pin;
     gpio_num_t d3_pin;
-} sdcard_config_t;
-
-#elif CONFIG_SDCARD_DRIVER_SPI
-/**
- * @brief SD card configuration for SPI interface
- */
-typedef struct {
-    int host_id;
-    gpio_num_t cs_pin;
-} sdcard_config_t;
 #endif
+} sdcard_config_t;
 
 /**
  * @brief Initialize SD card

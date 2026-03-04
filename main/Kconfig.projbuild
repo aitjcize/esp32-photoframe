@@ -52,11 +52,11 @@ menu "Internal Storage Configuration"
 
     config INTERNAL_STORAGE_PARTITION_TABLE
         string
-        default "partitions_128mb.csv" if FLASH_SIZE_128MB
-        default "partitions_64mb.csv" if FLASH_SIZE_64MB
-        default "partitions_32mb.csv" if FLASH_SIZE_32MB
-        default "partitions_16mb.csv" if FLASH_SIZE_16MB
-        default "partitions_8mb.csv" if FLASH_SIZE_8MB
-        default "partitions_disable.csv" if !USE_INTERNAL_FLASH_STORAGE
+        default "partitions/partitions_128mb.csv" if FLASH_SIZE_128MB
+        default "partitions/partitions_64mb.csv" if FLASH_SIZE_64MB
+        default "partitions/partitions_32mb.csv" if FLASH_SIZE_32MB
+        default "partitions/partitions_16mb.csv" if FLASH_SIZE_16MB
+        default "partitions/partitions_8mb.csv" if FLASH_SIZE_8MB
+        default "partitions/partitions_disable.csv" if !USE_INTERNAL_FLASH_STORAGE
 
 endmenu

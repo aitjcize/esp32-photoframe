@@ -28,7 +28,7 @@ add_compile_definitions(FIRMWARE_VERSION="${FIRMWARE_VERSION}")
 
 # Very early parsing of sdkconfig to forcefully copy the correct partition table
 # before ESP-IDF even starts analyzing components.
-set(TARGET_CSV "partitions_8mb.csv") # Default fallback
+set(TARGET_CSV "partitions/partitions_8mb.csv") # Default fallback
 if(EXISTS "${CMAKE_SOURCE_DIR}/sdkconfig")
     file(STRINGS "${CMAKE_SOURCE_DIR}/sdkconfig" SDKCONFIG_LINES)
     foreach(line ${SDKCONFIG_LINES})
@@ -38,7 +38,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/sdkconfig")
     endforeach()
 endif()
 
-message(STATUS "Selected partition table: ${TARGET_CSV}")
+message(STATUS "Selected partition table path: ${TARGET_CSV}")
 execute_process(COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/${TARGET_CSV}" "${CMAKE_SOURCE_DIR}/partitions.csv")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
