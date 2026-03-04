@@ -938,8 +938,8 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
         filename_base[sizeof(filename_base) - 1] = '\0';
     }
 
-    char img_filename[128];
-    char jpg_filename[128];
+    char img_filename[140];
+    char jpg_filename[140];
     char final_img_path[512];
     char final_thumb_path[512];
 
