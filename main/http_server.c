@@ -411,7 +411,7 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         const char *temp_bmp_path = CURRENT_BMP_PATH;
         const char *temp_png_path = CURRENT_PNG_PATH;
         const char *temp_jpg_path = CURRENT_JPG_PATH;
-        const char *temp_epd_path = "/storage/.current_epd.gz";
+        const char *temp_epd_path = CURRENT_EPD_PATH;
         const char *display_path = NULL;
 
         // Load processing settings to get dithering algorithm

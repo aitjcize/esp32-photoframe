@@ -57,6 +57,7 @@ typedef enum {
 #define CURRENT_JPG_PATH TEMP_MOUNT_POINT "/.current.jpg"
 #define CURRENT_BMP_PATH TEMP_MOUNT_POINT "/.current.bmp"
 #define CURRENT_PNG_PATH TEMP_MOUNT_POINT "/.current.png"
+#define CURRENT_EPD_PATH TEMP_MOUNT_POINT "/.current_epd.gz"
 #define CURRENT_IMAGE_LINK TEMP_MOUNT_POINT "/.current.lnk"
 #define CURRENT_CALIBRATION_PATH TEMP_MOUNT_POINT "/.calibration.png"
 
