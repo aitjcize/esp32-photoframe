@@ -38,7 +38,6 @@
 #include "utils.h"
 #include "wifi_manager.h"
 
-
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
@@ -1336,18 +1335,6 @@ static esp_err_t sleep_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static void delayed_rotate_task(void *arg)
-{
-    // Wait for HTTP response to be sent
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    ESP_LOGI(TAG, "Delayed rotate task: rotating image now");
-    trigger_image_rotation();
-    ha_notify_update();
-
-    vTaskDelete(NULL);
-}
-
 static esp_err_t rotate_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -1360,6 +1347,10 @@ static esp_err_t rotate_handler(httpd_req_t *req)
 
     power_manager_reset_sleep_timer();
 
+    // Synchronous rotation as requested by maintainer
+    trigger_image_rotation();
+    ha_notify_update();
+
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "success");
     cJSON_AddStringToObject(response, "message", "Image rotation triggered");
@@ -1370,10 +1361,6 @@ static esp_err_t rotate_handler(httpd_req_t *req)
 
     free(json_str);
     cJSON_Delete(response);
-
-    // Create a task to rotate image after HTTP response completes
-    // Stack increased from 4096 to 8192 to prevent stack overflow in rotate_sequential
-    xTaskCreate(delayed_rotate_task, "delayed_rotate", 8192, NULL, 5, NULL);
 
     return ESP_OK;
 }
