@@ -14,18 +14,14 @@ extern "C" {
  * @brief SD card configuration
  */
 typedef struct {
-#ifdef CONFIG_SDCARD_DRIVER_SPI
     int host_id;
     gpio_num_t cs_pin;
-#endif
-#ifdef CONFIG_SDCARD_DRIVER_SDIO
     gpio_num_t clk_pin;
     gpio_num_t cmd_pin;
     gpio_num_t d0_pin;
     gpio_num_t d1_pin;
     gpio_num_t d2_pin;
     gpio_num_t d3_pin;
-#endif
 } sdcard_config_t;
 
 /**
