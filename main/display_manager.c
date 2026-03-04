@@ -511,7 +511,7 @@ static void rotate_sequential(char **enabled_albums, int album_count)
                             strcasecmp(ext, ".gz") == 0 || strcasecmp(ext, ".epd") == 0)) {
                     char fullpath[512];
                     snprintf(fullpath, sizeof(fullpath), "%s/%s", album_path, entry->d_name);
-                    ESP_LOGI(TAG, "  Found image [%ld]: %s", (long) current_idx, fullpath);
+                    ESP_LOGD(TAG, "  Found image [%ld]: %s", (long) current_idx, fullpath);
 
                     // Keep track of the very first image in case we need to wrap
                     if (first_image[0] == '\0') {
@@ -538,7 +538,7 @@ static void rotate_sequential(char **enabled_albums, int album_count)
     ESP_LOGI(
         TAG,
         "Sequential rotation finished traversal. current_idx=%ld, target_idx=%ld, found_target=%d",
-        (long) current_idx, (long) target_idx, (int) found_target);
+        (long) current_idx, (long) target_idx, found_target);
 
     if (found_target) {
         ESP_LOGI(TAG, "Displaying target image: %s", target_image);
@@ -617,8 +617,10 @@ static void rotate_random(char **enabled_albums, int album_count)
                 }
 
                 const char *ext = strrchr(entry->d_name, '.');
-                if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
-                            strcasecmp(ext, ".gz") == 0 || strcasecmp(ext, ".epd") == 0)) {
+                if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
+                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0 ||
+                            strcmp(ext, ".gz") == 0 ||
+                            strcmp(ext, ".epd") == 0)) {  // HIER WURDE ES GEFIXT
                     char *fullpath = malloc(512);
                     snprintf(fullpath, 512, "%s/%s", album_path, entry->d_name);
                     image_list[idx] = fullpath;
@@ -690,9 +692,9 @@ void display_manager_rotate_from_sdcard(void)
         return;
     }
 
-    ESP_LOGI(TAG, "Collecting images from %d enabled album(s)", album_count);
+    ESP_LOGD(TAG, "Collecting images from %d enabled album(s)", album_count);
     for (int i = 0; i < album_count; i++) {
-        ESP_LOGI(TAG, "  Enabled album[%d]: %s", i, enabled_albums[i]);
+        ESP_LOGD(TAG, "  Enabled album[%d]: %s", i, enabled_albums[i]);
     }
 
     // Check for stale albums (removed from SD card) and disable them
