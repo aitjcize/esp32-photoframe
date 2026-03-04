@@ -2,6 +2,7 @@
 
 #include <dirent.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -21,9 +22,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "nvs.h"
-#ifdef CONFIG_HAS_SDCARD
-#include "sdcard.h"
-#endif
+#include "storage.h"
+
 
 static const char *TAG = "display_manager";
 #define NVS_LAST_IMAGE_KEY "last_image"
@@ -584,14 +584,7 @@ void display_manager_rotate_from_sdcard(void)
         ESP_LOGI(TAG, "Rotating from storage");
     }
 
-    extern bool g_littlefs_mounted;
-#ifdef CONFIG_HAS_SDCARD
-    bool storage_mounted = sdcard_is_mounted() || g_littlefs_mounted;
-#else
-    bool storage_mounted = g_littlefs_mounted;
-#endif
-
-    if (!storage_mounted) {
+    if (!storage_has_persistent_storage()) {
         ESP_LOGI(TAG, "Storage not mounted - skipping rotation");
         return;
     }

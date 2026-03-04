@@ -17,7 +17,19 @@
 #include "esp_log.h"
 #include "esp_sntp.h"
 #include "esp_system.h"
+#include "esp_vfs_dev.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE
+#include "esp_littlefs.h"
+#endif
+
+// External RTC support
+#ifdef CONFIG_EXT_RTC_ENABLED
+#include "ext_rtc.h"
+#endif
+
 #include "ha_integration.h"
 #include "http_server.h"
 #include "image_processor.h"
@@ -28,51 +40,12 @@
 #include "periodic_tasks.h"
 #include "power_manager.h"
 #include "processing_settings.h"
+#include "storage.h"
 #include "utils.h"
 #include "wifi_manager.h"
 #include "wifi_provisioning.h"
-#ifdef CONFIG_HAS_SDCARD
-#include "sdcard.h"
-#endif
 
 static const char *TAG = "main";
-
-#ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE
-static esp_err_t mount_littlefs(void)
-{
-    ESP_LOGI(TAG, "Initializing LittleFS");
-
-    esp_vfs_littlefs_conf_t conf = {
-        .base_path = TEMP_MOUNT_POINT,
-        .partition_label = "storage",
-        .format_if_mount_failed = true,
-        .dont_mount = false,
-    };
-
-    esp_err_t ret = esp_vfs_littlefs_register(&conf);
-
-    if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
-            ESP_LOGE(TAG, "Failed to mount or format filesystem");
-        } else if (ret == ESP_ERR_NOT_FOUND) {
-            ESP_LOGE(TAG, "Failed to find LittleFS partition");
-        } else {
-            ESP_LOGE(TAG, "Failed to initialize LittleFS (%s)", esp_err_to_name(ret));
-        }
-        return ret;
-    }
-
-    size_t total = 0, used = 0;
-    ret = esp_littlefs_info(conf.partition_label, &total, &used);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to get LittleFS partition information (%s)", esp_err_to_name(ret));
-    } else {
-        ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
-    }
-
-    return ESP_OK;
-}
-#endif
 
 // Periodic callback for SNTP sync
 static esp_err_t sntp_sync_periodic_callback(void)
@@ -298,8 +271,6 @@ void deep_sleep_wake_main(void)
     // Won't reach here after sleep
 }
 
-bool g_littlefs_mounted = false;
-
 void app_main(void)
 {
     // Check reset reason to detect crashes
@@ -346,33 +317,9 @@ void app_main(void)
     ESP_ERROR_CHECK(board_hal_init());
     ESP_LOGI(TAG, "Power HAL initialized");
 
-#ifndef CONFIG_HAS_SDCARD
-#ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE
-    if (mount_littlefs() == ESP_OK) {
-        g_littlefs_mounted = true;
-    } else
-#endif
-    {
-        ESP_LOGW(TAG, "LittleFS disabled/failed, mounting MemFS at %s for temporary storage",
-                 TEMP_MOUNT_POINT);
-        ESP_ERROR_CHECK(memfs_mount(TEMP_MOUNT_POINT, 10));
-    }
-#else
-    if (!sdcard_is_mounted()) {
-#ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE
-        ESP_LOGW(TAG, "SD Card not mounted. Attempting LittleFS fallback...");
-        if (mount_littlefs() == ESP_OK) {
-            g_littlefs_mounted = true;
-        } else
-#endif
-        {
-            ESP_LOGW(TAG, "LittleFS disabled/failed, mounting MemFS at %s for temporary storage",
-                     TEMP_MOUNT_POINT);
-            // Mount MemFS at same path to allow temporary operations (upload/display)
-            ESP_ERROR_CHECK(memfs_mount(TEMP_MOUNT_POINT, 10));
-        }
-    }
-#endif
+    // Initialize the storage subsystem (handles SD, LittleFS, MemFS fallbacks)
+    ESP_LOGI(TAG, "Initializing storage subsystem...");
+    ESP_ERROR_CHECK(storage_init());
 
     // Initialize external RTC (via HAL)
     ESP_LOGI(TAG, "Initializing RTC...");
@@ -498,14 +445,14 @@ void app_main(void)
 
     if (!wifi_provisioning_is_provisioned()) {
         bool creds_loaded = false;
-#ifdef CONFIG_HAS_SDCARD
-        // Try to load WiFi credentials from SD card first
+
+        // Try to load WiFi credentials from storage
         char sd_ssid[WIFI_SSID_MAX_LEN] = {0};
         char sd_password[WIFI_PASS_MAX_LEN] = {0};
 
-        if (wifi_manager_load_credentials_from_sdcard(sd_ssid, sd_password) == ESP_OK) {
+        if (storage_read_wifi_credentials(sd_ssid, sd_password) == ESP_OK) {
             ESP_LOGI(TAG, "===========================================");
-            ESP_LOGI(TAG, "WiFi credentials found on SD card!");
+            ESP_LOGI(TAG, "WiFi credentials found on storage!");
             ESP_LOGI(TAG, "Saving to NVS and connecting...");
             ESP_LOGI(TAG, "===========================================");
 
@@ -520,9 +467,8 @@ void app_main(void)
                 ESP_LOGE(TAG, "Failed to save WiFi credentials to NVS");
             }
         }
-#endif
 
-        // No SD card credentials found, start captive portal provisioning
+        // No credentials found, start captive portal provisioning
         if (!creds_loaded) {
             ESP_LOGI(TAG, "===========================================");
             ESP_LOGI(TAG, "No WiFi credentials found - Starting AP mode");
@@ -531,14 +477,14 @@ void app_main(void)
             // Show setup screen on e-paper
             display_manager_show_setup_screen();
 
-#ifdef CONFIG_HAS_SDCARD
-            ESP_LOGI(TAG, "Option 1: Place wifi.txt on SD card with:");
-            ESP_LOGI(TAG, "  Line 1: WiFi SSID");
-            ESP_LOGI(TAG, "  Line 2: WiFi Password");
-            ESP_LOGI(TAG, "  Line 3: Device Name (optional, default: PhotoFrame)");
-            ESP_LOGI(TAG, "  Then restart the device");
-            ESP_LOGI(TAG, "===========================================");
-#endif
+            if (storage_has_persistent_storage()) {
+                ESP_LOGI(TAG, "Option 1: Place wifi.txt on root of storage with:");
+                ESP_LOGI(TAG, "  Line 1: WiFi SSID");
+                ESP_LOGI(TAG, "  Line 2: WiFi Password");
+                ESP_LOGI(TAG, "  Line 3: Device Name (optional, default: PhotoFrame)");
+                ESP_LOGI(TAG, "  Then restart the device");
+                ESP_LOGI(TAG, "===========================================");
+            }
             ESP_LOGI(TAG, "Option 2: Use captive portal:");
             ESP_LOGI(TAG, "1. Connect to WiFi: PhotoFrame-Setup");
             ESP_LOGI(TAG, "2. Open browser to: http://192.168.4.1");

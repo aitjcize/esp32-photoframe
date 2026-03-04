@@ -7,6 +7,7 @@
 #include "config.h"
 #include "esp_log.h"
 #include "nvs.h"
+#include "storage.h"
 
 static const char *TAG = "config_manager";
 
@@ -27,20 +28,12 @@ static bool sleep_schedule_enabled = false;
 static int sleep_schedule_start = 1380;  // Minutes since midnight (23:00 = 23*60)
 static int sleep_schedule_end = 420;     // Minutes since midnight (07:00 = 7*60)
 
-#if defined(CONFIG_HAS_SDCARD) || defined(CONFIG_USE_INTERNAL_FLASH_STORAGE)
-static rotation_mode_t rotation_mode = ROTATION_MODE_SDCARD;
-#else
-static rotation_mode_t rotation_mode = ROTATION_MODE_URL;
-#endif
+static rotation_mode_t rotation_mode =
+    ROTATION_MODE_SDCARD;  // Default, will be validated during init
 
 // Auto Rotate - SDCARD
-#ifdef CONFIG_HAS_SDCARD
 static sd_rotation_mode_t sd_rotation_mode = SD_ROTATION_RANDOM;
 static int32_t last_index = -1;
-#else
-static sd_rotation_mode_t sd_rotation_mode = SD_ROTATION_RANDOM;
-static int32_t last_index = -1;
-#endif
 
 // Auto Rotate - URL
 static char image_url[IMAGE_URL_MAX_LEN] = {0};
@@ -169,15 +162,16 @@ esp_err_t config_manager_init(void)
                      sleep_schedule_end, sleep_schedule_end / 60, sleep_schedule_end % 60);
         }
 
-#if defined(CONFIG_HAS_SDCARD) || defined(CONFIG_USE_INTERNAL_FLASH_STORAGE)
-        uint8_t stored_mode = ROTATION_MODE_SDCARD;
-#else
-        uint8_t stored_mode = ROTATION_MODE_URL;
-#endif
+        uint8_t stored_mode = ROTATION_MODE_URL;  // Default fallback
         if (nvs_get_u8(nvs_handle, NVS_ROTATION_MODE_KEY, &stored_mode) == ESP_OK) {
             rotation_mode = (rotation_mode_t) stored_mode;
             ESP_LOGI(TAG, "Loaded rotation mode from NVS: %s",
                      rotation_mode == ROTATION_MODE_URL ? "url" : "sdcard");
+        } else if (storage_has_persistent_storage()) {
+            rotation_mode = ROTATION_MODE_SDCARD;
+            ESP_LOGI(TAG, "No rotation mode in NVS, using default for persistent storage: sdcard");
+        } else {
+            ESP_LOGI(TAG, "No rotation mode in NVS, using default for no-storage: url");
         }
 
         // Auto Rotate - SDCARD
@@ -602,12 +596,10 @@ bool config_manager_is_in_sleep_schedule(void)
 
 void config_manager_set_rotation_mode(rotation_mode_t mode)
 {
-#if !defined(CONFIG_HAS_SDCARD) && !defined(CONFIG_USE_INTERNAL_FLASH_STORAGE)
-    if (mode == ROTATION_MODE_SDCARD) {
+    if (!storage_has_persistent_storage() && mode == ROTATION_MODE_SDCARD) {
         ESP_LOGE(TAG, "Cannot set rotation mode to SDCARD: Local storage not supported");
         return;
     }
-#endif
 
     rotation_mode = mode;
 

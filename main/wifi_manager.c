@@ -15,9 +15,8 @@
 #include "lwip/sys.h"
 #include "nvs.h"
 #include "nvs_flash.h"
-#ifdef CONFIG_HAS_SDCARD
-#include "sdcard.h"
-#endif
+#include "storage.h"
+
 static const char *TAG = "wifi_manager";
 
 #define WIFI_CONNECTED_BIT BIT0
@@ -281,85 +280,3 @@ int wifi_manager_scan(wifi_ap_record_t *results, int max_results)
     ESP_LOGI(TAG, "WiFi scan found %d APs (returning %d)", ap_count, fetch_count);
     return (int) fetch_count;
 }
-
-#ifdef CONFIG_HAS_SDCARD
-esp_err_t wifi_manager_load_credentials_from_sdcard(char *ssid, char *password)
-{
-    if (!sdcard_is_mounted()) {
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    const char *wifi_file = "/sdcard/wifi.txt";
-    FILE *fp = fopen(wifi_file, "r");
-
-    if (!fp) {
-        ESP_LOGD(TAG, "No wifi.txt found on SD card");
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    // Read SSID (first line)
-    if (!fgets(ssid, WIFI_SSID_MAX_LEN, fp)) {
-        ESP_LOGE(TAG, "Failed to read SSID from wifi.txt");
-        fclose(fp);
-        return ESP_FAIL;
-    }
-
-    // Remove trailing newline/carriage return
-    size_t len = strlen(ssid);
-    while (len > 0 && (ssid[len - 1] == '\n' || ssid[len - 1] == '\r')) {
-        ssid[len - 1] = '\0';
-        len--;
-    }
-
-    if (len == 0) {
-        ESP_LOGE(TAG, "SSID is empty in wifi.txt");
-        fclose(fp);
-        return ESP_FAIL;
-    }
-
-    // Read password (second line)
-    if (!fgets(password, WIFI_PASS_MAX_LEN, fp)) {
-        ESP_LOGE(TAG, "Failed to read password from wifi.txt");
-        fclose(fp);
-        return ESP_FAIL;
-    }
-
-    // Remove trailing newline/carriage return
-    len = strlen(password);
-    while (len > 0 && (password[len - 1] == '\n' || password[len - 1] == '\r')) {
-        password[len - 1] = '\0';
-        len--;
-    }
-
-    // Read device name (third line, optional)
-    char device_name[DEVICE_NAME_MAX_LEN] = {0};
-    if (fgets(device_name, DEVICE_NAME_MAX_LEN, fp)) {
-        // Remove trailing newline/carriage return
-        len = strlen(device_name);
-        while (len > 0 && (device_name[len - 1] == '\n' || device_name[len - 1] == '\r')) {
-            device_name[len - 1] = '\0';
-            len--;
-        }
-
-        // Only set if not empty
-        if (len > 0) {
-            config_manager_set_device_name(device_name);
-            ESP_LOGI(TAG, "Device name loaded from SD card: %s", device_name);
-        }
-    }
-
-    fclose(fp);
-
-    ESP_LOGI(TAG, "WiFi credentials loaded from SD card: SSID=%s", ssid);
-
-    // Delete wifi.txt to prevent re-reading on next boot
-    // This prevents infinite loop if credentials are invalid
-    if (unlink(wifi_file) == 0) {
-        ESP_LOGI(TAG, "Deleted wifi.txt from SD card");
-    } else {
-        ESP_LOGW(TAG, "Failed to delete wifi.txt - may cause issues if credentials are invalid");
-    }
-
-    return ESP_OK;
-}
-#endif

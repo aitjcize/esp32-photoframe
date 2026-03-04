@@ -17,9 +17,7 @@
 #include "esp_mac.h"
 #include "image_processor.h"
 #include "processing_settings.h"
-#ifdef CONFIG_HAS_SDCARD
-#include "sdcard.h"
-#endif
+#include "storage.h"
 #include "testable_utils.h"
 
 static const char *TAG = "utils";
@@ -341,73 +339,74 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
             }
             dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
 
-#ifdef CONFIG_HAS_SDCARD
-            // SD card system: process to file
-            err = image_processor_process(temp_upload_path, temp_png_path, algo);
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
-                unlink(temp_upload_path);
-                return err;
-            }
-#else
-            // SD-card-less system: read file to buffer, process to RGB, display directly
-            FILE *fp = fopen(temp_upload_path, "rb");
-            if (!fp) {
-                ESP_LOGE(TAG, "Failed to open uploaded file");
-                unlink(temp_upload_path);
-                return ESP_FAIL;
-            }
+            if (storage_can_process_to_file()) {
+                // Persistent storage system: process to file
+                err = image_processor_process(temp_upload_path, temp_png_path, algo);
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
+                    unlink(temp_upload_path);
+                    return err;
+                }
+            } else {
+                // Temporary/No-storage system: read file to buffer, process to RGB, display
+                // directly
+                FILE *fp = fopen(temp_upload_path, "rb");
+                if (!fp) {
+                    ESP_LOGE(TAG, "Failed to open uploaded file");
+                    unlink(temp_upload_path);
+                    return ESP_FAIL;
+                }
 
-            fseek(fp, 0, SEEK_END);
-            long file_size = ftell(fp);
-            fseek(fp, 0, SEEK_SET);
+                fseek(fp, 0, SEEK_END);
+                long file_size = ftell(fp);
+                fseek(fp, 0, SEEK_SET);
 
-            uint8_t *file_buffer = heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
-            if (!file_buffer) {
-                ESP_LOGE(TAG, "Failed to allocate buffer for image");
+                uint8_t *file_buffer = heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
+                if (!file_buffer) {
+                    ESP_LOGE(TAG, "Failed to allocate buffer for image");
+                    fclose(fp);
+                    unlink(temp_upload_path);
+                    return ESP_ERR_NO_MEM;
+                }
+
+                fread(file_buffer, 1, file_size, fp);
                 fclose(fp);
-                unlink(temp_upload_path);
-                return ESP_ERR_NO_MEM;
-            }
 
-            fread(file_buffer, 1, file_size, fp);
-            fclose(fp);
-
-            // For JPEG: save as thumbnail
-            if (image_format == IMAGE_FORMAT_JPG && !thumbnail_downloaded) {
-                unlink(temp_jpg_path);
-                if (rename(temp_upload_path, temp_jpg_path) == 0) {
-                    ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
+                // For JPEG: save as thumbnail
+                if (image_format == IMAGE_FORMAT_JPG && !thumbnail_downloaded) {
+                    unlink(temp_jpg_path);
+                    if (rename(temp_upload_path, temp_jpg_path) == 0) {
+                        ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
+                    } else {
+                        unlink(temp_upload_path);
+                    }
                 } else {
                     unlink(temp_upload_path);
                 }
-            } else {
-                unlink(temp_upload_path);
+
+                // Process to RGB buffer
+                image_process_rgb_result_t result;
+                err = image_processor_process_to_rgb(file_buffer, file_size, image_format, algo,
+                                                     &result);
+                heap_caps_free(file_buffer);
+
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
+                    return err;
+                }
+
+                // Display directly from RGB buffer
+                err = display_manager_show_rgb_buffer(result.rgb_data, result.width, result.height);
+                heap_caps_free(result.rgb_data);
+
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to display image");
+                    return err;
+                }
+
+                ESP_LOGI(TAG, "Image displayed from buffer");
+                return ESP_OK;
             }
-
-            // Process to RGB buffer
-            image_process_rgb_result_t result;
-            err =
-                image_processor_process_to_rgb(file_buffer, file_size, image_format, algo, &result);
-            heap_caps_free(file_buffer);
-
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
-                return err;
-            }
-
-            // Display directly from RGB buffer
-            err = display_manager_show_rgb_buffer(result.rgb_data, result.width, result.height);
-            heap_caps_free(result.rgb_data);
-
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to display image");
-                return err;
-            }
-
-            ESP_LOGI(TAG, "Image displayed from buffer");
-            return ESP_OK;
-#endif
         }
         final_path = temp_png_path;
 
@@ -431,95 +430,91 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
     }
 
     // ========== STEP 2: Optionally save to Downloads album ==========
-#ifdef CONFIG_HAS_SDCARD
-    bool save_images = config_manager_get_save_downloaded_images();
+    if (storage_has_persistent_storage()) {
+        bool save_images = config_manager_get_save_downloaded_images();
 
-    if (save_images && !sdcard_is_mounted()) {
-        ESP_LOGI(TAG, "SD card not mounted, skipping save to Downloads");
-        save_images = false;
-    }
+        if (save_images) {
+            char downloads_path[256];
+            snprintf(downloads_path, sizeof(downloads_path), "%s/Downloads", IMAGE_DIRECTORY);
 
-    if (save_images) {
-        char downloads_path[256];
-        snprintf(downloads_path, sizeof(downloads_path), "%s/Downloads", IMAGE_DIRECTORY);
-
-        // Create Downloads directory if it doesn't exist
-        struct stat st;
-        if (stat(downloads_path, &st) != 0) {
-            ESP_LOGI(TAG, "Creating Downloads album directory");
-            if (mkdir(downloads_path, 0755) != 0) {
-                ESP_LOGE(TAG, "Failed to create Downloads directory");
-                // Processing succeeded, just can't save to album - fall through to use temp path
-                goto use_temp_path;
-            }
-        }
-
-        // Generate unique filename based on timestamp
-        time_t now = time(NULL);
-        char filename_base[64];
-        snprintf(filename_base, sizeof(filename_base), "download_%lld", (long long) now);
-
-        char final_image_path[512];
-        bool thumbnail_saved_to_album = false;
-
-        if (image_format == IMAGE_FORMAT_BMP) {
-            snprintf(final_image_path, sizeof(final_image_path), "%s/%s.bmp", downloads_path,
-                     filename_base);
-            if (rename(final_path, final_image_path) != 0) {
-                ESP_LOGW(TAG, "Failed to move BMP to Downloads album, using temp path");
-            } else {
-                final_path = NULL;  // Will be set below
-            }
-        } else {
-            snprintf(final_image_path, sizeof(final_image_path), "%s/%s.png", downloads_path,
-                     filename_base);
-            if (rename(final_path, final_image_path) != 0) {
-                ESP_LOGW(TAG, "Failed to move PNG to Downloads album, using temp path");
-            } else {
-                final_path = NULL;  // Will be set below
-            }
-        }
-
-        // Move thumbnail to album if we successfully moved the main image
-        if (final_path == NULL) {
-            struct stat thumb_st;
-            if (stat(temp_jpg_path, &thumb_st) == 0) {
-                char final_thumb_path[512];
-                snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s.jpg", downloads_path,
-                         filename_base);
-                if (rename(temp_jpg_path, final_thumb_path) == 0) {
-                    thumbnail_saved_to_album = true;
-                } else {
-                    ESP_LOGW(TAG, "Failed to move thumbnail to Downloads album");
+            // Create Downloads directory if it doesn't exist
+            struct stat st;
+            if (stat(downloads_path, &st) != 0) {
+                ESP_LOGI(TAG, "Creating Downloads album directory");
+                if (mkdir(downloads_path, 0755) != 0) {
+                    ESP_LOGE(TAG, "Failed to create Downloads directory");
+                    // Processing succeeded, just can't save to album - fall through to use temp
+                    // path
+                    goto use_temp_path;
                 }
             }
 
-            if (thumbnail_saved_to_album) {
-                ESP_LOGI(TAG, "Saved to Downloads album: %s (with thumbnail)", filename_base);
-            } else {
-                ESP_LOGI(TAG, "Saved to Downloads album: %s", filename_base);
-            }
-            snprintf(saved_image_path, path_size, "%s", final_image_path);
-        }
-    }
+            // Generate unique filename based on timestamp
+            time_t now = time(NULL);
+            char filename_base[64];
+            snprintf(filename_base, sizeof(filename_base), "download_%lld", (long long) now);
 
-use_temp_path:
-    // If not saved to album (or save failed), use temp path
-    if (final_path != NULL) {
+            char final_image_path[512];
+            bool thumbnail_saved_to_album = false;
+
+            if (image_format == IMAGE_FORMAT_BMP) {
+                snprintf(final_image_path, sizeof(final_image_path), "%s/%s.bmp", downloads_path,
+                         filename_base);
+                if (rename(final_path, final_image_path) != 0) {
+                    ESP_LOGW(TAG, "Failed to move BMP to Downloads album, using temp path");
+                } else {
+                    final_path = NULL;  // Will be set below
+                }
+            } else {
+                snprintf(final_image_path, sizeof(final_image_path), "%s/%s.png", downloads_path,
+                         filename_base);
+                if (rename(final_path, final_image_path) != 0) {
+                    ESP_LOGW(TAG, "Failed to move PNG to Downloads album, using temp path");
+                } else {
+                    final_path = NULL;  // Will be set below
+                }
+            }
+
+            // Move thumbnail to album if we successfully moved the main image
+            if (final_path == NULL) {
+                struct stat thumb_st;
+                if (stat(temp_jpg_path, &thumb_st) == 0) {
+                    char final_thumb_path[512];
+                    snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s.jpg",
+                             downloads_path, filename_base);
+                    if (rename(temp_jpg_path, final_thumb_path) == 0) {
+                        thumbnail_saved_to_album = true;
+                    } else {
+                        ESP_LOGW(TAG, "Failed to move thumbnail to Downloads album");
+                    }
+                }
+
+                if (thumbnail_saved_to_album) {
+                    ESP_LOGI(TAG, "Saved to Downloads album: %s (with thumbnail)", filename_base);
+                } else {
+                    ESP_LOGI(TAG, "Saved to Downloads album: %s", filename_base);
+                }
+                snprintf(saved_image_path, path_size, "%s", final_image_path);
+            }
+        }
+
+    use_temp_path:
+        // If not saved to album (or save failed), use temp path
+        if (final_path != NULL) {
+            snprintf(saved_image_path, path_size, "%s", final_path);
+            ESP_LOGI(TAG, "Image processed (not saved to album): %s", final_path);
+            if (thumbnail_downloaded) {
+                ESP_LOGI(TAG, "Downloaded thumbnail available: %s", temp_jpg_path);
+            }
+        }
+    } else {
+        // No persistent storage support - just use temp path
         snprintf(saved_image_path, path_size, "%s", final_path);
-        ESP_LOGI(TAG, "Image processed (not saved to album): %s", final_path);
+        ESP_LOGI(TAG, "Image processed: %s", final_path);
         if (thumbnail_downloaded) {
             ESP_LOGI(TAG, "Downloaded thumbnail available: %s", temp_jpg_path);
         }
     }
-#else
-    // No SD card support - just use temp path
-    snprintf(saved_image_path, path_size, "%s", final_path);
-    ESP_LOGI(TAG, "Image processed: %s", final_path);
-    if (thumbnail_downloaded) {
-        ESP_LOGI(TAG, "Downloaded thumbnail available: %s", temp_jpg_path);
-    }
-#endif
 
     ESP_LOGI(TAG, "Successfully processed image: %s", saved_image_path);
 
