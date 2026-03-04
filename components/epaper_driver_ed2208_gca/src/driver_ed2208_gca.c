@@ -119,6 +119,17 @@ static void gpio_init(void)
     ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_config(&in_conf));
 
     gpio_set_level(g_cfg.pin_rst, 1);
+
+    if (g_cfg.pin_enable >= 0) {
+        gpio_config_t en_conf = {
+            .mode = GPIO_MODE_OUTPUT,
+            .pin_bit_mask = (1ULL << g_cfg.pin_enable),
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+        };
+        ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_config(&en_conf));
+        gpio_set_level(g_cfg.pin_enable, 1);
+        vTaskDelay(pdMS_TO_TICKS(100));  // allow display power to stabilize
+    }
 }
 
 static void spi_add_device(void)
@@ -325,4 +336,9 @@ void epaper_enter_deepsleep(void)
     // Deep Sleep
     send_command(0x07);
     send_data(0xA5);
+
+    if (g_cfg.pin_enable >= 0) {
+        vTaskDelay(pdMS_TO_TICKS(100));       // Ensure display enters sleep before cutting power
+        gpio_set_level(g_cfg.pin_enable, 0);  // Cut power
+    }
 }

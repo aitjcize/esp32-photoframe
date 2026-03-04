@@ -1,0 +1,62 @@
+menu "Internal Storage Configuration"
+
+    config USE_INTERNAL_FLASH_STORAGE
+        bool "Use internal flash as storage (LittleFS)"
+        default y
+        help
+            Mounts a LittleFS partition from internal flash to use as storage.
+            Disable this if your board has limited flash space (e.g. 4MB)
+            and you don't have enough space for a storage partition.
+            If disabled, the system will use a small RAM-based filesystem (MemFS) 
+            for temporary image processing instead.
+
+    choice BOARD_FLASH_SIZE
+        prompt "Board Total Flash Size"
+        depends on USE_INTERNAL_FLASH_STORAGE
+        default FLASH_SIZE_16MB
+        help
+            Select the total physical flash memory size of your board.
+            This determines how much space is dedicated for the LittleFS storage partition.
+            Ensure you select the correct size, otherwise the firmware may fail to boot.
+
+        config FLASH_SIZE_128MB
+            bool "128MB Flash (approx. 120MB for photos)"
+            help
+                For boards with a huge 128MB Flash.
+                Provides a massive ~120MB storage partition for photos.
+
+        config FLASH_SIZE_64MB
+            bool "64MB Flash (approx. 56MB for photos)"
+            help
+                For boards with a massive 64MB Flash.
+                Provides a huge ~56MB storage partition for photos.
+
+        config FLASH_SIZE_32MB
+            bool "32MB Flash (approx. 24MB for photos)"
+            help
+                For boards with 32MB Flash. 
+                Provides a very large ~24MB storage partition for photos.
+
+        config FLASH_SIZE_16MB
+            bool "16MB Flash (approx. 8MB for photos)"
+            help
+                For boards with 16MB Flash. (App takes ~3.5MB x 2 + System partitions)
+                Provides an ~8MB storage partition, allowing substantial photo storage.
+
+        config FLASH_SIZE_8MB
+            bool "8MB Flash (approx. 2.8MB for photos)"
+            help
+                For boards with 8MB Flash. (App takes ~2.5MB x 2 + System partitions)
+                Provides a limited ~2.8MB storage partition. Good for OTA and a few photos.
+    endchoice
+
+    config INTERNAL_STORAGE_PARTITION_TABLE
+        string
+        default "partitions/partitions_128mb.csv" if FLASH_SIZE_128MB
+        default "partitions/partitions_64mb.csv" if FLASH_SIZE_64MB
+        default "partitions/partitions_32mb.csv" if FLASH_SIZE_32MB
+        default "partitions/partitions_16mb.csv" if FLASH_SIZE_16MB
+        default "partitions/partitions_8mb.csv" if FLASH_SIZE_8MB
+        default "partitions/partitions_disable.csv" if !USE_INTERNAL_FLASH_STORAGE
+
+endmenu

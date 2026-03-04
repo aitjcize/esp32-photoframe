@@ -72,7 +72,7 @@
 
 #include "../Fonts/fonts.h"
 #include "DEV_Config.h"
-
+#include <stdbool.h>
 /**
  * Image attributes
  **/

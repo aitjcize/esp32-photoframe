@@ -31,6 +31,9 @@ cd <path to photoframe-api>
 # Build for Seeed Studio XIAO EE02 (13.3" e-paper)
 ./build.py --board seeedstudio_xiao_ee02
 
+# Build for Seeed Studio XIAO EE04 (7.3" 6-color e-paper)
+./build.py --board seeedstudio_xiao_ee04
+
 # Clean build (optional)
 ./build.py --board waveshare_photopainter_73 --fullclean
 ```

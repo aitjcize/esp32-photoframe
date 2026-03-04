@@ -8,17 +8,16 @@
 #include "config.h"
 #include "esp_log.h"
 #include "nvs.h"
+#include "storage.h"
 
-#ifdef CONFIG_HAS_SDCARD
-#include "sdcard.h"
 
 static const char *TAG = "album_manager";
 static char enabled_albums_str[512] = "";
 
 esp_err_t album_manager_init(void)
 {
-    if (!sdcard_is_mounted()) {
-        ESP_LOGI(TAG, "SD card not mounted - skipping album manager initialization");
+    if (!storage_has_persistent_storage()) {
+        ESP_LOGI(TAG, "Storage not mounted - skipping album manager initialization");
         return ESP_OK;
     }
 
@@ -366,5 +365,3 @@ bool album_manager_album_exists(const char *album_name)
     struct stat st;
     return (stat(album_path, &st) == 0 && S_ISDIR(st.st_mode));
 }
-
-#endif /* CONFIG_HAS_SDCARD */

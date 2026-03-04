@@ -39,8 +39,6 @@ typedef enum {
 #define DEFAULT_NTP_SERVER "pool.ntp.org"
 
 #define SDCARD_MOUNT_POINT "/sdcard"
-#define IMAGE_DIRECTORY SDCARD_MOUNT_POINT "/images"
-#define DOWNLOAD_DIRECTORY IMAGE_DIRECTORY "/Downloads"
 #define DEFAULT_ALBUM_NAME "Default"
 
 #include "board_hal.h"
@@ -48,8 +46,12 @@ typedef enum {
 #ifdef CONFIG_HAS_SDCARD
 #define TEMP_MOUNT_POINT "/sdcard"
 #else
-#define TEMP_MOUNT_POINT "/ram"
+// Temporary storage mount point for devices without SD card
+#define TEMP_MOUNT_POINT "/storage"
 #endif
+
+#define IMAGE_DIRECTORY TEMP_MOUNT_POINT "/images"
+#define DOWNLOAD_DIRECTORY IMAGE_DIRECTORY "/Downloads"
 
 #define CURRENT_UPLOAD_PATH TEMP_MOUNT_POINT "/.current.tmp"
 #define CURRENT_JPG_PATH TEMP_MOUNT_POINT "/.current.jpg"

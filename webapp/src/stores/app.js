@@ -17,6 +17,8 @@ export const useAppStore = defineStore("app", () => {
     height: 480,
     has_sdcard: false,
     sdcard_inserted: false,
+    storage_total: 0,
+    storage_used: 0,
     version: "v1.0",
     project_name: "PhotoFrame",
     compile_time: "",
@@ -154,6 +156,7 @@ export const useAppStore = defineStore("app", () => {
       });
       if (response.ok) {
         await loadAlbums();
+        await loadSystemInfo();
         if (selectedAlbum.value === albumName) {
           selectAlbum("Default");
         }
@@ -176,6 +179,7 @@ export const useAppStore = defineStore("app", () => {
       });
       if (response.ok) {
         await loadImages(selectedAlbum.value);
+        await loadSystemInfo();
         return true;
       }
       return false;

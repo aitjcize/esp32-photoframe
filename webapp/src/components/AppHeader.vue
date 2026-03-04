@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { useAppStore } from "../stores";
 
 const appStore = useAppStore();
@@ -22,6 +22,29 @@ function getBatteryColor(level) {
   if (level < 50) return "warning";
   return "success";
 }
+
+const formatStorageBytes = (bytes) => {
+  if (!bytes) return "0 MB";
+  return (bytes / 1024 / 1024).toFixed(1) + " MB";
+};
+
+const storageUsedMBString = computed(() => formatStorageBytes(appStore.systemInfo.storage_used));
+const storageTotalMBString = computed(() => formatStorageBytes(appStore.systemInfo.storage_total));
+
+const storageColor = computed(() => {
+  const total = appStore.systemInfo.storage_total || 1;
+  const used = appStore.systemInfo.storage_used || 0;
+  const ratio = used / total;
+  if (ratio > 0.9) return "error";
+  if (ratio > 0.75) return "warning";
+  return "success";
+});
+
+const storageIcon = computed(() => {
+  // If we compile with SD card support and it's physically there, we could guess it's an SD card.
+  // We'll just differentiate visually loosely or fall back to an internal storage icon.
+  return "mdi-database";
+});
 </script>
 
 <template>
@@ -48,6 +71,17 @@ function getBatteryColor(level) {
       <v-btn icon class="mr-2" title="Enter Deep Sleep" @click="sleepDialog = true">
         <v-icon>mdi-sleep</v-icon>
       </v-btn>
+
+      <!-- Storage Status -->
+      <v-chip
+        v-if="appStore.systemInfo.sdcard_inserted && appStore.systemInfo.storage_total > 0"
+        variant="flat"
+        :color="storageColor"
+        class="mr-2 text-white"
+      >
+        <v-icon :icon="storageIcon" start />
+        {{ storageUsedMBString }} / {{ storageTotalMBString }}
+      </v-chip>
 
       <!-- Battery Status -->
       <v-chip

@@ -109,6 +109,14 @@ Configure your API keys in **Settings > AI Generation**.
 - **Board Name**: `seeedstudio_xiao_ee02`
 - **Configuration**: Setup using Seeed Studio XIAO EE02 + dedicated 13.3" ePaper display
 
+### Seeed Studio XIAO EE04
+- **Product**: [Seeed Studio XIAO EE04](https://www.seeedstudio.com/7-3inch-Six-Color-eInk-ePaper-Display-with-800x480-Pixels-p-6567.html)
+- **Board Name**: `seeedstudio_xiao_ee04`
+- **Configuration**: Setup using Seeed Studio XIAO EE04 + dedicated 7.3" 6-color ePaper display
+
+### 💾 Cnfigurable Internal Storage 
+Use the board's internal flash as a virtual SD card to store images (switchable via Kconfig, supports from 8MB up to 128MB flash chips, resulting in up to 120MB image storage).
+
 ### Known Issues / Work in Progress 🚧
 
 - **PhotoPainter Restarts**: All existing Waveshare PhotoPainter boards on the market use the AXP2101 power management IC, which causes unexplained restarts when connected to both Type-C and a lithium battery simultaneously. **Workaround:** use either USB power only or battery only. Using both at the same time may cause frequent firmware restarts due to unstable power supply. Waveshare has confirmed this issue and future boards will ship with TG28 as a replacement, which will not have this problem. See [waveshareteam/ESP32-S3-PhotoPainter#5](https://github.com/waveshareteam/ESP32-S3-PhotoPainter/issues/5#issuecomment-3876269519) for details.
@@ -140,6 +148,9 @@ We provide a `build.py` helper script to simplify building for different boards.
 
 # Build for Seeed Studio XIAO EE02
 ./build.py --board seeedstudio_xiao_ee02
+
+# Build for Seeed Studio XIAO EE04
+./build.py --board seeedstudio_xiao_ee04
 
 # Flash the firmware
 idf.py -p /dev/ttyUSB0 flash monitor

@@ -5,3 +5,4 @@ dependencies:
   espressif/cjson: ^1.7.18
   espressif/libpng:
     version: ^1.6.39
+  joltwallet/littlefs: "*"

@@ -511,6 +511,7 @@ static void rotate_sequential(char **enabled_albums, int album_count)
                             strcasecmp(ext, ".gz") == 0 || strcasecmp(ext, ".epd") == 0)) {
                     char fullpath[512];
                     snprintf(fullpath, sizeof(fullpath), "%s/%s", album_path, entry->d_name);
+                    ESP_LOGI(TAG, "  Found image [%ld]: %s", (long) current_idx, fullpath);
 
                     // Keep track of the very first image in case we need to wrap
                     if (first_image[0] == '\0') {
