@@ -14,6 +14,7 @@ set(SOURCES
     "png_decoder.c"
     "power_manager.c"
     "processing_settings.c"
+    "storage.c"
     "testable_utils.c"
     "utils.c"
     "wifi_manager.c"
@@ -45,6 +46,7 @@ set(PRIV_REQUIRES
     memfs
     nvs_flash
     sdcard
+    zlib
 )
 
 idf_component_register(

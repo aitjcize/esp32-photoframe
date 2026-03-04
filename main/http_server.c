@@ -3,7 +3,9 @@
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -18,7 +20,11 @@
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
+#include "esp_littlefs.h"
 #include "esp_log.h"
+#include "esp_vfs.h"
+#include "esp_vfs_fat.h"
+#include "freertos/task.h"
 #include "ha_integration.h"
 #include "image_processor.h"
 #include "mdns_service.h"
@@ -27,9 +33,8 @@
 #include "periodic_tasks.h"
 #include "power_manager.h"
 #include "processing_settings.h"
-#ifdef CONFIG_HAS_SDCARD
 #include "sdcard.h"
-#endif
+#include "storage.h"
 #include "utils.h"
 #include "wifi_manager.h"
 
@@ -564,7 +569,6 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
     const char *temp_jpg_path = CURRENT_JPG_PATH;
     const char *temp_bmp_path = CURRENT_BMP_PATH;
     const char *temp_png_path = CURRENT_PNG_PATH;
-    const char *temp_epd_path = "/storage/.current_epd.gz";
 
     // Delete old files to prevent caching issues
     unlink(temp_upload_path);
@@ -623,8 +627,6 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             ESP_LOGI(TAG, "Detected BMP format from file");
         } else if (image_format == IMAGE_FORMAT_JPG) {
             ESP_LOGI(TAG, "Detected JPG format from file");
-        } else if (image_format == IMAGE_FORMAT_EPD_GZ) {
-            ESP_LOGI(TAG, "Detected EPD_GZ format from file");
         } else {
             ESP_LOGE(TAG, "Unsupported image format or format detection failed");
             unlink(temp_upload_path);
@@ -651,15 +653,6 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             return ESP_FAIL;
         }
         display_path = temp_bmp_path;
-    } else if (image_format == IMAGE_FORMAT_EPD_GZ) {
-        // Move uploaded EPD GZ to temp location
-        if (rename(temp_upload_path, temp_epd_path) != 0) {
-            ESP_LOGE(TAG, "Failed to move uploaded EPD.GZ to temp location");
-            unlink(temp_upload_path);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to process EPD.GZ");
-            return ESP_FAIL;
-        }
-        display_path = temp_epd_path;
     } else {
         // PNG or JPG - unified processing logic
         bool needs_processing = true;
@@ -684,127 +677,129 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             // Needs processing (JPG or raw PNG)
             dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
 
-#ifdef CONFIG_HAS_SDCARD
-            // SD card system: process to file
-            err = image_processor_process(temp_upload_path, temp_png_path, algo);
+            if (storage_can_process_to_file()) {
+                // Persistent storage system: process to file
+                err = image_processor_process(temp_upload_path, temp_png_path, algo);
 
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
-                unlink(temp_upload_path);
-
-                // Provide specific error messages based on error type
-                if (err == ESP_ERR_INVALID_SIZE) {
-                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                        "Image is too large (max: 6400x3840). Please resize your "
-                                        "image and try again.");
-                } else if (err == ESP_ERR_NO_MEM) {
-                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                        "Image requires too much memory to process. Please use a "
-                                        "smaller image.");
-                } else {
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                        "Failed to process image");
-                }
-                return ESP_FAIL;
-            }
-
-            // For JPEG: use original as thumbnail; for PNG: delete original
-            if (image_format == IMAGE_FORMAT_JPG) {
-                unlink(temp_jpg_path);
-                if (rename(temp_upload_path, temp_jpg_path) != 0) {
-                    ESP_LOGW(TAG, "Failed to save original JPEG as thumbnail");
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
                     unlink(temp_upload_path);
+
+                    // Provide specific error messages based on error type
+                    if (err == ESP_ERR_INVALID_SIZE) {
+                        httpd_resp_send_err(
+                            req, HTTPD_400_BAD_REQUEST,
+                            "Image is too large (max: 6400x3840). Please resize your "
+                            "image and try again.");
+                    } else if (err == ESP_ERR_NO_MEM) {
+                        httpd_resp_send_err(
+                            req, HTTPD_400_BAD_REQUEST,
+                            "Image requires too much memory to process. Please use a "
+                            "smaller image.");
+                    } else {
+                        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                            "Failed to process image");
+                    }
+                    return ESP_FAIL;
+                }
+
+                // For JPEG: use original as thumbnail; for PNG: delete original
+                if (image_format == IMAGE_FORMAT_JPG) {
+                    unlink(temp_jpg_path);
+                    if (rename(temp_upload_path, temp_jpg_path) != 0) {
+                        ESP_LOGW(TAG, "Failed to save original JPEG as thumbnail");
+                        unlink(temp_upload_path);
+                    } else {
+                        ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
+                    }
                 } else {
-                    ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
+                    unlink(temp_upload_path);
                 }
             } else {
-                unlink(temp_upload_path);
-            }
-#else
-            // SD-card-less system: read file to buffer, process to RGB, display directly
-            FILE *fp = fopen(temp_upload_path, "rb");
-            if (!fp) {
-                ESP_LOGE(TAG, "Failed to open uploaded file");
-                unlink(temp_upload_path);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                    "Failed to process image");
-                return ESP_FAIL;
-            }
+                // Temporary/No-storage system: read file to buffer, process to RGB, display
+                // directly
+                FILE *fp = fopen(temp_upload_path, "rb");
+                if (!fp) {
+                    ESP_LOGE(TAG, "Failed to open uploaded file");
+                    unlink(temp_upload_path);
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                        "Failed to process image");
+                    return ESP_FAIL;
+                }
 
-            fseek(fp, 0, SEEK_END);
-            long file_size = ftell(fp);
-            fseek(fp, 0, SEEK_SET);
+                fseek(fp, 0, SEEK_END);
+                long file_size = ftell(fp);
+                fseek(fp, 0, SEEK_SET);
 
-            uint8_t *file_buffer = heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
-            if (!file_buffer) {
-                ESP_LOGE(TAG, "Failed to allocate buffer for image");
+                uint8_t *file_buffer = heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
+                if (!file_buffer) {
+                    ESP_LOGE(TAG, "Failed to allocate buffer for image");
+                    fclose(fp);
+                    unlink(temp_upload_path);
+                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                        "Image requires too much memory to process");
+                    return ESP_FAIL;
+                }
+
+                fread(file_buffer, 1, file_size, fp);
                 fclose(fp);
-                unlink(temp_upload_path);
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                    "Image requires too much memory to process");
-                return ESP_FAIL;
-            }
 
-            fread(file_buffer, 1, file_size, fp);
-            fclose(fp);
-
-            // For JPEG: save as thumbnail; for PNG: delete original
-            if (image_format == IMAGE_FORMAT_JPG) {
-                unlink(temp_jpg_path);
-                if (rename(temp_upload_path, temp_jpg_path) != 0) {
-                    ESP_LOGW(TAG, "Failed to save original JPEG as thumbnail");
+                // For JPEG: save as thumbnail; for PNG: delete original
+                if (image_format == IMAGE_FORMAT_JPG) {
+                    unlink(temp_jpg_path);
+                    if (rename(temp_upload_path, temp_jpg_path) != 0) {
+                        ESP_LOGW(TAG, "Failed to save original JPEG as thumbnail");
+                        unlink(temp_upload_path);
+                    } else {
+                        ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
+                    }
+                } else {
                     unlink(temp_upload_path);
-                } else {
-                    ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
                 }
-            } else {
-                unlink(temp_upload_path);
-            }
 
-            // Process to RGB buffer
-            image_process_rgb_result_t result;
-            err =
-                image_processor_process_to_rgb(file_buffer, file_size, image_format, algo, &result);
-            heap_caps_free(file_buffer);
+                // Process to RGB buffer
+                image_process_rgb_result_t result;
+                err = image_processor_process_to_rgb(file_buffer, file_size, image_format, algo,
+                                                     &result);
+                heap_caps_free(file_buffer);
 
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
-                if (err == ESP_ERR_INVALID_SIZE) {
-                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                        "Image is too large. Please resize and try again.");
-                } else if (err == ESP_ERR_NO_MEM) {
-                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                        "Image requires too much memory to process.");
-                } else {
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
+                    if (err == ESP_ERR_INVALID_SIZE) {
+                        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                            "Image is too large. Please resize and try again.");
+                    } else if (err == ESP_ERR_NO_MEM) {
+                        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                            "Image requires too much memory to process.");
+                    } else {
+                        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                            "Failed to process image");
+                    }
+                    return ESP_FAIL;
+                }
+
+                // Display directly from RGB buffer
+                err = display_manager_show_rgb_buffer(result.rgb_data, result.width, result.height);
+                heap_caps_free(result.rgb_data);
+
+                if (err != ESP_OK) {
                     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                        "Failed to process image");
+                                        "Failed to display image");
+                    return ESP_FAIL;
                 }
-                return ESP_FAIL;
+
+                ha_notify_update();
+                ESP_LOGI(TAG, "Image displayed from buffer");
+
+                cJSON *response = cJSON_CreateObject();
+                cJSON_AddStringToObject(response, "status", "success");
+                cJSON_AddStringToObject(response, "message", "Image displayed successfully");
+                char *json_str = cJSON_Print(response);
+                httpd_resp_set_type(req, "application/json");
+                httpd_resp_sendstr(req, json_str);
+                free(json_str);
+                cJSON_Delete(response);
             }
-
-            // Display directly from RGB buffer
-            err = display_manager_show_rgb_buffer(result.rgb_data, result.width, result.height);
-            heap_caps_free(result.rgb_data);
-
-            if (err != ESP_OK) {
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                    "Failed to display image");
-                return ESP_FAIL;
-            }
-
-            ha_notify_update();
-            ESP_LOGI(TAG, "Image displayed from buffer");
-
-            cJSON *response = cJSON_CreateObject();
-            cJSON_AddStringToObject(response, "status", "success");
-            cJSON_AddStringToObject(response, "message", "Image displayed successfully");
-            char *json_str = cJSON_Print(response);
-            httpd_resp_set_type(req, "application/json");
-            httpd_resp_sendstr(req, json_str);
-            free(json_str);
-            cJSON_Delete(response);
-            return ESP_OK;
-#endif
         }
         display_path = temp_png_path;
     }
@@ -923,19 +918,8 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
 
     // Use original filename from upload
     char filename_base[120];
-    char file_ext[16] = ".png";  // default
     char *ext = strrchr(result.original_filename, '.');
     if (ext) {
-        // Special case for .epd.gz
-        char *epd_gz = strstr(result.original_filename, ".epd.gz");
-        if (epd_gz) {
-            strncpy(file_ext, ".epd.gz", sizeof(file_ext) - 1);
-            ext = epd_gz;  // Treat base as everything before .epd.gz
-        } else {
-            strncpy(file_ext, ext, sizeof(file_ext) - 1);
-        }
-        file_ext[sizeof(file_ext) - 1] = '\0';
-
         int base_len = ext - result.original_filename;
         int safe_len = MIN(base_len, (int) sizeof(filename_base) - 1);
         snprintf(filename_base, sizeof(filename_base), "%.*s", safe_len, result.original_filename);
@@ -945,25 +929,25 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
         filename_base[sizeof(filename_base) - 1] = '\0';
     }
 
-    char image_filename[140];
-    char jpg_filename[140];
-    char final_image_path[512];
+    char png_filename[128];
+    char jpg_filename[128];
+    char final_png_path[512];
     char final_thumb_path[512];
 
     // Use original filename (will overwrite if exists)
-    snprintf(image_filename, sizeof(image_filename), "%s%s", filename_base, file_ext);
+    snprintf(png_filename, sizeof(png_filename), "%s.png", filename_base);
     snprintf(jpg_filename, sizeof(jpg_filename), "%s.jpg", filename_base);
-    snprintf(final_image_path, sizeof(final_image_path), "%s/%s", album_path, image_filename);
+    snprintf(final_png_path, sizeof(final_png_path), "%s/%s", album_path, png_filename);
     snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s", album_path, jpg_filename);
 
     // Remove old files
-    unlink(final_image_path);
+    unlink(final_png_path);
     unlink(final_thumb_path);
 
-    // Move format to final location
-    ESP_LOGI(TAG, "Saving Image: %s -> %s", result.image_path, final_image_path);
-    if (rename(result.image_path, final_image_path) != 0) {
-        ESP_LOGE(TAG, "Failed to move image to album");
+    // Move PNG to final location
+    ESP_LOGI(TAG, "Saving PNG: %s -> %s", result.image_path, final_png_path);
+    if (rename(result.image_path, final_png_path) != 0) {
+        ESP_LOGE(TAG, "Failed to move PNG to album");
         unlink(result.image_path);
         unlink(result.thumbnail_path);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save image");
@@ -976,11 +960,11 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
         unlink(result.thumbnail_path);
     }
 
-    ESP_LOGI(TAG, "Image saved successfully: %s (thumbnail: %s)", image_filename, jpg_filename);
+    ESP_LOGI(TAG, "Image saved successfully: %s (thumbnail: %s)", png_filename, jpg_filename);
 
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "success");
-    cJSON_AddStringToObject(response, "filepath", final_image_path);
+    cJSON_AddStringToObject(response, "filepath", final_png_path);
 
     char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
@@ -1033,8 +1017,6 @@ static esp_err_t serve_image_handler(httpd_req_t *req)
             content_type = "image/png";
         } else if (strcasecmp(ext, ".bmp") == 0) {
             content_type = "image/bmp";
-        } else if (strcasecmp(ext, ".gz") == 0) {
-            content_type = "application/gzip";
         }
     }
 
@@ -1108,11 +1090,7 @@ static esp_err_t delete_image_handler(httpd_req_t *req)
     }
     extern bool g_littlefs_mounted;
     bool storage_mounted = g_littlefs_mounted;
-#ifdef CONFIG_HAS_SDCARD
-    if (sdcard_is_mounted()) {
-        storage_mounted = true;
-    }
-#endif
+    storage_mounted = true;
 
     if (!storage_mounted) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Storage not found");
@@ -1156,14 +1134,8 @@ static esp_err_t delete_image_handler(httpd_req_t *req)
     strncpy(jpg_filename, filepath_copy, sizeof(jpg_filename) - 1);
     jpg_filename[sizeof(jpg_filename) - 1] = '\0';
     char *ext = strrchr(jpg_filename, '.');
-    if (ext) {
-        if (strcasecmp(ext, ".gz") == 0 && strstr(jpg_filename, ".epd.gz")) {
-            ext = strstr(jpg_filename, ".epd.gz");
-        }
-        if (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
-            strcasecmp(ext, ".epd.gz") == 0) {
-            strcpy(ext, ".jpg");
-        }
+    if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0)) {
+        strcpy(ext, ".jpg");
     }
 
     char jpg_path[512];
@@ -1381,18 +1353,6 @@ static esp_err_t sleep_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static void delayed_rotate_task(void *arg)
-{
-    // Wait for HTTP response to be sent
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    ESP_LOGI(TAG, "Delayed rotate task: rotating image now");
-    trigger_image_rotation();
-    ha_notify_update();
-
-    vTaskDelete(NULL);
-}
-
 static esp_err_t rotate_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -1405,6 +1365,10 @@ static esp_err_t rotate_handler(httpd_req_t *req)
 
     power_manager_reset_sleep_timer();
 
+    // Synchronous rotation as requested by maintainer
+    trigger_image_rotation();
+    ha_notify_update();
+
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "success");
     cJSON_AddStringToObject(response, "message", "Image rotation triggered");
@@ -1415,10 +1379,6 @@ static esp_err_t rotate_handler(httpd_req_t *req)
 
     free(json_str);
     cJSON_Delete(response);
-
-    // Create a task to rotate image after HTTP response completes
-    // Stack increased from 4096 to 8192 to prevent stack overflow in rotate_sequential
-    xTaskCreate(delayed_rotate_task, "delayed_rotate", 8192, NULL, 5, NULL);
 
     return ESP_OK;
 }
@@ -1863,15 +1823,7 @@ static esp_err_t albums_handler(httpd_req_t *req)
         httpd_resp_sendstr(req, "System not ready");
         return ESP_OK;
     }
-    extern bool g_littlefs_mounted;
-    bool storage_mounted = g_littlefs_mounted;
-#ifdef CONFIG_HAS_SDCARD
-    if (sdcard_is_mounted()) {
-        storage_mounted = true;
-    }
-#endif
-
-    if (!storage_mounted) {
+    if (!storage_has_persistent_storage()) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Storage not found");
         return ESP_FAIL;
     }
@@ -1951,15 +1903,7 @@ static esp_err_t album_delete_handler(httpd_req_t *req)
         httpd_resp_sendstr(req, "System not ready");
         return ESP_OK;
     }
-    extern bool g_littlefs_mounted;
-    bool storage_mounted = g_littlefs_mounted;
-#ifdef CONFIG_HAS_SDCARD
-    if (sdcard_is_mounted()) {
-        storage_mounted = true;
-    }
-#endif
-
-    if (!storage_mounted) {
+    if (!storage_has_persistent_storage()) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Storage not found");
         return ESP_FAIL;
     }
@@ -2005,15 +1949,7 @@ static esp_err_t album_enabled_handler(httpd_req_t *req)
         httpd_resp_sendstr(req, "System not ready");
         return ESP_OK;
     }
-    extern bool g_littlefs_mounted;
-    bool storage_mounted = g_littlefs_mounted;
-#ifdef CONFIG_HAS_SDCARD
-    if (sdcard_is_mounted()) {
-        storage_mounted = true;
-    }
-#endif
-
-    if (!storage_mounted) {
+    if (!storage_has_persistent_storage()) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Storage not found");
         return ESP_FAIL;
     }
@@ -2086,15 +2022,7 @@ static esp_err_t album_images_handler(httpd_req_t *req)
         httpd_resp_sendstr(req, "System not ready");
         return ESP_OK;
     }
-    extern bool g_littlefs_mounted;
-    bool storage_mounted = g_littlefs_mounted;
-#ifdef CONFIG_HAS_SDCARD
-    if (sdcard_is_mounted()) {
-        storage_mounted = true;
-    }
-#endif
-
-    if (!storage_mounted) {
+    if (!storage_has_persistent_storage()) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Storage not found");
         return ESP_FAIL;
     }
@@ -2180,12 +2108,6 @@ static esp_err_t album_images_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-extern bool g_littlefs_mounted;
-
-#include "esp_littlefs.h"
-#include "esp_vfs.h"
-#include "esp_vfs_fat.h"
-
 static esp_err_t system_info_handler(httpd_req_t *req)
 {
     const esp_app_desc_t *app_desc = esp_app_get_description();
@@ -2197,44 +2119,26 @@ static esp_err_t system_info_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(response, "height", BOARD_HAL_DISPLAY_HEIGHT);
     cJSON_AddStringToObject(response, "board_name", BOARD_HAL_NAME);
 
-    bool has_storage = false;
-    bool storage_mounted = false;
+    bool has_storage = storage_has_persistent_storage();
+    bool storage_mounted = storage_has_persistent_storage();
     uint32_t storage_total = 0;
     uint32_t storage_used = 0;
 
-#ifdef CONFIG_HAS_SDCARD
-    has_storage = true;
-    if (sdcard_is_mounted()) {
-        storage_mounted = true;
-
-        FATFS *fs;
-        DWORD fre_clust;
-        // The standard FatFs API is available in ESP-IDF
-        if (f_getfree("0:", &fre_clust, &fs) == FR_OK) {
-            uint32_t tot_sect = (fs->n_fatent - 2) * fs->csize;
-            uint32_t fre_sect = fre_clust * fs->csize;
-            storage_total = tot_sect * fs->ssize;
-            storage_used = (tot_sect - fre_sect) * fs->ssize;
-        }
-    } else if (g_littlefs_mounted) {
-        storage_mounted = true;
-        size_t t = 0, u = 0;
-        if (esp_littlefs_info("storage", &t, &u) == ESP_OK) {
-            storage_total = t;
-            storage_used = u;
+    if (storage_mounted) {
+        if (storage_get_type() == STORAGE_TYPE_SDCARD) {
+            uint64_t t = 0, f = 0;
+            if (esp_vfs_fat_info("/sdcard", &t, &f) == ESP_OK) {
+                storage_total = (uint32_t) t;
+                storage_used = (uint32_t) (t - f);
+            }
+        } else if (storage_get_type() == STORAGE_TYPE_LITTLEFS) {
+            size_t t = 0, u = 0;
+            if (esp_littlefs_info("storage", &t, &u) == ESP_OK) {
+                storage_total = t;
+                storage_used = u;
+            }
         }
     }
-#else
-    has_storage = g_littlefs_mounted;
-    storage_mounted = g_littlefs_mounted;
-    if (g_littlefs_mounted) {
-        size_t t = 0, u = 0;
-        if (esp_littlefs_info("storage", &t, &u) == ESP_OK) {
-            storage_total = t;
-            storage_used = u;
-        }
-    }
-#endif
 
     // The frontend checks has_sdcard and sdcard_inserted.
     // By setting these to true if LittleFS is mounted, we effectively "spoof"
