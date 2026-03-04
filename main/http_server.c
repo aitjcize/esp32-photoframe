@@ -918,8 +918,17 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
 
     // Use original filename from upload
     char filename_base[120];
+    char ext_str[16] = ".png";  // default
+
     char *ext = strrchr(result.original_filename, '.');
     if (ext) {
+        // Handle double extension .epd.gz
+        if (strcasecmp(ext, ".gz") == 0 && strstr(result.original_filename, ".epd.gz")) {
+            ext = strstr(result.original_filename, ".epd.gz");
+        }
+        // Save the extension
+        snprintf(ext_str, sizeof(ext_str), "%s", ext);
+
         int base_len = ext - result.original_filename;
         int safe_len = MIN(base_len, (int) sizeof(filename_base) - 1);
         snprintf(filename_base, sizeof(filename_base), "%.*s", safe_len, result.original_filename);
@@ -929,25 +938,25 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
         filename_base[sizeof(filename_base) - 1] = '\0';
     }
 
-    char png_filename[128];
+    char img_filename[128];
     char jpg_filename[128];
-    char final_png_path[512];
+    char final_img_path[512];
     char final_thumb_path[512];
 
     // Use original filename (will overwrite if exists)
-    snprintf(png_filename, sizeof(png_filename), "%s.png", filename_base);
+    snprintf(img_filename, sizeof(img_filename), "%s%s", filename_base, ext_str);
     snprintf(jpg_filename, sizeof(jpg_filename), "%s.jpg", filename_base);
-    snprintf(final_png_path, sizeof(final_png_path), "%s/%s", album_path, png_filename);
+    snprintf(final_img_path, sizeof(final_img_path), "%s/%s", album_path, img_filename);
     snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s", album_path, jpg_filename);
 
     // Remove old files
-    unlink(final_png_path);
+    unlink(final_img_path);
     unlink(final_thumb_path);
 
-    // Move PNG to final location
-    ESP_LOGI(TAG, "Saving PNG: %s -> %s", result.image_path, final_png_path);
-    if (rename(result.image_path, final_png_path) != 0) {
-        ESP_LOGE(TAG, "Failed to move PNG to album");
+    // Move image to final location
+    ESP_LOGI(TAG, "Saving Image: %s -> %s", result.image_path, final_img_path);
+    if (rename(result.image_path, final_img_path) != 0) {
+        ESP_LOGE(TAG, "Failed to move Image to album");
         unlink(result.image_path);
         unlink(result.thumbnail_path);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save image");
@@ -960,11 +969,11 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
         unlink(result.thumbnail_path);
     }
 
-    ESP_LOGI(TAG, "Image saved successfully: %s (thumbnail: %s)", png_filename, jpg_filename);
+    ESP_LOGI(TAG, "Image saved successfully: %s (thumbnail: %s)", img_filename, jpg_filename);
 
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "success");
-    cJSON_AddStringToObject(response, "filepath", final_png_path);
+    cJSON_AddStringToObject(response, "filepath", final_img_path);
 
     char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
