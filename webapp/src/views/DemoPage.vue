@@ -15,6 +15,8 @@ const baseUrl = import.meta.env.BASE_URL;
 const boardOptions = [
   { label: 'Waveshare 7.3" (7-color)', value: "waveshare_photopainter_73" },
   { label: "Seeed Studio XIAO EE02", value: "seeedstudio_xiao_ee02" },
+  { label: "Seeed Studio XIAO EE04", value: "seeedstudio_xiao_ee04" },
+  { label: "Seeed Studio reTerminal E1002", value: "seeedstudio_reterminal_e1002" },
 ];
 
 // Image state
