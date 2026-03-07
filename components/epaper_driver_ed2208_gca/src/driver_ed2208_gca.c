@@ -152,7 +152,6 @@ static void wait_busy(const char *label)
             return;
         }
     }
-    ESP_LOGI(TAG, "[%s] BUSY released after %d ms", label, (wait_count + 1) * 10);
 }
 
 // --- Hardware setup ---

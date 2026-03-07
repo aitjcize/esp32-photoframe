@@ -27,7 +27,7 @@ menu "Internal Storage Configuration"
 
     config USE_INTERNAL_FLASH_STORAGE
         bool "Use internal flash as storage (LittleFS)"
-        default y if BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02 || BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE04
+        default y if BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02 || BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE04 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002
         default n
         help
             Mounts a LittleFS partition from internal flash to use as storage.

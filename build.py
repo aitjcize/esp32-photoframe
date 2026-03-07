@@ -30,9 +30,10 @@ def main():
 
     if args.fullclean:
         print("Performing full clean...")
-        if os.path.exists("sdkconfig"):
-            os.remove("sdkconfig")
-            print("  ✓ Removed sdkconfig")
+        for f in ["sdkconfig", "partitions.csv"]:
+            if os.path.exists(f):
+                os.remove(f)
+                print(f"  ✓ Removed {f}")
 
         try:
             subprocess.run(["idf.py", "fullclean"], check=True)
