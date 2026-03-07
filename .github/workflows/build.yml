@@ -17,6 +17,10 @@ jobs:
     strategy:
       matrix:
         board: [waveshare_photopainter_73, seeedstudio_xiao_ee02, seeedstudio_reterminal_e1002, seeedstudio_xiao_ee04]
+        flash_size: [16MB]
+        include:
+          - board: seeedstudio_reterminal_e1002
+            flash_size: 32MB
       fail-fast: false
     
     steps:
@@ -65,7 +69,7 @@ jobs:
         
         # Create merged firmware directly from build directory
         esptool.py --chip esp32s3 merge-bin -o firmware/photoframe-firmware-${{ matrix.board }}-merged.bin \
-          --flash-mode dio --flash-freq 80m --flash-size 16MB \
+          --flash-mode dio --flash-freq 80m --flash-size ${{ matrix.flash_size }} \
           0x0 build/bootloader/bootloader.bin \
           0x8000 build/partition_table/partition-table.bin \
           0x20000 build/esp32-photoframe.bin
