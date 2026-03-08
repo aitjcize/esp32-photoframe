@@ -1626,15 +1626,31 @@ static esp_err_t config_handler(httpd_req_t *req)
 
         return ESP_OK;
     } else if (req->method == HTTP_POST || req->method == HTTP_PATCH) {
-        char buf[512];
-        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
-        if (ret <= 0) {
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No data received");
+        size_t buf_size = req->content_len + 1;
+        if (buf_size > 4096) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Request body too large");
             return ESP_FAIL;
         }
-        buf[ret] = '\0';
+        char *buf = malloc(buf_size);
+        if (!buf) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+            return ESP_FAIL;
+        }
+
+        int received = 0;
+        while (received < req->content_len) {
+            int ret = httpd_req_recv(req, buf + received, req->content_len - received);
+            if (ret <= 0) {
+                free(buf);
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to receive data");
+                return ESP_FAIL;
+            }
+            received += ret;
+        }
+        buf[received] = '\0';
 
         cJSON *root = cJSON_Parse(buf);
+        free(buf);
         if (!root) {
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
             return ESP_FAIL;
