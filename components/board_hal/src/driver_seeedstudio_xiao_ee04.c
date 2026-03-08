@@ -1,10 +1,10 @@
 #include "board_hal.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "driver/usb_serial_jtag.h"
 #include "epaper.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
-#include "driver/usb_serial_jtag.h"
 #include "esp_sleep.h"
 
 static const char *TAG = "board_hal_ee04";

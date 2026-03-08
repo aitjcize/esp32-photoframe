@@ -229,14 +229,14 @@ esp_err_t album_manager_set_album_enabled(const char *album_name, bool enabled)
         if (strcmp(token, album_name) == 0) {
             found = true;
             if (enabled) {
-                int written = snprintf(new_list + pos, sizeof(new_list) - pos,
-                                       "%s%s", pos > 0 ? "," : "", album_name);
+                int written = snprintf(new_list + pos, sizeof(new_list) - pos, "%s%s",
+                                       pos > 0 ? "," : "", album_name);
                 if (written > 0)
                     pos += written;
             }
         } else {
-            int written = snprintf(new_list + pos, sizeof(new_list) - pos,
-                                   "%s%s", pos > 0 ? "," : "", token);
+            int written =
+                snprintf(new_list + pos, sizeof(new_list) - pos, "%s%s", pos > 0 ? "," : "", token);
             if (written > 0)
                 pos += written;
         }
@@ -244,8 +244,7 @@ esp_err_t album_manager_set_album_enabled(const char *album_name, bool enabled)
     }
 
     if (!found && enabled) {
-        snprintf(new_list + pos, sizeof(new_list) - pos,
-                 "%s%s", pos > 0 ? "," : "", album_name);
+        snprintf(new_list + pos, sizeof(new_list) - pos, "%s%s", pos > 0 ? "," : "", album_name);
     }
 
     strncpy(enabled_albums_str, new_list, sizeof(enabled_albums_str) - 1);

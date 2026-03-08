@@ -66,7 +66,8 @@ def build_firmware(project_root, board="waveshare_photopainter_73"):
         result = subprocess.run(
             [
                 "idf.py",
-                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;boards/sdkconfig.defaults." + board,
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;boards/sdkconfig.defaults."
+                + board,
                 "build",
             ],
             cwd=project_root,

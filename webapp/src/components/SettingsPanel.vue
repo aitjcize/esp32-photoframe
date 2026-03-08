@@ -463,7 +463,6 @@ async function performFactoryReset() {
                 />
               </v-col>
             </v-row>
-
           </v-tabs-window-item>
 
           <!-- Auto Rotate Tab -->

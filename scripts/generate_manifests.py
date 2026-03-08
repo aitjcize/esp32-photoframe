@@ -17,6 +17,7 @@ from pathlib import Path
 
 # Import version detection functions from get_version module
 import get_version as version_module
+
 from boards import SUPPORTED_BOARDS
 
 
