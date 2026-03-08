@@ -49,6 +49,9 @@ static void board_hal_battery_adc_init(void)
     ret = adc_oneshot_config_channel(adc_handle, VBAT_ADC_CHANNEL, &config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "ADC channel config failed: %s", esp_err_to_name(ret));
+        adc_oneshot_del_unit(adc_handle);
+        adc_handle = NULL;
+        return;
     }
 }
 

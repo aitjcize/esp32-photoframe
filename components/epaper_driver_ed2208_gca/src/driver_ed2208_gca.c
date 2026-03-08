@@ -181,7 +181,6 @@ static void gpio_init(void)
         gpio_config_t en_conf = {
             .mode = GPIO_MODE_OUTPUT,
             .pin_bit_mask = (1ULL << g_cfg.pin_enable),
-            .pull_up_en = GPIO_PULLUP_DISABLE,
         };
         ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_config(&en_conf));
         gpio_set_level(g_cfg.pin_enable, 1);
