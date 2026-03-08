@@ -207,6 +207,7 @@ esp_err_t album_manager_set_album_enabled(const char *album_name, bool enabled)
     }
 
     char new_list[512] = "";
+    size_t pos = 0;
     bool found = false;
     char *token;
     char temp_str[512];
@@ -217,30 +218,34 @@ esp_err_t album_manager_set_album_enabled(const char *album_name, bool enabled)
     while (token != NULL) {
         while (*token == ' ')
             token++;
-        char *end = token + strlen(token) - 1;
-        while (end > token && *end == ' ')
-            end--;
-        *(end + 1) = '\0';
+        size_t len = strlen(token);
+        if (len > 0) {
+            char *end = token + len - 1;
+            while (end > token && *end == ' ')
+                end--;
+            *(end + 1) = '\0';
+        }
 
         if (strcmp(token, album_name) == 0) {
             found = true;
             if (enabled) {
-                if (strlen(new_list) > 0)
-                    strcat(new_list, ",");
-                strcat(new_list, album_name);
+                int written = snprintf(new_list + pos, sizeof(new_list) - pos,
+                                       "%s%s", pos > 0 ? "," : "", album_name);
+                if (written > 0)
+                    pos += written;
             }
         } else {
-            if (strlen(new_list) > 0)
-                strcat(new_list, ",");
-            strcat(new_list, token);
+            int written = snprintf(new_list + pos, sizeof(new_list) - pos,
+                                   "%s%s", pos > 0 ? "," : "", token);
+            if (written > 0)
+                pos += written;
         }
         token = strtok(NULL, ",");
     }
 
     if (!found && enabled) {
-        if (strlen(new_list) > 0)
-            strcat(new_list, ",");
-        strcat(new_list, album_name);
+        snprintf(new_list + pos, sizeof(new_list) - pos,
+                 "%s%s", pos > 0 ? "," : "", album_name);
     }
 
     strncpy(enabled_albums_str, new_list, sizeof(enabled_albums_str) - 1);

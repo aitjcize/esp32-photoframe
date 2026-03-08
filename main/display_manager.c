@@ -505,6 +505,10 @@ static void rotate_random(char **enabled_albums, int album_count)
 
     // Build image list with absolute paths from all enabled albums
     char **image_list = malloc(total_image_count * sizeof(char *));
+    if (!image_list) {
+        ESP_LOGE(TAG, "Failed to allocate image list");
+        return;
+    }
     int idx = 0;
 
     for (int i = 0; i < album_count; i++) {
@@ -527,6 +531,10 @@ static void rotate_random(char **enabled_albums, int album_count)
                 if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
                             strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
                     char *fullpath = malloc(512);
+                    if (!fullpath) {
+                        ESP_LOGE(TAG, "Failed to allocate path buffer");
+                        continue;
+                    }
                     snprintf(fullpath, 512, "%s/%s", album_path, entry->d_name);
                     image_list[idx] = fullpath;
                     idx++;
@@ -534,6 +542,15 @@ static void rotate_random(char **enabled_albums, int album_count)
             }
         }
         closedir(dir);
+    }
+
+    // Update total_image_count to actual number of images found
+    total_image_count = idx;
+
+    if (total_image_count == 0) {
+        ESP_LOGW(TAG, "No displayable images found in enabled albums");
+        free(image_list);
+        return;
     }
 
     // Load last displayed image if not already loaded
