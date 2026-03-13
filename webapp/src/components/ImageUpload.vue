@@ -14,6 +14,7 @@ const previewUrl = ref(null);
 const showPreview = ref(false);
 const processedResult = ref(null);
 const sourceCanvas = ref(null);
+const imageProcessingRef = ref(null);
 
 // Display dimensions
 // Display dimensions
@@ -117,8 +118,12 @@ async function uploadImage(mode = "upload") {
     const targetHeight = displayHeight.value;
     const palette = imageProcessor.SPECTRA6;
 
+    // Use framed canvas (scaling/cropping done client-side) or fall back to raw source
+    const uploadData = imageProcessingRef.value?.getUploadCanvas();
+    const uploadCanvas = uploadData?.canvas || sourceCanvas.value;
+
     // Process image with theoretical palette for device
-    const result = imageProcessor.processImage(sourceCanvas.value, {
+    const result = imageProcessor.processImage(uploadCanvas, {
       displayWidth: targetWidth,
       displayHeight: targetHeight,
       palette,
@@ -126,6 +131,44 @@ async function uploadImage(mode = "upload") {
       skipRotation: false, // Ensure image is rotated to fit the hardware's native physical resolution
       usePerceivedOutput: false, // Use theoretical palette
     });
+
+    // Replace background pixels with clean theoretical palette color (no dithering artifacts)
+    if (uploadData?.bgMask && uploadData?.theoreticalBg) {
+      const srcW = uploadCanvas.width;
+      const srcH = uploadCanvas.height;
+      const outW = result.canvas.width;
+      const outH = result.canvas.height;
+
+      // If processImage rotated the canvas 90° clockwise (orientation mismatch),
+      // we must rotate the bgMask to match: (x, y) in WxH → (H-1-y, x) in HxW
+      const wasRotated = srcW !== outW || srcH !== outH;
+      let mask = uploadData.bgMask;
+      if (wasRotated) {
+        const rotated = new Uint8Array(outW * outH);
+        for (let y = 0; y < srcH; y++) {
+          for (let x = 0; x < srcW; x++) {
+            const srcIdx = y * srcW + x;
+            const dstX = srcH - 1 - y;
+            const dstY = x;
+            rotated[dstY * outW + dstX] = mask[srcIdx];
+          }
+        }
+        mask = rotated;
+      }
+
+      const ctx = result.canvas.getContext("2d");
+      const imageData = ctx.getImageData(0, 0, outW, outH);
+      const data = imageData.data;
+      const bg = uploadData.theoreticalBg;
+      for (let i = 0; i < mask.length; i++) {
+        if (mask[i]) {
+          data[i * 4] = bg.r;
+          data[i * 4 + 1] = bg.g;
+          data[i * 4 + 2] = bg.b;
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
 
     // Convert processed canvas to PNG blob
     const pngBlob = await new Promise((resolve) => {
@@ -494,6 +537,7 @@ async function generateAiImage() {
       <!-- Preview Area with Processing -->
       <div v-else>
         <ImageProcessing
+          ref="imageProcessingRef"
           :image-file="selectedFile"
           :params="settingsStore.params"
           :palette="settingsStore.palette"

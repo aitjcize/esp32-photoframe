@@ -30,10 +30,37 @@ const processing = ref(false);
 const sliderPosition = ref(0);
 const isDragging = ref(false);
 
+// Scale mode state
+const scaleMode = ref("cover");
+
+// Background color for uncovered areas (fit/custom modes)
+// Uses perceived palette colors so dithering maps them cleanly.
+const bgColorMode = ref("white"); // "black" | "white"
+
+function getBgFillColor() {
+  const p = effectivePalette.value;
+  if (!p) return bgColorMode.value === "white" ? "#FFFFFF" : "#000000";
+  const c = p[bgColorMode.value];
+  return "#" + [c.r, c.g, c.b].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
+// Custom mode state
+const customZoom = ref(1);
+const customPanX = ref(0);
+const customPanY = ref(0);
+const isPanning = ref(false);
+let panStartX = 0;
+let panStartY = 0;
+let panStartImgX = 0;
+let panStartImgY = 0;
+
 // Source canvas for reprocessing
 let sourceCanvas = null;
 let imageProcessor = null;
 let isReady = ref(false);
+
+// Debounce timer for processing during pan/zoom
+let processDebounceTimer = null;
 
 // Reactive palette for ToneCurve (will be set after imageProcessor loads)
 const effectivePalette = ref(null);
@@ -49,23 +76,17 @@ function calculateHistogram(canvas) {
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
 
-  // Initialize 256 bins
   const bins = new Array(256).fill(0);
-
-  // Sample pixels (skip some for performance on large images)
-  const step = Math.max(1, Math.floor(data.length / 4 / 100000)); // Max ~100k samples
+  const step = Math.max(1, Math.floor(data.length / 4 / 100000));
 
   for (let i = 0; i < data.length; i += 4 * step) {
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
-
-    // Calculate perceived luminance (same formula as in ToneCurve)
     const luminance = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
     bins[Math.min(255, Math.max(0, luminance))]++;
   }
 
-  // Normalize to 0-1 range (relative to max bin)
   const maxBin = Math.max(...bins);
   if (maxBin > 0) {
     for (let i = 0; i < bins.length; i++) {
@@ -76,16 +97,164 @@ function calculateHistogram(canvas) {
   return bins;
 }
 
+// Get frame dimensions accounting for source/display orientation mismatch
+function getFrameDimensions() {
+  const targetWidth = appStore.systemInfo.width || 800;
+  const targetHeight = appStore.systemInfo.height || 480;
+
+  if (!sourceCanvas) return { frameWidth: targetWidth, frameHeight: targetHeight };
+
+  const isSourcePortrait = sourceCanvas.height > sourceCanvas.width;
+  const isTargetPortrait = targetHeight > targetWidth;
+
+  if (isSourcePortrait !== isTargetPortrait) {
+    return { frameWidth: targetHeight, frameHeight: targetWidth };
+  }
+  return { frameWidth: targetWidth, frameHeight: targetHeight };
+}
+
+// Initialize custom mode pan/zoom to match cover position
+function initCustomMode() {
+  if (!sourceCanvas) return;
+
+  const { frameWidth, frameHeight } = getFrameDimensions();
+  const srcW = sourceCanvas.width;
+  const srcH = sourceCanvas.height;
+  const coverScale = Math.max(frameWidth / srcW, frameHeight / srcH);
+
+  customZoom.value = coverScale;
+  customPanX.value = (frameWidth - srcW * coverScale) / 2;
+  customPanY.value = (frameHeight - srcH * coverScale) / 2;
+}
+
+// Create a framed canvas at exact display dimensions for all scale modes.
+// All scaling/cropping is done client-side so the processing library
+// receives an already-sized image.
+// Returns { canvas, bgMask } where bgMask marks background pixels (for clean replacement after dithering).
+function createFramedCanvas() {
+  if (!sourceCanvas) return { canvas: null, bgMask: null };
+
+  const { frameWidth, frameHeight } = getFrameDimensions();
+  const canvas = document.createElement("canvas");
+  canvas.width = frameWidth;
+  canvas.height = frameHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  // Draw image on transparent canvas first (to detect background via alpha)
+  const srcW = sourceCanvas.width;
+  const srcH = sourceCanvas.height;
+
+  if (scaleMode.value === "cover") {
+    const covered = imageProcessor.resizeImageCover(sourceCanvas, frameWidth, frameHeight);
+    ctx.drawImage(covered, 0, 0);
+  } else if (scaleMode.value === "fit") {
+    const scale = Math.min(frameWidth / srcW, frameHeight / srcH);
+    const w = Math.round(srcW * scale);
+    const h = Math.round(srcH * scale);
+    const x = Math.round((frameWidth - w) / 2);
+    const y = Math.round((frameHeight - h) / 2);
+    ctx.drawImage(sourceCanvas, x, y, w, h);
+  } else {
+    // Custom mode
+    const w = Math.round(srcW * customZoom.value);
+    const h = Math.round(srcH * customZoom.value);
+    ctx.drawImage(
+      sourceCanvas,
+      Math.round(customPanX.value),
+      Math.round(customPanY.value),
+      w,
+      h
+    );
+  }
+
+  // Build background mask from alpha channel (alpha=0 → background pixel)
+  const imageData = ctx.getImageData(0, 0, frameWidth, frameHeight);
+  const bgMask = new Uint8Array(frameWidth * frameHeight);
+  for (let i = 0; i < bgMask.length; i++) {
+    bgMask[i] = imageData.data[i * 4 + 3] === 0 ? 1 : 0;
+  }
+
+  // Fill background behind the image using destination-over composite
+  ctx.globalCompositeOperation = "destination-over";
+  ctx.fillStyle = getBgFillColor();
+  ctx.fillRect(0, 0, frameWidth, frameHeight);
+  ctx.globalCompositeOperation = "source-over";
+
+  return { canvas, bgMask };
+}
+
+// Replace background pixels in a processed canvas with a clean palette color.
+// This prevents dithering artifacts on uniform background areas.
+function replaceBgPixels(canvas, bgMask, color) {
+  if (!bgMask || !color) return;
+  const ctx = canvas.getContext("2d");
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let i = 0; i < bgMask.length; i++) {
+    if (bgMask[i]) {
+      data[i * 4] = color.r;
+      data[i * 4 + 1] = color.g;
+      data[i * 4 + 2] = color.b;
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
+
+// Get the palette color to use for clean background replacement
+function getBgPaletteColor(usePerceived) {
+  if (usePerceived) {
+    const p = effectivePalette.value;
+    return p ? p[bgColorMode.value] : null;
+  }
+  return imageProcessor ? imageProcessor.SPECTRA6.theoretical[bgColorMode.value] : null;
+}
+
+// Get the visual-to-canvas coordinate scale from DOM
+function getPreviewScale() {
+  if (!originalCanvasRef.value) return 1;
+  const rect = originalCanvasRef.value.getBoundingClientRect();
+  if (rect.width === 0) return 1;
+  return rect.width / originalCanvasRef.value.width;
+}
+
+// Quick canvas redraw during pan/zoom (no processing, immediate feedback)
+function quickFrameUpdate() {
+  if (!sourceCanvas || !originalCanvasRef.value || !processedCanvasRef.value) return;
+
+  const width = originalCanvasRef.value.width;
+  const height = originalCanvasRef.value.height;
+  const srcW = sourceCanvas.width;
+  const srcH = sourceCanvas.height;
+  const w = srcW * customZoom.value;
+  const h = srcH * customZoom.value;
+
+  for (const canvasRef of [originalCanvasRef, processedCanvasRef]) {
+    const ctx = canvasRef.value.getContext("2d");
+    ctx.fillStyle = getBgFillColor();
+    ctx.fillRect(0, 0, width, height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(sourceCanvas, customPanX.value, customPanY.value, w, h);
+  }
+}
+
+// Debounced full processing update
+function debouncedUpdatePreview() {
+  if (processDebounceTimer) clearTimeout(processDebounceTimer);
+  processDebounceTimer = setTimeout(() => {
+    updatePreview();
+  }, 300);
+}
+
 onMounted(async () => {
-  // Load the image processing library
   try {
     imageProcessor = await import("@aitjcize/epaper-image-convert");
     isReady.value = true;
 
-    // Set effective palette for ToneCurve (use props.palette if provided, otherwise SPECTRA6.perceived)
     effectivePalette.value = props.palette || imageProcessor.SPECTRA6.perceived;
 
-    // Process if file was already set
     if (props.imageFile) {
       await loadAndProcessImage(props.imageFile);
     }
@@ -129,23 +298,42 @@ watch(
   { deep: true }
 );
 
+// Watch for background color changes
+watch(bgColorMode, async () => {
+  if (sourceCanvas && isReady.value) {
+    await updatePreview();
+  }
+});
+
+// Watch for scale mode changes
+watch(scaleMode, async (newMode) => {
+  if (newMode === "custom") {
+    initCustomMode();
+  }
+  if (sourceCanvas && isReady.value) {
+    await updatePreview();
+  }
+});
+
 async function loadAndProcessImage(file) {
   if (!originalCanvasRef.value || !processedCanvasRef.value) return;
 
   processing.value = true;
 
   try {
-    // Load image with EXIF orientation applied
     const img = await loadImage(file);
 
-    // Create source canvas from loaded image
     sourceCanvas = document.createElement("canvas");
     sourceCanvas.width = img.width;
     sourceCanvas.height = img.height;
     const sourceCtx = sourceCanvas.getContext("2d");
     sourceCtx.drawImage(img, 0, 0);
 
-    // Process and display
+    // Reinitialize custom mode if active
+    if (scaleMode.value === "custom") {
+      initCustomMode();
+    }
+
     await updatePreview();
   } catch (error) {
     console.error("Image loading failed:", error);
@@ -172,27 +360,32 @@ async function updatePreview() {
     compressDynamicRange: props.params.compressDynamicRange,
   };
 
-  // Build palette for processing
   const palette = imageProcessor.SPECTRA6;
   if (props.palette && Object.keys(props.palette).length > 0) {
     palette.perceived = props.palette;
   }
 
-  // Use native hardware dimensions for processing
   const targetWidth = appStore.systemInfo.width;
   const targetHeight = appStore.systemInfo.height;
 
-  const result = imageProcessor.processImage(sourceCanvas, {
+  // Create framed canvas at exact display dimensions (all scaling done client-side)
+  const { canvas: framedCanvas, bgMask } = createFramedCanvas();
+  const inputCanvas = framedCanvas;
+
+  const result = imageProcessor.processImage(inputCanvas, {
     displayWidth: targetWidth,
     displayHeight: targetHeight,
     palette,
     params: processingParams,
-    skipRotation: true, // Keep original orientation for "natural" preview
+    skipRotation: true,
     usePerceivedOutput: true,
   });
 
+  // Replace background pixels with clean palette color (prevents dithering artifacts)
+  replaceBgPixels(result.canvas, bgMask, getBgPaletteColor(true));
+
   // Process again without dithering to get histogram of tone-mapped image
-  const preDitherResult = imageProcessor.processImage(sourceCanvas, {
+  const preDitherResult = imageProcessor.processImage(inputCanvas, {
     displayWidth: targetWidth,
     displayHeight: targetHeight,
     palette,
@@ -221,7 +414,6 @@ async function updatePreview() {
     styleHeight = Math.round(styleHeight * ratio);
   }
 
-  // Update logic to set style on the canvas elements directly or wrapper
   if (originalCanvasRef.value) {
     originalCanvasRef.value.style.width = `${styleWidth}px`;
     originalCanvasRef.value.style.height = "";
@@ -231,10 +423,9 @@ async function updatePreview() {
     processedCanvasRef.value.style.height = "";
   }
 
-  // Draw original using cover mode (same as old webapp)
-  const originalResized = imageProcessor.resizeImageCover(sourceCanvas, actualWidth, actualHeight);
+  // Draw original (framed canvas is already at the correct dimensions)
   const originalCtx = originalCanvasRef.value.getContext("2d");
-  originalCtx.drawImage(originalResized, 0, 0);
+  originalCtx.drawImage(framedCanvas, 0, 0);
 
   // Draw processed result
   const processedCtx = processedCanvasRef.value.getContext("2d");
@@ -252,20 +443,74 @@ function loadImage(file) {
   });
 }
 
-// Slider drag handling
-function startDrag(event) {
-  isDragging.value = true;
-  updateSlider(event);
-}
-
-function onDrag(event) {
-  if (isDragging.value) {
+// Mouse event handlers
+function onMouseDown(event) {
+  if (scaleMode.value === "custom") {
+    isPanning.value = true;
+    panStartX = event.clientX;
+    panStartY = event.clientY;
+    panStartImgX = customPanX.value;
+    panStartImgY = customPanY.value;
+    event.preventDefault();
+  } else {
+    isDragging.value = true;
     updateSlider(event);
   }
 }
 
-function stopDrag() {
+function onMouseMove(event) {
+  if (isPanning.value && scaleMode.value === "custom") {
+    const scale = getPreviewScale();
+    const dx = (event.clientX - panStartX) / scale;
+    const dy = (event.clientY - panStartY) / scale;
+    customPanX.value = panStartImgX + dx;
+    customPanY.value = panStartImgY + dy;
+    quickFrameUpdate();
+    debouncedUpdatePreview();
+  } else if (isDragging.value) {
+    updateSlider(event);
+  }
+}
+
+function onMouseUp() {
+  if (isPanning.value) {
+    isPanning.value = false;
+    if (processDebounceTimer) {
+      clearTimeout(processDebounceTimer);
+      processDebounceTimer = null;
+    }
+    updatePreview();
+  }
   isDragging.value = false;
+}
+
+function onWheel(event) {
+  if (scaleMode.value !== "custom" || !sourceCanvas) return;
+  event.preventDefault();
+
+  const { frameWidth, frameHeight } = getFrameDimensions();
+  const srcW = sourceCanvas.width;
+  const srcH = sourceCanvas.height;
+  const fitScale = Math.min(frameWidth / srcW, frameHeight / srcH);
+  const maxZoomVal = Math.max(frameWidth / srcW, frameHeight / srcH) * 5;
+
+  const zoomFactor = event.deltaY > 0 ? 0.95 : 1.05;
+  let newZoom = customZoom.value * zoomFactor;
+  newZoom = Math.max(fitScale * 0.25, Math.min(maxZoomVal, newZoom));
+
+  // Zoom around mouse position
+  const scale = getPreviewScale();
+  const rect = event.currentTarget.getBoundingClientRect();
+  const mouseFrameX = (event.clientX - rect.left) / scale;
+  const mouseFrameY = (event.clientY - rect.top) / scale;
+
+  const zoomRatio = newZoom / customZoom.value;
+  customPanX.value = mouseFrameX - (mouseFrameX - customPanX.value) * zoomRatio;
+  customPanY.value = mouseFrameY - (mouseFrameY - customPanY.value) * zoomRatio;
+  customZoom.value = newZoom;
+
+  quickFrameUpdate();
+  debouncedUpdatePreview();
 }
 
 function updateSlider(event) {
@@ -275,8 +520,18 @@ function updateSlider(event) {
   sliderPosition.value = Math.max(0, Math.min(100, (x / rect.width) * 100));
 }
 
+// Expose method for upload component to get framed canvas and background mask
+defineExpose({
+  getUploadCanvas() {
+    if (!sourceCanvas) return null;
+    const { canvas, bgMask } = createFramedCanvas();
+    const theoreticalBg = getBgPaletteColor(false);
+    return { canvas, bgMask, theoreticalBg };
+  },
+});
+
 onUnmounted(() => {
-  // Cleanup
+  if (processDebounceTimer) clearTimeout(processDebounceTimer);
 });
 </script>
 
@@ -284,31 +539,84 @@ onUnmounted(() => {
   <v-card>
     <v-card-text>
       <div class="d-flex flex-column align-center">
+        <!-- Scale Mode Selector -->
+        <v-btn-toggle
+          v-model="scaleMode"
+          mandatory
+          color="primary"
+          variant="outlined"
+          density="compact"
+          class="mb-3"
+        >
+          <v-btn value="cover" size="small">
+            <v-icon start size="small">mdi-crop-free</v-icon>
+            Cover
+          </v-btn>
+          <v-btn value="fit" size="small">
+            <v-icon start size="small">mdi-fit-to-screen</v-icon>
+            Fit
+          </v-btn>
+          <v-btn value="custom" size="small">
+            <v-icon start size="small">mdi-cursor-move</v-icon>
+            Custom
+          </v-btn>
+        </v-btn-toggle>
+
+        <!-- Background color selector (only for fit/custom modes) -->
+        <div v-if="scaleMode !== 'cover'" class="d-flex align-center mb-3">
+          <span class="text-caption text-medium-emphasis mr-2">Background:</span>
+          <v-btn-toggle
+            v-model="bgColorMode"
+            mandatory
+            color="primary"
+            variant="outlined"
+            density="compact"
+          >
+            <v-btn value="black" size="small">Black</v-btn>
+            <v-btn value="white" size="small">White</v-btn>
+          </v-btn-toggle>
+        </div>
+
         <div class="d-flex flex-wrap gap-4 justify-center align-end">
-          <!-- Comparison Slider -->
+          <!-- Comparison / Custom Container -->
           <div
             class="comparison-container"
-            @mousedown="startDrag"
-            @mousemove="onDrag"
-            @mouseup="stopDrag"
-            @mouseleave="stopDrag"
+            :class="{ 'custom-mode': scaleMode === 'custom' }"
+            @mousedown="onMouseDown"
+            @mousemove="onMouseMove"
+            @mouseup="onMouseUp"
+            @mouseleave="onMouseUp"
+            @wheel="onWheel"
           >
             <div class="canvas-wrapper">
               <canvas ref="originalCanvasRef" class="preview-canvas" />
               <canvas
                 ref="processedCanvasRef"
                 class="preview-canvas processed"
-                :style="{ clipPath: `inset(0 0 0 ${sliderPosition}%)` }"
+                :style="{
+                  clipPath:
+                    scaleMode !== 'custom' ? `inset(0 0 0 ${sliderPosition}%)` : 'none',
+                }"
               />
-              <div class="slider-line" :style="{ left: `${sliderPosition}%` }">
+              <!-- Comparison slider (hidden in custom mode) -->
+              <div
+                v-if="scaleMode !== 'custom'"
+                class="slider-line"
+                :style="{ left: `${sliderPosition}%` }"
+              >
                 <div class="slider-handle">
                   <v-icon size="small"> mdi-arrow-left-right </v-icon>
                 </div>
               </div>
             </div>
             <div class="comparison-labels d-flex justify-space-between mt-2">
-              <span class="text-caption">← Original</span>
-              <span class="text-caption">Processed →</span>
+              <template v-if="scaleMode !== 'custom'">
+                <span class="text-caption">← Original</span>
+                <span class="text-caption">Processed →</span>
+              </template>
+              <span v-else class="text-caption text-medium-emphasis">
+                Drag to pan, scroll to zoom
+              </span>
             </div>
           </div>
 
@@ -337,6 +645,14 @@ onUnmounted(() => {
   position: relative;
   cursor: ew-resize;
   user-select: none;
+}
+
+.comparison-container.custom-mode {
+  cursor: grab;
+}
+
+.comparison-container.custom-mode:active {
+  cursor: grabbing;
 }
 
 .canvas-wrapper {
@@ -396,4 +712,5 @@ onUnmounted(() => {
   align-self: flex-end;
   margin-left: 20px;
 }
+
 </style>
