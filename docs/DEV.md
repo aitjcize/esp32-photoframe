@@ -6,6 +6,7 @@ This guide covers building the firmware from source and advanced configuration o
 
 - ESP-IDF v6.0 or later
 - Python 3.7+ (for build tools)
+- npm, vite (note: this excludes use under Wayland)
 - ESP Component Manager (comes with ESP-IDF)
 
 ## Building from Source
