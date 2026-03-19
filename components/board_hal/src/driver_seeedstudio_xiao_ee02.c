@@ -6,6 +6,8 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "board_hal_ee02";
 
@@ -15,6 +17,7 @@ static const char *TAG = "board_hal_ee02";
 // XIAO ESP32-S3 has precise battery voltage on IO1 (A0) via voltage divider (R11=100k, R10=100k =>
 // factor 2) D0/GPIO1 is A0
 #define VBAT_ADC_CHANNEL ADC_CHANNEL_0  // GPIO 1 is ADC1_CHANNEL_0
+#define VBAT_ADC_ENABLE_PIN GPIO_NUM_6  // TPS22916 load switch enable
 #define VBAT_VOLTAGE_DIVIDER 2.0f
 
 // USB detection (VBUS)
@@ -56,6 +59,17 @@ esp_err_t board_hal_init(void)
     };
     epaper_init(&ep_cfg);
 
+    // Configure TPS22916 enable pin (GPIO6) as output, default LOW (disabled)
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << VBAT_ADC_ENABLE_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&io_conf));
+    gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);
+
     // Initialize ADC for battery voltage
     adc_oneshot_unit_init_cfg_t init_config = {
         .unit_id = ADC_UNIT_1,
@@ -86,6 +100,9 @@ esp_err_t board_hal_prepare_for_sleep(void)
 
     epaper_enter_deepsleep();
 
+    // Ensure TPS22916 is disabled before sleep
+    gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);
+
     // Disable ADC to save power
     if (adc_handle) {
         adc_oneshot_del_unit(adc_handle);
@@ -96,7 +113,7 @@ esp_err_t board_hal_prepare_for_sleep(void)
 
 bool board_hal_is_battery_connected(void)
 {
-    return false;
+    return board_hal_get_battery_voltage() > 2500;
 }
 
 int board_hal_get_battery_voltage(void)
@@ -104,15 +121,24 @@ int board_hal_get_battery_voltage(void)
     if (!adc_handle)
         return -1;
 
+    // Enable TPS22916 load switch to connect battery voltage divider to ADC
+    gpio_set_level(VBAT_ADC_ENABLE_PIN, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
+
     int adc_raw;
+    int voltage_mv = -1;
     if (adc_oneshot_read(adc_handle, VBAT_ADC_CHANNEL, &adc_raw) == ESP_OK) {
         // Crude conversion without calibration curve for now.
         // ADC_ATTEN_DB_11 is roughly 3.3V full scale at 4096 (12bit).
         // Voltage = raw * (3300 / 4095) * divider
-        float voltage_mv = (float) adc_raw * (3300.0f / 4095.0f) * VBAT_VOLTAGE_DIVIDER;
-        return (int) voltage_mv;
+        float v = (float) adc_raw * (3300.0f / 4095.0f) * VBAT_VOLTAGE_DIVIDER;
+        voltage_mv = (int) v;
     }
-    return -1;
+
+    // Disable TPS22916 load switch to save power
+    gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);
+
+    return voltage_mv;
 }
 
 int board_hal_get_battery_percent(void)
