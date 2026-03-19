@@ -6,6 +6,7 @@ set(PRIV_REQS
     esp_driver_i2c
     esp_driver_spi
     pmic_driver_axp2101
+    pmic_driver_sy6974b
     rtc_driver_pcf85063
     rtc_driver_pcf8563
     sdcard
@@ -21,6 +22,8 @@ elseif(CONFIG_BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE04)
     list(APPEND SRCS "src/driver_seeedstudio_xiao_ee04.c")
 elseif(CONFIG_BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002)
     list(APPEND SRCS "src/driver_seeedstudio_reterminal_e1002.c")
+elseif(CONFIG_BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1004)
+    list(APPEND SRCS "src/driver_seeedstudio_reterminal_e1004.c")
 endif()
 
 idf_component_register(

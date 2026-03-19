@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "pcf8563.h"
 #include "sensor.h"
+#include "sy6974b.h"
 
 #ifdef CONFIG_HAS_SDCARD
 #include "sdcard.h"
@@ -22,48 +23,11 @@ static const char *TAG = "board_hal_reterminal_e1004";
 static i2c_master_bus_handle_t i2c0_bus = NULL;  // charger + RTC + sensor
 static i2c_master_bus_handle_t i2c1_bus = NULL;  // touch buttons
 
-// SY6974B I2C address
-#define SY6974B_I2C_ADDR 0x6B
-
-// SY6974B register definitions
-#define SY6974B_REG_STATUS 0x08  // System status register
-#define SY6974B_VBUS_STAT_MASK 0xC0
-#define SY6974B_CHRG_STAT_MASK 0x18
-
-static i2c_master_dev_handle_t sy6974b_dev = NULL;
-
 // Battery measurement
 #define VBAT_ADC_CHANNEL BOARD_HAL_BAT_ADC_PIN
 #define VBAT_VOLTAGE_DIVIDER 2.0f  // 100k/100k resistor divider
 
 static adc_oneshot_unit_handle_t adc_handle = NULL;
-
-// ----------------------------------------------------------------
-// SY6974B helpers
-// ----------------------------------------------------------------
-
-static esp_err_t sy6974b_read_reg(uint8_t reg, uint8_t *val)
-{
-    if (!sy6974b_dev)
-        return ESP_ERR_INVALID_STATE;
-    esp_err_t ret = i2c_master_transmit_receive(sy6974b_dev, &reg, 1, val, 1, pdMS_TO_TICKS(100));
-    return ret;
-}
-
-static esp_err_t sy6974b_init(i2c_master_bus_handle_t bus)
-{
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = SY6974B_I2C_ADDR,
-        .scl_speed_hz = 100000,
-    };
-    esp_err_t ret = i2c_master_bus_add_device(bus, &dev_cfg, &sy6974b_dev);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "SY6974B not found: %s", esp_err_to_name(ret));
-        sy6974b_dev = NULL;
-    }
-    return ret;
-}
 
 // ----------------------------------------------------------------
 // Battery ADC
@@ -149,24 +113,14 @@ esp_err_t board_hal_init(void)
     };
     epaper_init(&ep_cfg);
 
-    // --- SD Card with power gating (TPS22916) ---
+    // --- SD Card with power gating via TPS22916 (handled by sdcard module) ---
 #ifdef CONFIG_HAS_SDCARD
-    gpio_config_t sd_pwr_cfg = {
-        .pin_bit_mask = (1ULL << BOARD_HAL_SD_PWR_PIN),
-        .mode = GPIO_MODE_OUTPUT,
-    };
-    gpio_config(&sd_pwr_cfg);
-    gpio_set_level(BOARD_HAL_SD_PWR_PIN, 1);
-    ESP_LOGI(TAG, "SD Card Power ON");
-
-    // Give SD card time to power up and stabilize
-    vTaskDelay(pdMS_TO_TICKS(500));
-
     ESP_LOGI(TAG, "Initializing SD card (SPI)...");
     sdcard_config_t sd_cfg = {
         .mount_point = "/storage",
         .host_id = SPI2_HOST,
         .cs_pin = BOARD_HAL_SD_CS_PIN,
+        .power_en_pin = BOARD_HAL_SD_PWR_PIN,
     };
 
     esp_err_t sd_ret = sdcard_init(&sd_cfg);
@@ -215,9 +169,7 @@ esp_err_t board_hal_init(void)
     esp_err_t i2c_ret = i2c_new_master_bus(&i2c0_bus_config, &i2c0_bus);
     if (i2c_ret == ESP_OK) {
         // Initialize SY6974B charger
-        if (sy6974b_init(i2c0_bus) == ESP_OK) {
-            ESP_LOGI(TAG, "SY6974B charger initialized");
-        }
+        sy6974b_init(i2c0_bus);
 
         // Initialize SHT40 temperature/humidity sensor
         if (sensor_init(i2c0_bus) == ESP_OK) {
@@ -262,9 +214,9 @@ esp_err_t board_hal_prepare_for_sleep(void)
     // Put display to deep sleep
     epaper_enter_deepsleep();
 
-    // Turn off SD power (TPS22916)
+    // Deinit SD card (powers off TPS22916 via sdcard module)
 #ifdef CONFIG_HAS_SDCARD
-    gpio_set_level(BOARD_HAL_SD_PWR_PIN, 0);
+    sdcard_deinit();
 #endif
 
     // Disable battery ADC measurement
@@ -342,30 +294,12 @@ int board_hal_get_battery_percent(void)
 
 bool board_hal_is_charging(void)
 {
-    if (!sy6974b_dev)
-        return false;
-
-    uint8_t status = 0;
-    if (sy6974b_read_reg(SY6974B_REG_STATUS, &status) != ESP_OK)
-        return false;
-
-    // CHRG_STAT bits [4:3]: 00=not charging, 01=pre-charge, 10=fast charging, 11=done
-    uint8_t chrg_stat = (status & SY6974B_CHRG_STAT_MASK) >> 3;
-    return (chrg_stat == 0x01 || chrg_stat == 0x02);
+    return sy6974b_is_charging();
 }
 
 bool board_hal_is_usb_connected(void)
 {
-    if (sy6974b_dev) {
-        uint8_t status = 0;
-        if (sy6974b_read_reg(SY6974B_REG_STATUS, &status) == ESP_OK) {
-            // VBUS_STAT bits [7:6]: 00=no input, 01=USB SDP, 10=USB CDP, 11=USB DCP
-            uint8_t vbus_stat = (status & SY6974B_VBUS_STAT_MASK) >> 6;
-            return (vbus_stat != 0);
-        }
-    }
-    // Fallback to USB serial JTAG detection
-    return usb_serial_jtag_is_connected();
+    return sy6974b_is_usb_connected();
 }
 
 void board_hal_shutdown(void)

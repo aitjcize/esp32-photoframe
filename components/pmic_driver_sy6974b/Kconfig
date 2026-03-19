@@ -1,0 +1,9 @@
+menu "SY6974B Power Management"
+
+    config PMIC_DRIVER_SY6974B
+        bool
+        default n
+        help
+            Selected by board drivers that require SY6974B PMIC support.
+
+endmenu

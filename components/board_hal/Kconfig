@@ -53,6 +53,7 @@ menu "Board Configuration"
 
         config BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1004
             bool "Seeed reTerminal E1004 (13.3in Spectra 6)"
+            select PMIC_DRIVER_SY6974B
             select SDCARD_DRIVER_SPI
             select SENSOR_DRIVER_SHT40
             select RTC_DRIVER_PCF8563
