@@ -23,7 +23,7 @@ esp_err_t sdcard_init(const sdcard_config_t *config)
     s_power_en_pin = config->power_en_pin;
 
     // Power up SD card if a power enable pin is configured
-    if (s_power_en_pin >= 0) {
+    if (s_power_en_pin > 0) {
         gpio_config_t pwr_cfg = {
             .pin_bit_mask = (1ULL << s_power_en_pin),
             .mode = GPIO_MODE_OUTPUT,
@@ -86,7 +86,7 @@ void sdcard_deinit(void)
         card_host = NULL;
     }
     // Cut power to SD card to save power
-    if (s_power_en_pin >= 0) {
+    if (s_power_en_pin > 0) {
         gpio_set_level(s_power_en_pin, 0);
         ESP_LOGI(TAG, "SD card power disabled (GPIO%d)", s_power_en_pin);
     }
