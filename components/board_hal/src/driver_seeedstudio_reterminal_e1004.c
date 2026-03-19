@@ -23,17 +23,17 @@ static i2c_master_bus_handle_t i2c0_bus = NULL;  // charger + RTC + sensor
 static i2c_master_bus_handle_t i2c1_bus = NULL;  // touch buttons
 
 // SY6974B I2C address
-#define SY6974B_I2C_ADDR  0x6B
+#define SY6974B_I2C_ADDR 0x6B
 
 // SY6974B register definitions
-#define SY6974B_REG_STATUS  0x08  // System status register
-#define SY6974B_VBUS_STAT_MASK  0xC0
-#define SY6974B_CHRG_STAT_MASK  0x18
+#define SY6974B_REG_STATUS 0x08  // System status register
+#define SY6974B_VBUS_STAT_MASK 0xC0
+#define SY6974B_CHRG_STAT_MASK 0x18
 
 static i2c_master_dev_handle_t sy6974b_dev = NULL;
 
 // Battery measurement
-#define VBAT_ADC_CHANNEL    BOARD_HAL_BAT_ADC_PIN
+#define VBAT_ADC_CHANNEL BOARD_HAL_BAT_ADC_PIN
 #define VBAT_VOLTAGE_DIVIDER 2.0f  // 100k/100k resistor divider
 
 static adc_oneshot_unit_handle_t adc_handle = NULL;
