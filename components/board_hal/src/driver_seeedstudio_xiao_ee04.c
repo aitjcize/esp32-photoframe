@@ -6,6 +6,8 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "board_hal_ee04";
 
@@ -14,6 +16,7 @@ static const char *TAG = "board_hal_ee04";
 // factor 2)
 #define VBAT_ADC_CHANNEL ADC_CHANNEL_0  // GPIO 1 is ADC1_CHANNEL_0
 #define VBAT_VOLTAGE_DIVIDER 2.0f
+#define VBAT_ADC_ENABLE_PIN GPIO_NUM_6  // TPS22916 enable - must be HIGH to read battery voltage
 
 static adc_oneshot_unit_handle_t adc_handle = NULL;
 
@@ -67,6 +70,19 @@ esp_err_t board_hal_init(void)
         return ret;
     }
 
+    // Configure ADC enable pin (TPS22916 load switch)
+    // GPIO6 must be HIGH before reading battery voltage on GPIO1 (A0).
+    // The TPS22916 gates the voltage divider; without enabling it, ADC reads 0V.
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << VBAT_ADC_ENABLE_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_conf);
+    gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);  // Keep LOW by default to save power
+
     return ESP_OK;
 }
 
@@ -75,6 +91,9 @@ esp_err_t board_hal_prepare_for_sleep(void)
     ESP_LOGI(TAG, "Preparing EE04 for sleep");
 
     epaper_enter_deepsleep();
+
+    // Disable ADC enable pin to save power
+    gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);
 
     // Disable ADC to save power
     if (adc_handle) {
@@ -86,9 +105,8 @@ esp_err_t board_hal_prepare_for_sleep(void)
 
 bool board_hal_is_battery_connected(void)
 {
-    // TODO: Detect battery presence via ADC voltage threshold or a dedicated GPIO.
-    // Currently always returns false (assumes no battery monitoring).
-    return false;
+    int voltage = board_hal_get_battery_voltage();
+    return voltage > 2500;  // If we read > 2.5V, a battery is connected
 }
 
 int board_hal_get_battery_voltage(void)
@@ -96,14 +114,23 @@ int board_hal_get_battery_voltage(void)
     if (!adc_handle)
         return -1;
 
+    // Enable TPS22916 load switch (GPIO6 HIGH) to connect voltage divider to ADC
+    gpio_set_level(VBAT_ADC_ENABLE_PIN, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));  // Allow voltage to stabilize
+
     int adc_raw;
+    int result = -1;
     if (adc_oneshot_read(adc_handle, VBAT_ADC_CHANNEL, &adc_raw) == ESP_OK) {
         // TODO: Use esp_adc_cal / adc_cali for calibrated readings; raw conversion
         // can be off by 5-15% due to non-linear ADC response on ESP32-S3.
         float voltage_mv = (float) adc_raw * (3300.0f / 4095.0f) * VBAT_VOLTAGE_DIVIDER;
-        return (int) voltage_mv;
+        result = (int) voltage_mv;
     }
-    return -1;
+
+    // Disable TPS22916 to save power; only enable briefly during reads
+    gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);
+
+    return result;
 }
 
 int board_hal_get_battery_percent(void)
