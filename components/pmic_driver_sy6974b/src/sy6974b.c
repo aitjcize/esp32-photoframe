@@ -1,7 +1,6 @@
 #include "sy6974b.h"
 
 #include "driver/i2c_master.h"
-#include "driver/usb_serial_jtag.h"
 #include "esp_log.h"
 
 static const char *TAG = "pmic_sy6974b";
@@ -81,8 +80,8 @@ bool sy6974b_is_usb_connected(void)
             return (vbus_stat != 0);
         }
     }
-    // Fallback to USB serial JTAG detection
-    return usb_serial_jtag_is_connected();
+    // No I2C device or read failed — assume not connected
+    return false;
 }
 
 void sy6974b_shutdown(void)
