@@ -234,6 +234,16 @@ void deep_sleep_wake_main(void)
         ESP_LOGI(TAG, "Checking periodic tasks...");
         periodic_tasks_check_and_run();
 
+        // After time sync, check if we're still in sleep schedule.
+        // RTC drift during long sleeps can cause early wakeup (e.g., wake at 7:55
+        // when sleep ends at 8:00). If still in schedule, skip the update and go
+        // back to sleep with corrected timing.
+        if (config_manager_is_in_sleep_schedule()) {
+            ESP_LOGI(TAG, "Still in sleep schedule after time sync, skipping update");
+            power_manager_enter_sleep();
+            // Won't reach here after sleep
+        }
+
         ESP_LOGI(TAG, "Starting HTTP server for 10 seconds before sleep");
         power_manager_reset_sleep_timer();
 
@@ -244,6 +254,15 @@ void deep_sleep_wake_main(void)
         http_server_set_ready();
 
         ha_notify_online();
+    }
+
+    // After time sync (or if no WiFi needed), also check sleep schedule.
+    // This handles the case where WiFi/HA is not configured but time was
+    // restored from external RTC.
+    if (config_manager_is_in_sleep_schedule()) {
+        ESP_LOGI(TAG, "Still in sleep schedule after time sync, skipping update");
+        power_manager_enter_sleep();
+        // Won't reach here after sleep
     }
 
     // Trigger rotation
