@@ -178,38 +178,47 @@ async function uploadImage(mode = "upload") {
     const outH = result.canvas.height;
     const imgData = ctx_result.getImageData(0, 0, outW, outH);
     const data = imgData.data;
-    
+
     // We pack 2 pixels into one byte (4 bits per pixel)
     const rawBuffer = new Uint8Array(Math.ceil((outW * outH) / 2));
-    
+
     let byteIdx = 0;
     for (let i = 0; i < data.length; i += 8) {
       // Pixel 1
-      const r1 = data[i], g1 = data[i+1], b1 = data[i+2];
+      const r1 = data[i],
+        g1 = data[i + 1],
+        b1 = data[i + 2];
       let p1 = 1; // Default white
-      if (r1===0 && g1===0 && b1===0) p1 = 0;           // Black
-      else if (r1===255 && g1===255 && b1===255) p1 = 1;// White
-      else if (r1===255 && g1===255 && b1===0) p1 = 2;  // Yellow
-      else if (r1===255 && g1===0 && b1===0) p1 = 3;    // Red
-      else if (r1===0 && g1===0 && b1===255) p1 = 5;    // Blue
-      else if (r1===0 && g1===255 && b1===0) p1 = 6;    // Green
+      if (r1 === 0 && g1 === 0 && b1 === 0)
+        p1 = 0; // Black
+      else if (r1 === 255 && g1 === 255 && b1 === 255)
+        p1 = 1; // White
+      else if (r1 === 255 && g1 === 255 && b1 === 0)
+        p1 = 2; // Yellow
+      else if (r1 === 255 && g1 === 0 && b1 === 0)
+        p1 = 3; // Red
+      else if (r1 === 0 && g1 === 0 && b1 === 255)
+        p1 = 5; // Blue
+      else if (r1 === 0 && g1 === 255 && b1 === 0) p1 = 6; // Green
 
       // Pixel 2 (Handle odd widths by padding with white if out of bounds)
       let p2 = 1;
       if (i + 4 < data.length) {
-        const r2 = data[i+4], g2 = data[i+5], b2 = data[i+6];
-        if (r2===0 && g2===0 && b2===0) p2 = 0;
-        else if (r2===255 && g2===255 && b2===255) p2 = 1;
-        else if (r2===255 && g2===255 && b2===0) p2 = 2;
-        else if (r2===255 && g2===0 && b2===0) p2 = 3;
-        else if (r2===0 && g2===0 && b2===255) p2 = 5;
-        else if (r2===0 && g2===255 && b2===0) p2 = 6;
+        const r2 = data[i + 4],
+          g2 = data[i + 5],
+          b2 = data[i + 6];
+        if (r2 === 0 && g2 === 0 && b2 === 0) p2 = 0;
+        else if (r2 === 255 && g2 === 255 && b2 === 255) p2 = 1;
+        else if (r2 === 255 && g2 === 255 && b2 === 0) p2 = 2;
+        else if (r2 === 255 && g2 === 0 && b2 === 0) p2 = 3;
+        else if (r2 === 0 && g2 === 0 && b2 === 255) p2 = 5;
+        else if (r2 === 0 && g2 === 255 && b2 === 0) p2 = 6;
       }
-      
+
       // Pack into byte (p1 in high nibble, p2 in low nibble)
-      rawBuffer[byteIdx++] = (p1 << 4) | (p2 & 0x0F);
+      rawBuffer[byteIdx++] = (p1 << 4) | (p2 & 0x0f);
     }
-    
+
     // Compress with GZIP
     const compressedBuffer = pako.gzip(rawBuffer);
     const rawBlob = new Blob([compressedBuffer], { type: "application/gzip" });
