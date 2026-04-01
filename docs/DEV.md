@@ -26,6 +26,11 @@ We provide a `build.py` helper script that handles configuration and building fo
 ```bash
 cd <path to photoframe-api>
 
+# install npm dependencies
+cd webapp
+npm install
+cd ..
+
 # Build for Waveshare PhotoPainter (7.3" 7-color e-paper)
 ./build.py --board waveshare_photopainter_73
 
