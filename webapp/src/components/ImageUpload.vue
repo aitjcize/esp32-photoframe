@@ -174,9 +174,9 @@ async function uploadImage(mode = "upload") {
     const compressedBuffer = await imageProcessor.createEPDGZ(result.canvas);
     const rawBlob = new Blob([compressedBuffer], { type: "application/gzip" });
 
-    // Generate filename with .epd.gz extension
+    // Generate filename with .epdgz extension
     const originalName = selectedFile.value.name.replace(/\.[^/.]+$/, "");
-    const rawFilename = `${originalName}.epd.gz`;
+    const rawFilename = `${originalName}.epdgz`;
 
     // Generate thumbnail from original canvas (before rotation)
     const thumbCanvas = imageProcessor.generateThumbnail(

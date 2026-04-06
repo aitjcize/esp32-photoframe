@@ -50,7 +50,7 @@ export async function createImageServer(
   options = {},
 ) {
   // Validate serve format
-  const validFormats = ["epd.gz", "png", "jpg", "bmp"];
+  const validFormats = ["epdgz", "png", "jpg", "bmp"];
   if (!validFormats.includes(serveFormat)) {
     throw new Error(
       `Invalid serve format "${serveFormat}". Must be one of: ${validFormats.join(", ")}`,
@@ -214,7 +214,7 @@ export async function createImageServer(
         let imageBuffer;
         let contentType;
 
-        if (serveFormat === "epd.gz") {
+        if (serveFormat === "epdgz") {
           contentType = "application/octet-stream";
           imageBuffer = await createEPDGZ(processedCanvas);
         } else if (serveFormat === "jpg") {

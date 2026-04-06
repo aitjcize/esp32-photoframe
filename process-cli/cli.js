@@ -128,7 +128,7 @@ async function fetchDevicePalette(host) {
   });
 }
 
-// Minimum firmware version that supports epd.gz format
+// Minimum firmware version that supports epdgz format
 const MIN_EPDGZ_VERSION = "2.6.1";
 
 // Compare two semver strings (with optional "v" prefix).
@@ -239,7 +239,7 @@ function displayDirectlyOnce(host, imagePath, thumbPath) {
     console.log(`  Image: ${imagePath}`);
     console.log(`  Thumbnail: ${thumbPath}`);
 
-    const contentType = imagePath.endsWith(".epd.gz")
+    const contentType = imagePath.endsWith(".epdgz")
       ? "application/octet-stream"
       : "image/png";
     const form = new FormData();
@@ -336,7 +336,7 @@ function uploadToDeviceOnce(host, imagePath, thumbPath, album = null) {
       console.log(`  Album: ${album}`);
     }
 
-    const contentType = imagePath.endsWith(".epd.gz")
+    const contentType = imagePath.endsWith(".epdgz")
       ? "application/octet-stream"
       : "image/png";
     const form = new FormData();
@@ -546,8 +546,8 @@ async function processFolderStructure(
       const imageFile = imageFiles[i];
       const inputPath = path.join(albumInputPath, imageFile);
       const baseName = path.basename(imageFile, path.extname(imageFile));
-      const fmt = options.format || "epd.gz";
-      const ext = fmt === "bmp" ? ".bmp" : fmt === "png" ? ".png" : ".epd.gz";
+      const fmt = options.format || "epdgz";
+      const ext = fmt === "bmp" ? ".bmp" : fmt === "png" ? ".png" : ".epdgz";
       const outputFile = path.join(albumOutputPath, `${baseName}${ext}`);
       const outputThumb = path.join(albumOutputPath, `${baseName}.jpg`);
 
@@ -624,9 +624,9 @@ async function processImageFile(
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
   // 5. Write output file
-  const format = processingOptions.format || "epd.gz";
-  if (format === "epd.gz") {
-    console.log(`  Writing EPD.GZ: ${outputBmp}`);
+  const format = processingOptions.format || "epdgz";
+  if (format === "epdgz") {
+    console.log(`  Writing EPDGZ: ${outputBmp}`);
     const epdBuffer = await createEPDGZ(canvas);
     fs.writeFileSync(outputBmp, epdBuffer);
   } else if (format === "png") {
@@ -639,7 +639,7 @@ async function processImageFile(
     writeBMP(imageData, outputBmp);
   } else {
     throw new Error(
-      `Unsupported format: ${format}. Use 'epd.gz', 'png', or 'bmp'`,
+      `Unsupported format: ${format}. Use 'epdgz', 'png', or 'bmp'`,
     );
   }
 
@@ -680,7 +680,7 @@ program
     "",
   )
   .option("-v, --verbose", "Enable verbose logging")
-  .option("--format <format>", "Output format: epd.gz, png, or bmp", "epd.gz")
+  .option("--format <format>", "Output format: epdgz, png, or bmp", "epdgz")
   .option(
     "--preset <name>",
     `Processing preset: ${getPresetNames().join(", ")} `,
@@ -701,8 +701,8 @@ program
   .option("--serve-port <port>", "Port for HTTP server in --serve mode", "8080")
   .option(
     "--serve-format <format>",
-    "Image format to serve: epd.gz, png, jpg, or bmp",
-    "epd.gz",
+    "Image format to serve: epdgz, png, jpg, or bmp",
+    "epdgz",
   )
   .option(
     "--host <host>",
@@ -829,7 +829,7 @@ program
       if (!formatExplicit && (options.upload || options.direct)) {
         if (!supportsEPDGZ(deviceVersion)) {
           console.log(
-            `Device firmware ${deviceVersion || "(unknown)"} does not support epd.gz, using PNG`,
+            `Device firmware ${deviceVersion || "(unknown)"} does not support epdgz, using PNG`,
           );
           options.format = "png";
         }
@@ -1041,9 +1041,9 @@ program
         // Process single file
         const baseName = path.basename(input, path.extname(input));
         const suffix = options.suffix || "";
-        const format = processOptions.format || "epd.gz";
+        const format = processOptions.format || "epdgz";
         const ext =
-          format === "bmp" ? ".bmp" : format === "png" ? ".png" : ".epd.gz";
+          format === "bmp" ? ".bmp" : format === "png" ? ".png" : ".epdgz";
         const outputFile = path.join(outputDir, `${baseName}${suffix}${ext}`);
         const outputThumb = path.join(outputDir, `${baseName}${suffix}.jpg`);
 

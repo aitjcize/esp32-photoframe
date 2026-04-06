@@ -313,10 +313,10 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
 
     // ========== STEP 1: Image Processing (always done first) ==========
     if (image_format == IMAGE_FORMAT_EPD_GZ) {
-        // EPD.GZ: already display-ready, just move to temp path (no processing needed)
+        // EPDGZ: already display-ready, just move to temp path (no processing needed)
         unlink(CURRENT_EPD_PATH);
         if (rename(temp_upload_path, CURRENT_EPD_PATH) != 0) {
-            ESP_LOGE(TAG, "Failed to move EPD.GZ to temp path");
+            ESP_LOGE(TAG, "Failed to move EPDGZ to temp path");
             unlink(temp_upload_path);
             return ESP_FAIL;
         }
@@ -482,7 +482,7 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
             if (image_format == IMAGE_FORMAT_BMP) {
                 save_ext = ".bmp";
             } else if (image_format == IMAGE_FORMAT_EPD_GZ) {
-                save_ext = ".epd.gz";
+                save_ext = ".epdgz";
             }
             snprintf(final_image_path, sizeof(final_image_path), "%s/%s%s", downloads_path,
                      filename_base, save_ext);

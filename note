@@ -1,0 +1,5 @@
+  - Add config backup & restore functionality in webapp
+  - Fix security vulnerabilities in HTTP file handling
+  - Fix deep sleep not triggering on reTerminal/EE02/EE04
+  - Fix buffer overflow issues in album and config handling
+  - Reorganize build configuration files
