@@ -345,11 +345,13 @@ void power_manager_enter_sleep(void)
 
     // Unmount LittleFS and force flash power domain off to prevent
     // VDD_SPI from staying active during deep sleep (~1-2mA drain).
+    // Only for boards with internal flash storage — forcing VDD_SDIO off
+    // on boards with external flash (e.g. Waveshare) causes boot loops.
     // See: https://github.com/aitjcize/esp32-photoframe/issues/74
 #ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE
     storage_unmount();
-#endif
     esp_sleep_pd_config(ESP_PD_DOMAIN_VDDSDIO, ESP_PD_OPTION_OFF);
+#endif
 
     ESP_LOGI(TAG, "Entering deep sleep now");
     vTaskDelay(pdMS_TO_TICKS(100));
