@@ -14,33 +14,15 @@ const char *TAG = "axp2101";
 
 static XPowersPMU axp2101;
 static i2c_master_dev_handle_t axp_dev_handle = NULL;
-static i2c_master_bus_handle_t axp_i2c_bus = NULL;
-
-// I2C timing constants (matching Waveshare stock firmware)
-#define AXP_I2C_TIMEOUT pdMS_TO_TICKS(1000)
-#define AXP_I2C_RETRY_COUNT 3
-#define AXP_I2C_RETRY_DELAY_MS 100
 
 static int AXP2101_SLAVE_Read(uint8_t devAddr, uint8_t regAddr, uint8_t *data, uint8_t len)
 {
     if (!axp_dev_handle)
         return -1;
 
-    for (int attempt = 0; attempt < AXP_I2C_RETRY_COUNT; attempt++) {
-        // Wait for any pending I2C transactions to complete
-        if (i2c_master_bus_wait_all_done(axp_i2c_bus, AXP_I2C_TIMEOUT) != ESP_OK)
-            continue;
-
-        esp_err_t ret =
-            i2c_master_transmit_receive(axp_dev_handle, &regAddr, 1, data, len, AXP_I2C_TIMEOUT);
-        if (ret == ESP_OK)
-            return 0;
-
-        ESP_LOGW(TAG, "I2C read reg 0x%02x failed (attempt %d/%d): %s", regAddr, attempt + 1,
-                 AXP_I2C_RETRY_COUNT, esp_err_to_name(ret));
-        vTaskDelay(pdMS_TO_TICKS(AXP_I2C_RETRY_DELAY_MS));
-    }
-    return -1;
+    esp_err_t ret =
+        i2c_master_transmit_receive(axp_dev_handle, &regAddr, 1, data, len, pdMS_TO_TICKS(100));
+    return (ret == ESP_OK) ? 0 : -1;
 }
 
 static int AXP2101_SLAVE_Write(uint8_t devAddr, uint8_t regAddr, uint8_t *data, uint8_t len)
@@ -55,32 +37,18 @@ static int AXP2101_SLAVE_Write(uint8_t devAddr, uint8_t regAddr, uint8_t *data, 
     write_buf[0] = regAddr;
     memcpy(write_buf + 1, data, len);
 
-    for (int attempt = 0; attempt < AXP_I2C_RETRY_COUNT; attempt++) {
-        if (i2c_master_bus_wait_all_done(axp_i2c_bus, AXP_I2C_TIMEOUT) != ESP_OK)
-            continue;
-
-        esp_err_t ret = i2c_master_transmit(axp_dev_handle, write_buf, len + 1, AXP_I2C_TIMEOUT);
-        if (ret == ESP_OK) {
-            free(write_buf);
-            return 0;
-        }
-
-        ESP_LOGW(TAG, "I2C write reg 0x%02x failed (attempt %d/%d): %s", regAddr, attempt + 1,
-                 AXP_I2C_RETRY_COUNT, esp_err_to_name(ret));
-        vTaskDelay(pdMS_TO_TICKS(AXP_I2C_RETRY_DELAY_MS));
-    }
+    esp_err_t ret = i2c_master_transmit(axp_dev_handle, write_buf, len + 1, pdMS_TO_TICKS(100));
     free(write_buf);
-    return -1;
+
+    return (ret == ESP_OK) ? 0 : -1;
 }
 
 void axp2101_init(i2c_master_bus_handle_t i2c_bus)
 {
-    axp_i2c_bus = i2c_bus;
-
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = AXP2101_SLAVE_ADDRESS,
-        .scl_speed_hz = 300000,  // 300 kHz (matches Waveshare stock firmware)
+        .scl_speed_hz = 400000,
     };
 
     ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus, &dev_cfg, &axp_dev_handle));
