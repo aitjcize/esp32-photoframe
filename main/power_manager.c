@@ -349,7 +349,6 @@ void power_manager_enter_sleep(void)
 #ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE
     storage_unmount();
 #endif
-    esp_sleep_pd_config(ESP_PD_DOMAIN_VDDSDIO, ESP_PD_OPTION_OFF);
 
     ESP_LOGI(TAG, "Entering deep sleep now");
     vTaskDelay(pdMS_TO_TICKS(100));
