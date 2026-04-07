@@ -43,12 +43,31 @@ static int AXP2101_SLAVE_Write(uint8_t devAddr, uint8_t regAddr, uint8_t *data, 
     return (ret == ESP_OK) ? 0 : -1;
 }
 
-void axp2101_init(i2c_master_bus_handle_t i2c_bus)
+void axp2101_init(i2c_master_bus_handle_t i2c_bus, gpio_num_t irq_pin)
 {
+    // Wake AXP2101 PMIC by toggling its IRQ pin low for >16ms.
+    // After deep sleep with PMIC sleep enabled, the AXP2101's I2C interface
+    // is powered down. The IRQ pin wakeup source (REG26H[4]) triggers the
+    // PMIC to restore power outputs and re-enable I2C.
+    if (irq_pin != GPIO_NUM_NC) {
+        gpio_config_t irq_conf = {
+            .pin_bit_mask = (1ULL << irq_pin),
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_ENABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        gpio_config(&irq_conf);
+        gpio_set_level(irq_pin, 0);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        gpio_set_level(irq_pin, 1);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = AXP2101_SLAVE_ADDRESS,
-        .scl_speed_hz = 400000,
+        .scl_speed_hz = 100000,  // Match stock firmware (xiaozhi-esp32)
     };
 
     ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus, &dev_cfg, &axp_dev_handle));
@@ -131,6 +150,20 @@ void axp2101_cmd_init(void)
         axp2101.setALDO4Voltage(3300);
         ESP_LOGW("axp2101_init_log", "Set ALDO4 to output 3V3");
     }
+    // Charger settings (match stock firmware)
+    axp2101.setPrechargeCurr(XPOWERS_AXP2101_PRECHARGE_50MA);
+    axp2101.setChargerTerminationCurr(XPOWERS_AXP2101_CHG_ITERM_25MA);
+    // Enable battery voltage measurement and detection (disabled during sleep)
+    uint8_t reg = axp2101.readRegister(0x30);
+    if (!(reg & 0x01)) {
+        axp2101.enableBattVoltageMeasure();
+        ESP_LOGW("axp2101_init_log", "Enable battery voltage measure");
+    }
+    reg = axp2101.readRegister(0x68);
+    if (!(reg & 0x01)) {
+        axp2101.enableBattDetection();
+        ESP_LOGW("axp2101_init_log", "Enable battery detection");
+    }
     // Set system power-down voltage (VOFF) to 2.9V to prevent battery over-discharge
     // Li-ion/LiPo batteries should not be discharged below ~2.8V to prevent damage
     if (axp2101.getSysPowerDownVoltage() != 2900) {
@@ -164,6 +197,16 @@ void axp2101_basic_sleep_start(void)
         axp2101.wakeupControl(XPOWERS_AXP2101_WAKEUP_IRQ_PIN_TO_LOW, true);
         ESP_LOGW("axp2101_log", "Set the wake-up source, the interrupt pin of axp2101");
     }
+    // Disable battery measurement before sleep (match stock firmware)
+    uint8_t reg = axp2101.readRegister(0x30);
+    if (reg & 0x01) {
+        axp2101.disableBattVoltageMeasure();
+    }
+    reg = axp2101.readRegister(0x68);
+    if (reg & 0x01) {
+        axp2101.disableBattDetection();
+    }
+
     /*Enable entering sleep mode*/
     axp2101.enableSleep();
     /*Log output*/

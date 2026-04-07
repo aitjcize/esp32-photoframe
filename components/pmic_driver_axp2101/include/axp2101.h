@@ -7,9 +7,10 @@
 extern "C" {
 #endif
 
+#include "driver/gpio.h"
 #include "driver/i2c_master.h"
 
-void axp2101_init(i2c_master_bus_handle_t i2c_bus);
+void axp2101_init(i2c_master_bus_handle_t i2c_bus, gpio_num_t irq_pin);
 void axp2101_cmd_init(void);
 void axp2101_basic_sleep_start(void);
 // void state_axp2101_task(void *arg);

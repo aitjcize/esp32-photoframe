@@ -57,7 +57,7 @@ esp_err_t board_hal_init(void)
     gpio_reset_pin(BOARD_HAL_I2C_SDA_PIN);
 
     ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_config, &i2c_bus));
-    axp2101_init(i2c_bus);
+    axp2101_init(i2c_bus, BOARD_HAL_AXP2101_IRQ_PIN);
     axp2101_cmd_init();
 
     // Initialize SHTC3 sensor (part of this board's power/sensor hal)
@@ -125,8 +125,6 @@ esp_err_t board_hal_init(void)
 esp_err_t board_hal_prepare_for_sleep(void)
 {
     ESP_LOGI(TAG, "Preparing system for sleep");
-
-    epaper_enter_deepsleep();
 
     // Put SHTC3 sensor to sleep
     if (sensor_is_available()) {
