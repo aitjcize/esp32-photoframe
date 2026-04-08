@@ -109,10 +109,6 @@ esp_err_t board_hal_prepare_for_sleep(void)
         adc_handle = NULL;
     }
 
-    // Free SPI bus to release pins from peripheral mode and prevent
-    // current leakage through SPI pin pull resistors during deep sleep
-    spi_bus_free(SPI2_HOST);
-
     return ESP_OK;
 }
 
