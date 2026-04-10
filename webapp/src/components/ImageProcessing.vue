@@ -371,7 +371,6 @@ async function updatePreview() {
     displayHeight: targetHeight,
     palette,
     params: processingParams,
-    skipRotation: true,
     usePerceivedOutput: true,
   });
 
@@ -384,7 +383,6 @@ async function updatePreview() {
     displayHeight: targetHeight,
     palette,
     params: processingParams,
-    skipRotation: true,
     skipDithering: true,
   });
   histogram.value = calculateHistogram(preDitherResult.canvas);

@@ -128,7 +128,6 @@ async function uploadImage(mode = "upload") {
       displayHeight: targetHeight,
       palette,
       params,
-      skipRotation: false, // Ensure image is rotated to fit the hardware's native physical resolution
       usePerceivedOutput: false, // Use theoretical palette
     });
 

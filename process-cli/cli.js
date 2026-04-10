@@ -616,7 +616,8 @@ async function processImageFile(
     devicePalette,
     {
       verbose: processingOptions.verbose || true,
-      skipRotation: processingOptions.renderMeasured,
+      autoOrient: processingOptions.autoOrient || false,
+      rotate: processingOptions.rotate || 0,
     },
   );
 
@@ -751,6 +752,7 @@ program
     "--dither-algorithm <algorithm>",
     "Dithering algorithm: floyd-steinberg, stucki, burkes, or sierra",
   )
+  .option("--auto-orient", "Auto-rotate images to match target display orientation")
   .option("--display-width <width>", "Display width in pixels", parseInt, 800)
   .option(
     "--display-height <height>",
@@ -907,6 +909,8 @@ program
             displayWidth: options.displayWidth,
             displayHeight: options.displayHeight,
             format: options.format,
+            autoOrient: options.autoOrient || false,
+            rotate: options.rotate ? parseInt(options.rotate) : 0,
           }
         : {
             generateThumbnail: true,
@@ -959,6 +963,8 @@ program
             displayWidth: options.displayWidth,
             displayHeight: options.displayHeight,
             format: options.format,
+            autoOrient: options.autoOrient || false,
+            rotate: options.rotate ? parseInt(options.rotate) : 0,
           };
 
       // Check if --serve mode is enabled
