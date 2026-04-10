@@ -128,89 +128,6 @@ function initCustomMode() {
   customPanY.value = (frameHeight - srcH * fitScale) / 2;
 }
 
-// Create a framed canvas at exact display dimensions for all scale modes.
-// All scaling/cropping is done client-side so the processing library
-// receives an already-sized image.
-// Returns { canvas, bgMask } where bgMask marks background pixels (for clean replacement after dithering).
-function createFramedCanvas() {
-  if (!sourceCanvas) return { canvas: null, bgMask: null };
-
-  const { frameWidth, frameHeight } = getFrameDimensions();
-  const canvas = document.createElement("canvas");
-  canvas.width = frameWidth;
-  canvas.height = frameHeight;
-  const ctx = canvas.getContext("2d");
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-
-  // Draw image on transparent canvas first (to detect background via alpha)
-  if (scaleMode.value === "cover") {
-    const covered = imageProcessor.resizeImageCover(sourceCanvas, frameWidth, frameHeight);
-    ctx.drawImage(covered, 0, 0);
-  } else if (scaleMode.value === "fit") {
-    const fitted = imageProcessor.resizeImageFit(
-      sourceCanvas,
-      frameWidth,
-      frameHeight,
-      "rgba(0,0,0,0)"
-    );
-    ctx.drawImage(fitted, 0, 0);
-  } else {
-    // Custom mode
-    const custom = imageProcessor.resizeImageCustom(
-      sourceCanvas,
-      frameWidth,
-      frameHeight,
-      customZoom.value,
-      customPanX.value,
-      customPanY.value,
-      "rgba(0,0,0,0)"
-    );
-    ctx.drawImage(custom, 0, 0);
-  }
-
-  // Build background mask from alpha channel (alpha=0 → background pixel)
-  const imageData = ctx.getImageData(0, 0, frameWidth, frameHeight);
-  const bgMask = new Uint8Array(frameWidth * frameHeight);
-  for (let i = 0; i < bgMask.length; i++) {
-    bgMask[i] = imageData.data[i * 4 + 3] === 0 ? 1 : 0;
-  }
-
-  // Fill background behind the image using destination-over composite
-  ctx.globalCompositeOperation = "destination-over";
-  ctx.fillStyle = getBgFillColor();
-  ctx.fillRect(0, 0, frameWidth, frameHeight);
-  ctx.globalCompositeOperation = "source-over";
-
-  return { canvas, bgMask };
-}
-
-// Replace background pixels in a processed canvas with a clean palette color.
-// This prevents dithering artifacts on uniform background areas.
-function replaceBgPixels(canvas, bgMask, color) {
-  if (!bgMask || !color) return;
-  const ctx = canvas.getContext("2d");
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imageData.data;
-  for (let i = 0; i < bgMask.length; i++) {
-    if (bgMask[i]) {
-      data[i * 4] = color.r;
-      data[i * 4 + 1] = color.g;
-      data[i * 4 + 2] = color.b;
-    }
-  }
-  ctx.putImageData(imageData, 0, 0);
-}
-
-// Get the palette color to use for clean background replacement
-function getBgPaletteColor(usePerceived) {
-  if (usePerceived) {
-    const p = effectivePalette.value;
-    return p ? p[bgColorMode.value] : null;
-  }
-  return imageProcessor ? imageProcessor.SPECTRA6.theoretical[bgColorMode.value] : null;
-}
-
 // Get the visual-to-canvas coordinate scale from DOM
 function getPreviewScale() {
   if (!originalCanvasRef.value) return 1;
@@ -378,32 +295,34 @@ async function updatePreview() {
 
   const { frameWidth, frameHeight } = getFrameDimensions();
 
-  // Create framed canvas at exact display dimensions (all scaling done client-side)
-  const { canvas: framedCanvas, bgMask } = createFramedCanvas();
-  const inputCanvas = framedCanvas;
-
-  const result = imageProcessor.processImage(inputCanvas, {
+  // For preview, pass oriented frame dimensions directly (no orientation
+  // flag — we don't want the native-layout rotation that the upload needs).
+  const commonOpts = {
     displayWidth: frameWidth,
     displayHeight: frameHeight,
     palette,
     params: processingParams,
+    scaleMode: scaleMode.value,
+    backgroundColor: bgColorMode.value,
+    zoom: customZoom.value,
+    panX: customPanX.value,
+    panY: customPanY.value,
+  };
+
+  // Process with dithering (perceived palette for preview)
+  const result = imageProcessor.processImage(sourceCanvas, {
+    ...commonOpts,
     usePerceivedOutput: true,
   });
 
-  // Replace background pixels with clean palette color (prevents dithering artifacts)
-  replaceBgPixels(result.canvas, bgMask, getBgPaletteColor(true));
-
-  // Process again without dithering to get histogram of tone-mapped image
-  const preDitherResult = imageProcessor.processImage(inputCanvas, {
-    displayWidth: frameWidth,
-    displayHeight: frameHeight,
-    palette,
-    params: processingParams,
+  // Process without dithering for histogram
+  const preDitherResult = imageProcessor.processImage(sourceCanvas, {
+    ...commonOpts,
     skipDithering: true,
   });
   histogram.value = calculateHistogram(preDitherResult.canvas);
 
-  // Update canvas dimensions to match the processed result
+  // Update canvas dimensions
   const actualWidth = result.canvas.width;
   const actualHeight = result.canvas.height;
   originalCanvasRef.value.width = actualWidth;
@@ -431,13 +350,13 @@ async function updatePreview() {
     processedCanvasRef.value.style.height = "";
   }
 
-  // Draw original (framed canvas is already at the correct dimensions)
+  // Draw original (pre-dither result has same scaling but no dithering)
   const originalCtx = originalCanvasRef.value.getContext("2d");
-  originalCtx.drawImage(framedCanvas, 0, 0);
+  originalCtx.drawImage(preDitherResult.canvas, 0, 0);
 
-  // Draw processed result
+  // Draw processed result (with dithering)
   const processedCtx = processedCanvasRef.value.getContext("2d");
-  processedCtx.drawImage(result.canvas, 0, 0, actualWidth, actualHeight);
+  processedCtx.drawImage(result.canvas, 0, 0);
 
   emit("processed", result);
 }
