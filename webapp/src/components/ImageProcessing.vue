@@ -144,9 +144,6 @@ function createFramedCanvas() {
   ctx.imageSmoothingQuality = "high";
 
   // Draw image on transparent canvas first (to detect background via alpha)
-  const srcW = sourceCanvas.width;
-  const srcH = sourceCanvas.height;
-
   if (scaleMode.value === "cover") {
     const covered = imageProcessor.resizeImageCover(sourceCanvas, frameWidth, frameHeight);
     ctx.drawImage(covered, 0, 0);

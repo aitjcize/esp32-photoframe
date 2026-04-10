@@ -134,7 +134,7 @@ export const useSettingsStore = defineStore("settings", () => {
       Object.assign(params.value, data);
       // Store original params for change detection
       originalParams = JSON.parse(JSON.stringify(data));
-    } catch (error) {
+    } catch (_error) {
       console.log("Settings API not available (standalone mode)");
     }
   }
@@ -205,7 +205,7 @@ export const useSettingsStore = defineStore("settings", () => {
         offset = sign * (hours + minutes / 60);
       }
       deviceSettings.value.timezoneOffset = offset;
-    } catch (error) {
+    } catch (_error) {
       console.log("Device settings API not available (standalone mode)");
     }
   }
@@ -297,7 +297,7 @@ export const useSettingsStore = defineStore("settings", () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(changedFields),
         });
-      } catch (error) {
+      } catch (_error) {
         // Expected - connection will reset when WiFi switches
         console.log("Connection reset during WiFi change (expected):", error.message);
       }
@@ -370,7 +370,7 @@ export const useSettingsStore = defineStore("settings", () => {
       } else {
         return { success: false, message: data.message || "Failed to save settings" };
       }
-    } catch (error) {
+    } catch (_error) {
       console.error("Error saving config:", error);
       return { success: false, message: "Error saving settings" };
     }
@@ -384,7 +384,7 @@ export const useSettingsStore = defineStore("settings", () => {
       }
       const data = await response.json();
       palette.value = data;
-    } catch (error) {
+    } catch (_error) {
       console.log("Palette API not available (standalone mode)");
     }
   }
@@ -416,7 +416,7 @@ export const useSettingsStore = defineStore("settings", () => {
         originalParams = JSON.parse(JSON.stringify(params.value));
       }
       return response.ok;
-    } catch (error) {
+    } catch (_error) {
       console.error("Failed to save settings:", error);
       return false;
     }
@@ -430,7 +430,7 @@ export const useSettingsStore = defineStore("settings", () => {
         body: JSON.stringify(palette.value),
       });
       return response.ok;
-    } catch (error) {
+    } catch (_error) {
       console.error("Failed to save palette:", error);
       return false;
     }
@@ -451,7 +451,7 @@ export const useSettingsStore = defineStore("settings", () => {
       } else {
         return { success: false, message: "Failed to perform factory reset" };
       }
-    } catch (error) {
+    } catch (_error) {
       console.error("Error performing factory reset:", error);
       return { success: false, message: "Error performing factory reset" };
     }

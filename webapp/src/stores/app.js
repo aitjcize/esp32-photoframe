@@ -62,7 +62,7 @@ export const useAppStore = defineStore("app", () => {
         voltage: data.battery_voltage,
         charging: data.charging,
       };
-    } catch (error) {
+    } catch (_error) {
       console.log("Battery API not available (standalone mode)");
     }
   }
