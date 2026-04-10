@@ -21,8 +21,7 @@ const imageProcessingRef = ref(null);
 // Display dimensions from store
 const displayWidth = computed(() => appStore.systemInfo.width);
 const displayHeight = computed(() => appStore.systemInfo.height);
-const THUMBNAIL_WIDTH = 400;
-const THUMBNAIL_HEIGHT = 240;
+const THUMBNAIL_MAX_DIM = 400;
 
 const canSaveToAlbum = computed(() => {
   return appStore.systemInfo.sdcard_inserted || appStore.systemInfo.has_flash_storage;
@@ -160,12 +159,8 @@ async function uploadImage(mode = "upload") {
     const originalName = selectedFile.value.name.replace(/\.[^/.]+$/, "");
     const rawFilename = `${originalName}.epdgz`;
 
-    // Generate thumbnail from original canvas (before rotation)
-    const thumbCanvas = imageProcessor.generateThumbnail(
-      result.originalCanvas || sourceCanvas.value,
-      THUMBNAIL_WIDTH,
-      THUMBNAIL_HEIGHT
-    );
+    // Generate thumbnail from original source (clean, unprocessed)
+    const thumbCanvas = imageProcessor.generateThumbnail(sourceCanvas.value, THUMBNAIL_MAX_DIM);
     const thumbnailBlob = await new Promise((resolve) => {
       thumbCanvas.toBlob(resolve, "image/jpeg", 0.85);
     });

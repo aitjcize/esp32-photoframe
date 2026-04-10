@@ -22,9 +22,7 @@ import { createImageServer } from "./server.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Thumbnail dimensions (half of display resolution)
-const THUMBNAIL_WIDTH = 400;
-const THUMBNAIL_HEIGHT = 240;
+const THUMBNAIL_MAX_DIM = 400;
 
 // Get default parameters from the library
 const DEFAULT_PARAMS = {
@@ -686,11 +684,10 @@ async function processImageFile(
   if (processingOptions.generateThumbnail && outputThumb) {
     console.log(`  Generating thumbnail: ${outputThumb}`);
 
-    // Use shared thumbnail generation function
+    // Generate thumbnail from original source (clean, unprocessed)
     const thumbCanvas = generateThumbnail(
       originalCanvas,
-      THUMBNAIL_WIDTH,
-      THUMBNAIL_HEIGHT,
+      THUMBNAIL_MAX_DIM,
       createCanvas,
     );
 
