@@ -12,7 +12,7 @@ function renameHtmlPlugin() {
       const outDir = resolve(__dirname, "../demo");
       try {
         await rename(`${outDir}/index-demo.html`, `${outDir}/index.html`);
-      } catch (e) {
+      } catch (_e) {
         // File might not exist or already renamed
       }
     },

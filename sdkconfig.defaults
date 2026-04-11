@@ -62,3 +62,6 @@ CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
 # ESP-TLS - Allow skipping server certificate verification for HTTPS
 CONFIG_ESP_TLS_INSECURE=y
 CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY=y
+
+# mbedTLS - Keep peer certificate for trust-cert endpoint
+CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE=y

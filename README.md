@@ -9,6 +9,7 @@ A modern, feature-rich firmware for ESP32-based e-paper photo frames (currently 
 ## Key Features
 
 - 🎨 **Superior Image Quality**: Measured color palette with automatic calibration produces significantly better results than stock firmware
+- ⚡ **EPDGZ Format**: Pre-processed 4-bit-per-pixel compressed format that saves storage space and enables instant display rendering without on-device image processing
 - 🔋 **Smart Power Management**: Deep sleep mode for weeks of battery life, or always-on for Home Assistant
 - 📁 **Flexible Image Sources**: SD card rotation, URL-based fetching (weather, news, random images from image server)
 - 🌐 **Modern Web Interface**: Drag-and-drop uploads, gallery view, real-time battery status
@@ -107,6 +108,29 @@ Configure your API keys in **Settings > AI Generation**.
 | [Seeed Studio reTerminal E1002](https://www.seeedstudio.com/reTerminal-E1002-p-6533.html) | 7.3" 6-color | SD card (SPI) + Internal flash | `seeedstudio_reterminal_e1002` |
 
 The reTerminal E1002 also includes a SHT40 temperature/humidity sensor, PCF8563 RTC, and battery monitoring.
+
+### Button Functions
+
+Buttons behave differently depending on whether the device is awake (web UI accessible) or in deep sleep.
+
+**When in deep sleep:**
+
+| Button | Waveshare PhotoPainter | XIAO EE02 / EE04 | reTerminal E1002 |
+|--------|----------------------|-------------------|------------------|
+| **Wake** | BOOT button | Button 3 | Green button |
+| **Rotate** | KEY button | Button 1 | Left button |
+| **Clear** | N/A | Button 2 | Right button |
+
+- **Wake**: Wakes the device and starts the web UI / HTTP server (stays awake)
+- **Rotate**: Wakes the device, rotates to the next image, then goes back to sleep
+- **Clear**: Wakes the device, clears the display to white, then goes back to sleep
+
+**When awake:**
+
+| Button | Function |
+|--------|----------|
+| **Rotate** | Rotates to the next image |
+| **Clear** | Clears the display to white |
 
 ### 💾 Internal Flash Storage
 Boards with larger flash chips (XIAO EE02/EE04, reTerminal E1002) use internal flash as persistent storage via LittleFS. On the reTerminal, the SD card takes priority when inserted; internal flash serves as a fallback. The Waveshare board does not have internal flash storage due to its 16MB flash being fully allocated to OTA partitions.
@@ -225,10 +249,10 @@ node cli.js ~/Photos/Albums --upload --device-parameters --host photoframe.local
 Serve pre-processed images directly to your ESP32 over HTTP:
 
 ```bash
-node cli.js --serve ~/Photos --serve-port 9000 --serve-format png --device-parameters --host photoframe.local
+node cli.js --serve ~/Photos --serve-port 9000 --device-parameters --host photoframe.local
 ```
 
-The ESP32 can fetch images from your computer instead of storing them on SD card. Supports BMP, PNG, and JPG formats with automatic thumbnail generation.
+The ESP32 can fetch images from your computer instead of storing them on SD card. Supports EPDGZ, BMP, PNG, and JPG formats with automatic thumbnail generation.
 
 See [process-cli/README.md](process-cli/README.md) for details.
 

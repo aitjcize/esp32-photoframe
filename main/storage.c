@@ -110,6 +110,16 @@ bool storage_has_persistent_storage(void)
            current_storage_type == STORAGE_TYPE_LITTLEFS;
 }
 
+void storage_unmount(void)
+{
+#ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE
+    if (current_storage_type == STORAGE_TYPE_LITTLEFS) {
+        ESP_LOGI(TAG, "Unmounting LittleFS before deep sleep");
+        esp_vfs_littlefs_unregister(LITTLEFS_PARTITION_LABEL);
+    }
+#endif
+}
+
 esp_err_t storage_format(void)
 {
 #ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE

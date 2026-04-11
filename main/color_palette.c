@@ -83,6 +83,34 @@ esp_err_t color_palette_load(color_palette_t *palette)
     return ESP_OK;
 }
 
+static void color_from_json(cJSON *obj, color_rgb_t *color)
+{
+    cJSON *component;
+    if ((component = cJSON_GetObjectItem(obj, "r")) && cJSON_IsNumber(component))
+        color->r = (uint8_t) component->valueint;
+    if ((component = cJSON_GetObjectItem(obj, "g")) && cJSON_IsNumber(component))
+        color->g = (uint8_t) component->valueint;
+    if ((component = cJSON_GetObjectItem(obj, "b")) && cJSON_IsNumber(component))
+        color->b = (uint8_t) component->valueint;
+}
+
+void color_palette_from_json(cJSON *json, color_palette_t *palette)
+{
+    cJSON *color;
+    if ((color = cJSON_GetObjectItem(json, "black")))
+        color_from_json(color, &palette->black);
+    if ((color = cJSON_GetObjectItem(json, "white")))
+        color_from_json(color, &palette->white);
+    if ((color = cJSON_GetObjectItem(json, "yellow")))
+        color_from_json(color, &palette->yellow);
+    if ((color = cJSON_GetObjectItem(json, "red")))
+        color_from_json(color, &palette->red);
+    if ((color = cJSON_GetObjectItem(json, "blue")))
+        color_from_json(color, &palette->blue);
+    if ((color = cJSON_GetObjectItem(json, "green")))
+        color_from_json(color, &palette->green);
+}
+
 static cJSON *color_to_json(const color_rgb_t *color)
 {
     cJSON *obj = cJSON_CreateObject();

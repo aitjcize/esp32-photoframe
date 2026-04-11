@@ -150,6 +150,52 @@ function onParamsUpdate(newParams) {
 
 const saveMessage = ref("");
 const saveError = ref(false);
+const trustingCert = ref(false);
+const trustCertMessage = ref("");
+
+const isHttpsUrl = computed(() => {
+  return settingsStore.deviceSettings.imageUrl?.toLowerCase().startsWith("https://");
+});
+
+async function trustCertificate() {
+  trustingCert.value = true;
+  trustCertMessage.value = "";
+  try {
+    const response = await fetch("/api/trust-cert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: settingsStore.deviceSettings.imageUrl }),
+    });
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+    if (response.ok && data) {
+      settingsStore.deviceSettings.caCertSet = true;
+      trustCertMessage.value = `Trusted: ${data.subject}`;
+    } else {
+      trustCertMessage.value = `Error: ${data?.error || text || "Failed to fetch certificate"}`;
+    }
+  } catch (e) {
+    trustCertMessage.value = `Error: ${e.message}`;
+  } finally {
+    trustingCert.value = false;
+  }
+}
+
+async function clearCertificate() {
+  try {
+    await fetch("/api/trust-cert", { method: "DELETE" });
+    settingsStore.deviceSettings.caCertSet = false;
+    trustCertMessage.value = "";
+  } catch (e) {
+    trustCertMessage.value = `Error: ${e.message}`;
+  }
+}
+
 const showFactoryResetDialog = ref(false);
 const resetting = ref(false);
 const showImportDialog = ref(false);
@@ -555,6 +601,58 @@ async function performFactoryReset() {
                       hide-details
                       class="mb-4"
                     />
+
+                    <div v-if="isHttpsUrl" class="mb-4">
+                      <div class="d-flex align-center ga-2">
+                        <v-btn
+                          v-if="!settingsStore.deviceSettings.caCertSet"
+                          size="small"
+                          variant="outlined"
+                          color="primary"
+                          :loading="trustingCert"
+                          @click="trustCertificate"
+                        >
+                          <v-icon start>mdi-certificate</v-icon>
+                          Trust Server Certificate
+                        </v-btn>
+                        <template v-else>
+                          <v-chip color="success" size="small" variant="tonal">
+                            <v-icon start>mdi-check-circle</v-icon>
+                            Certificate Pinned
+                          </v-chip>
+                          <v-btn
+                            size="small"
+                            variant="text"
+                            color="error"
+                            @click="clearCertificate"
+                          >
+                            Clear
+                          </v-btn>
+                        </template>
+                      </div>
+                      <div
+                        v-if="trustCertMessage"
+                        class="text-caption mt-1"
+                        :class="
+                          trustCertMessage.startsWith('Error') ? 'text-error' : 'text-success'
+                        "
+                      >
+                        {{ trustCertMessage }}
+                      </div>
+                      <div class="text-caption text-medium-emphasis mt-1">
+                        Pin a self-signed or custom CA certificate for this HTTPS URL
+                      </div>
+                    </div>
+
+                    <v-alert
+                      v-if="settingsStore.deviceSettings.lastFetchError"
+                      type="error"
+                      variant="tonal"
+                      density="compact"
+                      class="mb-4"
+                    >
+                      Last fetch error: {{ settingsStore.deviceSettings.lastFetchError }}
+                    </v-alert>
 
                     <v-checkbox
                       v-if="

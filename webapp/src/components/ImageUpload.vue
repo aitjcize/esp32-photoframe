@@ -21,8 +21,7 @@ const imageProcessingRef = ref(null);
 // Display dimensions from store
 const displayWidth = computed(() => appStore.systemInfo.width);
 const displayHeight = computed(() => appStore.systemInfo.height);
-const THUMBNAIL_WIDTH = 400;
-const THUMBNAIL_HEIGHT = 240;
+const THUMBNAIL_MAX_DIM = 400;
 
 const canSaveToAlbum = computed(() => {
   return appStore.systemInfo.sdcard_inserted || appStore.systemInfo.has_flash_storage;
@@ -113,78 +112,44 @@ async function uploadImage(mode = "upload") {
       compressDynamicRange: settingsStore.params.compressDynamicRange,
     };
 
-    // Use native board dimensions for upload
+    // Always use native panel dimensions for processing
     const targetWidth = displayWidth.value;
     const targetHeight = displayHeight.value;
+    const orientation = settingsStore.deviceSettings.displayOrientation;
     const palette = imageProcessor.SPECTRA6;
 
-    // Use framed canvas (scaling/cropping done client-side) or fall back to raw source
-    const uploadData = imageProcessingRef.value?.getUploadCanvas();
-    const uploadCanvas = uploadData?.canvas || sourceCanvas.value;
+    // Get scale mode and params from the preview component
+    // Vue auto-unwraps refs from defineExpose, so no .value needed
+    const scaleMode = imageProcessingRef.value?.scaleMode || "cover";
+    const uploadParams = imageProcessingRef.value?.getUploadParams() || {};
 
-    // Process image with theoretical palette for device
-    const result = imageProcessor.processImage(uploadCanvas, {
+    // Process image with theoretical palette for device at native dimensions.
+    // The library handles rotation, scaling (cover/fit/custom), and clean
+    // background replacement after dithering.
+    const result = imageProcessor.processImage(sourceCanvas.value, {
       displayWidth: targetWidth,
       displayHeight: targetHeight,
       palette,
       params,
-      skipRotation: false, // Ensure image is rotated to fit the hardware's native physical resolution
+      orientation,
+      scaleMode,
+      backgroundColor: uploadParams.backgroundColorName || "white",
+      zoom: uploadParams.zoom,
+      panX: uploadParams.panX,
+      panY: uploadParams.panY,
       usePerceivedOutput: false, // Use theoretical palette
     });
 
-    // Replace background pixels with clean theoretical palette color (no dithering artifacts)
-    if (uploadData?.bgMask && uploadData?.theoreticalBg) {
-      const srcW = uploadCanvas.width;
-      const srcH = uploadCanvas.height;
-      const outW = result.canvas.width;
-      const outH = result.canvas.height;
+    // Convert dithered canvas to gzip-compressed 4-bit EPD format using the library
+    const compressedBuffer = await imageProcessor.createEPDGZ(result.canvas);
+    const rawBlob = new Blob([compressedBuffer], { type: "application/gzip" });
 
-      // If processImage rotated the canvas 90° clockwise (orientation mismatch),
-      // we must rotate the bgMask to match: (x, y) in WxH → (H-1-y, x) in HxW
-      const wasRotated = srcW !== outW || srcH !== outH;
-      let mask = uploadData.bgMask;
-      if (wasRotated) {
-        const rotated = new Uint8Array(outW * outH);
-        for (let y = 0; y < srcH; y++) {
-          for (let x = 0; x < srcW; x++) {
-            const srcIdx = y * srcW + x;
-            const dstX = srcH - 1 - y;
-            const dstY = x;
-            rotated[dstY * outW + dstX] = mask[srcIdx];
-          }
-        }
-        mask = rotated;
-      }
-
-      const ctx = result.canvas.getContext("2d");
-      const imageData = ctx.getImageData(0, 0, outW, outH);
-      const data = imageData.data;
-      const bg = uploadData.theoreticalBg;
-      for (let i = 0; i < mask.length; i++) {
-        if (mask[i]) {
-          data[i * 4] = bg.r;
-          data[i * 4 + 1] = bg.g;
-          data[i * 4 + 2] = bg.b;
-        }
-      }
-      ctx.putImageData(imageData, 0, 0);
-    }
-
-    // Convert processed canvas to PNG blob
-    const pngBlob = await new Promise((resolve) => {
-      result.canvas.toBlob(resolve, "image/png");
-    });
-
-    // Generate filename with .png extension
+    // Generate filename with .epdgz extension
     const originalName = selectedFile.value.name.replace(/\.[^/.]+$/, "");
-    const pngFilename = `${originalName}.png`;
+    const rawFilename = `${originalName}.epdgz`;
 
-    // Generate thumbnail from original canvas (before rotation)
-    const thumbCanvas = imageProcessor.generateThumbnail(
-      result.originalCanvas || sourceCanvas.value,
-      THUMBNAIL_WIDTH,
-      THUMBNAIL_HEIGHT
-    );
+    // Generate thumbnail from original source (clean, unprocessed)
+    const thumbCanvas = imageProcessor.generateThumbnail(sourceCanvas.value, THUMBNAIL_MAX_DIM);
     const thumbnailBlob = await new Promise((resolve) => {
       thumbCanvas.toBlob(resolve, "image/jpeg", 0.85);
     });
@@ -192,7 +157,7 @@ async function uploadImage(mode = "upload") {
 
     // Create form data
     const formData = new FormData();
-    formData.append("image", pngBlob, pngFilename);
+    formData.append("image", rawBlob, rawFilename);
     formData.append("thumbnail", thumbnailBlob, thumbFilename);
 
     // Determine upload URL based on mode and capability

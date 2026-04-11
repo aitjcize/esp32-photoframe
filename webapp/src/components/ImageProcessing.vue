@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import ToneCurve from "./ToneCurve.vue";
-import { useAppStore } from "../stores";
+import { useAppStore, useSettingsStore } from "../stores";
 
 const props = defineProps({
   imageFile: {
@@ -20,6 +20,7 @@ const props = defineProps({
 
 const emit = defineEmits(["processed"]);
 const appStore = useAppStore();
+const settingsStore = useSettingsStore();
 
 // Canvas refs
 const originalCanvasRef = ref(null);
@@ -97,20 +98,20 @@ function calculateHistogram(canvas) {
   return bins;
 }
 
-// Get frame dimensions accounting for source/display orientation mismatch
+// Get frame dimensions based on device orientation config.
+// The preview shows what the user sees on the physical device.
 function getFrameDimensions() {
-  const targetWidth = appStore.systemInfo.width || 800;
-  const targetHeight = appStore.systemInfo.height || 480;
+  let frameWidth = appStore.systemInfo.width || 800;
+  let frameHeight = appStore.systemInfo.height || 480;
+  const orientation = settingsStore.deviceSettings.displayOrientation;
 
-  if (!sourceCanvas) return { frameWidth: targetWidth, frameHeight: targetHeight };
-
-  const isSourcePortrait = sourceCanvas.height > sourceCanvas.width;
-  const isTargetPortrait = targetHeight > targetWidth;
-
-  if (isSourcePortrait !== isTargetPortrait) {
-    return { frameWidth: targetHeight, frameHeight: targetWidth };
+  if (orientation === "portrait" && frameWidth > frameHeight) {
+    [frameWidth, frameHeight] = [frameHeight, frameWidth];
+  } else if (orientation === "landscape" && frameWidth < frameHeight) {
+    [frameWidth, frameHeight] = [frameHeight, frameWidth];
   }
-  return { frameWidth: targetWidth, frameHeight: targetHeight };
+
+  return { frameWidth, frameHeight };
 }
 
 // Initialize custom mode pan/zoom to match cover position
@@ -120,89 +121,11 @@ function initCustomMode() {
   const { frameWidth, frameHeight } = getFrameDimensions();
   const srcW = sourceCanvas.width;
   const srcH = sourceCanvas.height;
-  const coverScale = Math.max(frameWidth / srcW, frameHeight / srcH);
+  const fitScale = Math.min(frameWidth / srcW, frameHeight / srcH);
 
-  customZoom.value = coverScale;
-  customPanX.value = (frameWidth - srcW * coverScale) / 2;
-  customPanY.value = (frameHeight - srcH * coverScale) / 2;
-}
-
-// Create a framed canvas at exact display dimensions for all scale modes.
-// All scaling/cropping is done client-side so the processing library
-// receives an already-sized image.
-// Returns { canvas, bgMask } where bgMask marks background pixels (for clean replacement after dithering).
-function createFramedCanvas() {
-  if (!sourceCanvas) return { canvas: null, bgMask: null };
-
-  const { frameWidth, frameHeight } = getFrameDimensions();
-  const canvas = document.createElement("canvas");
-  canvas.width = frameWidth;
-  canvas.height = frameHeight;
-  const ctx = canvas.getContext("2d");
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-
-  // Draw image on transparent canvas first (to detect background via alpha)
-  const srcW = sourceCanvas.width;
-  const srcH = sourceCanvas.height;
-
-  if (scaleMode.value === "cover") {
-    const covered = imageProcessor.resizeImageCover(sourceCanvas, frameWidth, frameHeight);
-    ctx.drawImage(covered, 0, 0);
-  } else if (scaleMode.value === "fit") {
-    const scale = Math.min(frameWidth / srcW, frameHeight / srcH);
-    const w = Math.round(srcW * scale);
-    const h = Math.round(srcH * scale);
-    const x = Math.round((frameWidth - w) / 2);
-    const y = Math.round((frameHeight - h) / 2);
-    ctx.drawImage(sourceCanvas, x, y, w, h);
-  } else {
-    // Custom mode
-    const w = Math.round(srcW * customZoom.value);
-    const h = Math.round(srcH * customZoom.value);
-    ctx.drawImage(sourceCanvas, Math.round(customPanX.value), Math.round(customPanY.value), w, h);
-  }
-
-  // Build background mask from alpha channel (alpha=0 → background pixel)
-  const imageData = ctx.getImageData(0, 0, frameWidth, frameHeight);
-  const bgMask = new Uint8Array(frameWidth * frameHeight);
-  for (let i = 0; i < bgMask.length; i++) {
-    bgMask[i] = imageData.data[i * 4 + 3] === 0 ? 1 : 0;
-  }
-
-  // Fill background behind the image using destination-over composite
-  ctx.globalCompositeOperation = "destination-over";
-  ctx.fillStyle = getBgFillColor();
-  ctx.fillRect(0, 0, frameWidth, frameHeight);
-  ctx.globalCompositeOperation = "source-over";
-
-  return { canvas, bgMask };
-}
-
-// Replace background pixels in a processed canvas with a clean palette color.
-// This prevents dithering artifacts on uniform background areas.
-function replaceBgPixels(canvas, bgMask, color) {
-  if (!bgMask || !color) return;
-  const ctx = canvas.getContext("2d");
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imageData.data;
-  for (let i = 0; i < bgMask.length; i++) {
-    if (bgMask[i]) {
-      data[i * 4] = color.r;
-      data[i * 4 + 1] = color.g;
-      data[i * 4 + 2] = color.b;
-    }
-  }
-  ctx.putImageData(imageData, 0, 0);
-}
-
-// Get the palette color to use for clean background replacement
-function getBgPaletteColor(usePerceived) {
-  if (usePerceived) {
-    const p = effectivePalette.value;
-    return p ? p[bgColorMode.value] : null;
-  }
-  return imageProcessor ? imageProcessor.SPECTRA6.theoretical[bgColorMode.value] : null;
+  customZoom.value = fitScale;
+  customPanX.value = (frameWidth - srcW * fitScale) / 2;
+  customPanY.value = (frameHeight - srcH * fitScale) / 2;
 }
 
 // Get the visual-to-canvas coordinate scale from DOM
@@ -323,6 +246,17 @@ async function loadAndProcessImage(file) {
     const sourceCtx = sourceCanvas.getContext("2d");
     sourceCtx.drawImage(img, 0, 0);
 
+    // Auto-select scale mode: use fit if source orientation doesn't match
+    // display orientation, cover otherwise
+    const { frameWidth, frameHeight } = getFrameDimensions();
+    const isSourcePortrait = img.height > img.width;
+    const isTargetPortrait = frameHeight > frameWidth;
+    if (isSourcePortrait !== isTargetPortrait) {
+      scaleMode.value = "fit";
+    } else {
+      scaleMode.value = "cover";
+    }
+
     // Reinitialize custom mode if active
     if (scaleMode.value === "custom") {
       initCustomMode();
@@ -359,37 +293,36 @@ async function updatePreview() {
     palette.perceived = props.palette;
   }
 
-  const targetWidth = appStore.systemInfo.width;
-  const targetHeight = appStore.systemInfo.height;
+  const { frameWidth, frameHeight } = getFrameDimensions();
 
-  // Create framed canvas at exact display dimensions (all scaling done client-side)
-  const { canvas: framedCanvas, bgMask } = createFramedCanvas();
-  const inputCanvas = framedCanvas;
-
-  const result = imageProcessor.processImage(inputCanvas, {
-    displayWidth: targetWidth,
-    displayHeight: targetHeight,
+  // For preview, pass oriented frame dimensions directly (no orientation
+  // flag — we don't want the native-layout rotation that the upload needs).
+  const commonOpts = {
+    displayWidth: frameWidth,
+    displayHeight: frameHeight,
     palette,
     params: processingParams,
-    skipRotation: true,
+    scaleMode: scaleMode.value,
+    backgroundColor: bgColorMode.value,
+    zoom: customZoom.value,
+    panX: customPanX.value,
+    panY: customPanY.value,
+  };
+
+  // Process with dithering (perceived palette for preview)
+  const result = imageProcessor.processImage(sourceCanvas, {
+    ...commonOpts,
     usePerceivedOutput: true,
   });
 
-  // Replace background pixels with clean palette color (prevents dithering artifacts)
-  replaceBgPixels(result.canvas, bgMask, getBgPaletteColor(true));
-
-  // Process again without dithering to get histogram of tone-mapped image
-  const preDitherResult = imageProcessor.processImage(inputCanvas, {
-    displayWidth: targetWidth,
-    displayHeight: targetHeight,
-    palette,
-    params: processingParams,
-    skipRotation: true,
+  // Process without dithering for histogram
+  const preDitherResult = imageProcessor.processImage(sourceCanvas, {
+    ...commonOpts,
     skipDithering: true,
   });
   histogram.value = calculateHistogram(preDitherResult.canvas);
 
-  // Update canvas dimensions to match the processed result
+  // Update canvas dimensions
   const actualWidth = result.canvas.width;
   const actualHeight = result.canvas.height;
   originalCanvasRef.value.width = actualWidth;
@@ -417,13 +350,13 @@ async function updatePreview() {
     processedCanvasRef.value.style.height = "";
   }
 
-  // Draw original (framed canvas is already at the correct dimensions)
+  // Draw original (pre-dither result has same scaling but no dithering)
   const originalCtx = originalCanvasRef.value.getContext("2d");
-  originalCtx.drawImage(framedCanvas, 0, 0);
+  originalCtx.drawImage(preDitherResult.canvas, 0, 0);
 
-  // Draw processed result
+  // Draw processed result (with dithering)
   const processedCtx = processedCanvasRef.value.getContext("2d");
-  processedCtx.drawImage(result.canvas, 0, 0, actualWidth, actualHeight);
+  processedCtx.drawImage(result.canvas, 0, 0);
 
   emit("processed", result);
 }
@@ -516,11 +449,14 @@ function updateSlider(event) {
 
 // Expose method for upload component to get framed canvas and background mask
 defineExpose({
-  getUploadCanvas() {
-    if (!sourceCanvas) return null;
-    const { canvas, bgMask } = createFramedCanvas();
-    const theoreticalBg = getBgPaletteColor(false);
-    return { canvas, bgMask, theoreticalBg };
+  scaleMode,
+  getUploadParams() {
+    return {
+      backgroundColorName: bgColorMode.value,
+      zoom: customZoom.value,
+      panX: customPanX.value,
+      panY: customPanY.value,
+    };
   },
 });
 

@@ -17,6 +17,7 @@
 #include "config_manager.h"
 #include "ha_integration.h"
 #include "periodic_tasks.h"
+#include "storage.h"
 #include "utils.h"
 
 // RTC memory to store expected wakeup time (persists across deep sleep)
@@ -341,6 +342,13 @@ void power_manager_enter_sleep(void)
 
     ESP_LOGI(TAG, "Configuring Board HAL for deep sleep");
     board_hal_prepare_for_sleep();
+
+    // Unmount LittleFS and force flash power domain off to prevent
+    // VDD_SPI from staying active during deep sleep (~1-2mA drain).
+    // See: https://github.com/aitjcize/esp32-photoframe/issues/74
+#ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE
+    storage_unmount();
+#endif
 
     ESP_LOGI(TAG, "Entering deep sleep now");
     vTaskDelay(pdMS_TO_TICKS(100));

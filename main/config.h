@@ -26,6 +26,7 @@ typedef enum {
 #define ACCESS_TOKEN_MAX_LEN 512
 #define HTTP_HEADER_KEY_MAX_LEN 64
 #define HTTP_HEADER_VALUE_MAX_LEN 512
+#define CA_CERT_MAX_LEN 4096
 
 #define DEFAULT_DEVICE_NAME "PhotoFrame"
 #define DEFAULT_WIFI_SSID "PhotoFrame"
@@ -48,6 +49,7 @@ typedef enum {
 #define CURRENT_JPG_PATH FS_MOUNT_POINT "/.current.jpg"
 #define CURRENT_BMP_PATH FS_MOUNT_POINT "/.current.bmp"
 #define CURRENT_PNG_PATH FS_MOUNT_POINT "/.current.png"
+#define CURRENT_EPD_PATH FS_MOUNT_POINT "/.current.epdgz"
 #define CURRENT_IMAGE_LINK FS_MOUNT_POINT "/.current.lnk"
 #define CURRENT_CALIBRATION_PATH FS_MOUNT_POINT "/.calibration.png"
 
@@ -87,6 +89,7 @@ typedef enum {
 
 // Auto Rotate - URL
 #define NVS_IMAGE_URL_KEY "image_url"
+#define NVS_CA_CERT_KEY "ca_cert"
 #define NVS_ACCESS_TOKEN_KEY "access_token"
 #define NVS_HTTP_HEADER_KEY_KEY "http_hdr_key"
 #define NVS_HTTP_HEADER_VALUE_KEY "http_hdr_val"

@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "GUI_BMPfile.h"
+#include "GUI_EPDGZfile.h"
 #include "GUI_PNGfile.h"
 #include "GUI_Paint.h"
 #include "GUI_RawBuffer.h"
@@ -137,8 +138,17 @@ esp_err_t display_manager_show_image(const char *filename)
     // Detect file type by extension
     const char *ext = strrchr(filename, '.');
     bool is_png = (ext != NULL && strcasecmp(ext, ".png") == 0);
+    // Check for .epdgz extension
+    bool is_epdgz = (ext != NULL && strcasecmp(ext, ".epdgz") == 0);
 
-    if (is_png) {
+    if (is_epdgz) {
+        ESP_LOGI(TAG, "Reading EPDGZ file into buffer");
+        if (GUI_ReadEPDGZ(filename) != 0) {
+            ESP_LOGE(TAG, "Failed to read EPDGZ file");
+            xSemaphoreGive(display_mutex);
+            return ESP_FAIL;
+        }
+    } else if (is_png) {
         ESP_LOGI(TAG, "Reading PNG file into buffer");
         if (GUI_ReadPng_RGB_6Color(filename, 0, 0) != 0) {
             ESP_LOGE(TAG, "Failed to read PNG file");
@@ -420,8 +430,8 @@ static void rotate_sequential(char **enabled_albums, int album_count)
                 }
 
                 const char *ext = strrchr(entry->d_name, '.');
-                if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
-                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
+                if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
+                            strcasecmp(ext, ".epdgz") == 0)) {
                     char fullpath[512];
                     snprintf(fullpath, sizeof(fullpath), "%s/%s", album_path, entry->d_name);
                     ESP_LOGD(TAG, "  Found image [%ld]: %s", (long) current_idx, fullpath);
@@ -489,8 +499,8 @@ static void rotate_random(char **enabled_albums, int album_count)
                     continue;
                 }
                 const char *ext = strrchr(entry->d_name, '.');
-                if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
-                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
+                if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
+                            strcasecmp(ext, ".epdgz") == 0)) {
                     total_image_count++;
                 }
             }
@@ -528,8 +538,8 @@ static void rotate_random(char **enabled_albums, int album_count)
                 }
 
                 const char *ext = strrchr(entry->d_name, '.');
-                if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
-                            strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
+                if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
+                            strcasecmp(ext, ".epdgz") == 0)) {
                     char *fullpath = malloc(512);
                     if (!fullpath) {
                         ESP_LOGE(TAG, "Failed to allocate path buffer");

@@ -205,8 +205,9 @@ static void button_task(void *arg)
     }
 }
 
-void deep_sleep_wake_main(void)
+void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 {
+    bool is_button_wake = (wakeup_src == WAKEUP_SOURCE_ROTATE_BUTTON);
     // Check rotation mode and HA configuration
     rotation_mode_t rotation_mode = config_manager_get_rotation_mode();
     bool ha_configured = ha_is_configured();
@@ -238,7 +239,8 @@ void deep_sleep_wake_main(void)
         // RTC drift during long sleeps can cause early wakeup (e.g., wake at 7:55
         // when sleep ends at 8:00). If still in schedule, skip the update and go
         // back to sleep with corrected timing.
-        if (config_manager_is_in_sleep_schedule()) {
+        // Exception: ROTATE button press always rotates, even during sleep schedule.
+        if (!is_button_wake && config_manager_is_in_sleep_schedule()) {
             ESP_LOGI(TAG, "Still in sleep schedule after time sync, skipping update");
             power_manager_enter_sleep();
             // Won't reach here after sleep
@@ -259,7 +261,8 @@ void deep_sleep_wake_main(void)
     // After time sync (or if no WiFi needed), also check sleep schedule.
     // This handles the case where WiFi/HA is not configured but time was
     // restored from external RTC.
-    if (config_manager_is_in_sleep_schedule()) {
+    // Exception: ROTATE button press always rotates, even during sleep schedule.
+    if (!is_button_wake && config_manager_is_in_sleep_schedule()) {
         ESP_LOGI(TAG, "Still in sleep schedule after time sync, skipping update");
         power_manager_enter_sleep();
         // Won't reach here after sleep
@@ -441,7 +444,7 @@ void app_main(void)
     case WAKEUP_SOURCE_TIMER:
     case WAKEUP_SOURCE_ROTATE_BUTTON:
         ESP_LOGI(TAG, "Entering deep sleep wake path (timer or rotate button)");
-        deep_sleep_wake_main();
+        deep_sleep_wake_main(wakeup_src);
         // Won't reach here after sleep
         break;
 
@@ -543,9 +546,6 @@ void app_main(void)
 
     xTaskCreate(button_task, "button_task", 8192, NULL, 5, NULL);
 
-    // Perform the initial check on boot
-    ota_check_for_update(NULL, 0);
-
     ESP_ERROR_CHECK(http_server_init());
     http_server_set_ready();
 
@@ -569,4 +569,8 @@ void app_main(void)
     ha_notify_online();
 
     ESP_LOGI(TAG, "PhotoFrame started successfully");
+
+    // Delay OTA check to avoid competing with boot-time network activity
+    vTaskDelay(pdMS_TO_TICKS(10000));
+    ota_check_for_update(NULL, 0);
 }

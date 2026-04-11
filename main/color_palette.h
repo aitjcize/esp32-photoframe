@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "cJSON.h"
 #include "esp_err.h"
 
 typedef struct {
@@ -25,5 +26,6 @@ esp_err_t color_palette_save(const color_palette_t *palette);
 esp_err_t color_palette_load(color_palette_t *palette);
 void color_palette_get_defaults(color_palette_t *palette);
 char *color_palette_to_json(const color_palette_t *palette);
+void color_palette_from_json(cJSON *json, color_palette_t *palette);
 
 #endif

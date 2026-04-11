@@ -39,6 +39,8 @@ export const useSettingsStore = defineStore("settings", () => {
     sdRotationMode: "random",
     // Auto Rotate - URL
     imageUrl: "https://loremflickr.com/800/480",
+    caCertSet: false,
+    lastFetchError: "",
     accessToken: "",
     httpHeaderKey: "",
     httpHeaderValue: "",
@@ -134,7 +136,7 @@ export const useSettingsStore = defineStore("settings", () => {
       Object.assign(params.value, data);
       // Store original params for change detection
       originalParams = JSON.parse(JSON.stringify(data));
-    } catch (error) {
+    } catch (_error) {
       console.log("Settings API not available (standalone mode)");
     }
   }
@@ -161,6 +163,8 @@ export const useSettingsStore = defineStore("settings", () => {
 
       deviceSettings.value.displayRotationDeg = data.display_rotation_deg ?? 180;
       deviceSettings.value.imageUrl = data.image_url || "https://loremflickr.com/800/480";
+      deviceSettings.value.caCertSet = data.ca_cert_set || false;
+      deviceSettings.value.lastFetchError = data.last_fetch_error || "";
       deviceSettings.value.deepSleepEnabled = data.deep_sleep_enabled !== false;
       deviceSettings.value.haUrl = data.ha_url || "";
       deviceSettings.value.saveDownloadedImages = data.save_downloaded_images !== false;
@@ -205,7 +209,7 @@ export const useSettingsStore = defineStore("settings", () => {
         offset = sign * (hours + minutes / 60);
       }
       deviceSettings.value.timezoneOffset = offset;
-    } catch (error) {
+    } catch (_error) {
       console.log("Device settings API not available (standalone mode)");
     }
   }
@@ -297,7 +301,7 @@ export const useSettingsStore = defineStore("settings", () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(changedFields),
         });
-      } catch (error) {
+      } catch (_error) {
         // Expected - connection will reset when WiFi switches
         console.log("Connection reset during WiFi change (expected):", error.message);
       }
@@ -370,7 +374,7 @@ export const useSettingsStore = defineStore("settings", () => {
       } else {
         return { success: false, message: data.message || "Failed to save settings" };
       }
-    } catch (error) {
+    } catch (_error) {
       console.error("Error saving config:", error);
       return { success: false, message: "Error saving settings" };
     }
@@ -384,7 +388,7 @@ export const useSettingsStore = defineStore("settings", () => {
       }
       const data = await response.json();
       palette.value = data;
-    } catch (error) {
+    } catch (_error) {
       console.log("Palette API not available (standalone mode)");
     }
   }
@@ -416,7 +420,7 @@ export const useSettingsStore = defineStore("settings", () => {
         originalParams = JSON.parse(JSON.stringify(params.value));
       }
       return response.ok;
-    } catch (error) {
+    } catch (_error) {
       console.error("Failed to save settings:", error);
       return false;
     }
@@ -430,7 +434,7 @@ export const useSettingsStore = defineStore("settings", () => {
         body: JSON.stringify(palette.value),
       });
       return response.ok;
-    } catch (error) {
+    } catch (_error) {
       console.error("Failed to save palette:", error);
       return false;
     }
@@ -451,7 +455,7 @@ export const useSettingsStore = defineStore("settings", () => {
       } else {
         return { success: false, message: "Failed to perform factory reset" };
       }
-    } catch (error) {
+    } catch (_error) {
       console.error("Error performing factory reset:", error);
       return { success: false, message: "Error performing factory reset" };
     }

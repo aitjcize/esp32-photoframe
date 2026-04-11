@@ -162,6 +162,34 @@ esp_err_t processing_settings_load(processing_settings_t *settings)
     return ESP_OK;
 }
 
+void processing_settings_from_json(cJSON *json, processing_settings_t *settings)
+{
+    cJSON *item;
+    if ((item = cJSON_GetObjectItem(json, "exposure")) && cJSON_IsNumber(item))
+        settings->exposure = (float) item->valuedouble;
+    if ((item = cJSON_GetObjectItem(json, "saturation")) && cJSON_IsNumber(item))
+        settings->saturation = (float) item->valuedouble;
+    if ((item = cJSON_GetObjectItem(json, "toneMode")) && cJSON_IsString(item))
+        strncpy(settings->tone_mode, item->valuestring, sizeof(settings->tone_mode) - 1);
+    if ((item = cJSON_GetObjectItem(json, "contrast")) && cJSON_IsNumber(item))
+        settings->contrast = (float) item->valuedouble;
+    if ((item = cJSON_GetObjectItem(json, "strength")) && cJSON_IsNumber(item))
+        settings->strength = (float) item->valuedouble;
+    if ((item = cJSON_GetObjectItem(json, "shadowBoost")) && cJSON_IsNumber(item))
+        settings->shadow_boost = (float) item->valuedouble;
+    if ((item = cJSON_GetObjectItem(json, "highlightCompress")) && cJSON_IsNumber(item))
+        settings->highlight_compress = (float) item->valuedouble;
+    if ((item = cJSON_GetObjectItem(json, "midpoint")) && cJSON_IsNumber(item))
+        settings->midpoint = (float) item->valuedouble;
+    if ((item = cJSON_GetObjectItem(json, "colorMethod")) && cJSON_IsString(item))
+        strncpy(settings->color_method, item->valuestring, sizeof(settings->color_method) - 1);
+    if ((item = cJSON_GetObjectItem(json, "compressDynamicRange")) && cJSON_IsBool(item))
+        settings->compress_dynamic_range = cJSON_IsTrue(item);
+    if ((item = cJSON_GetObjectItem(json, "ditherAlgorithm")) && cJSON_IsString(item))
+        strncpy(settings->dither_algorithm, item->valuestring,
+                sizeof(settings->dither_algorithm) - 1);
+}
+
 char *processing_settings_to_json(const processing_settings_t *settings)
 {
     cJSON *json = cJSON_CreateObject();

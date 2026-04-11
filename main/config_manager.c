@@ -37,6 +37,8 @@ static int32_t last_index = -1;
 
 // Auto Rotate - URL
 static char image_url[IMAGE_URL_MAX_LEN] = {0};
+static uint8_t *ca_cert_der = NULL;  // Heap-allocated DER certificate
+static size_t ca_cert_der_len = 0;
 static char access_token[ACCESS_TOKEN_MAX_LEN] = {0};
 static char http_header_key[HTTP_HEADER_KEY_MAX_LEN] = {0};
 static char http_header_value[HTTP_HEADER_VALUE_MAX_LEN] = {0};
@@ -51,6 +53,9 @@ static char google_api_key[AI_API_KEY_MAX_LEN] = {0};
 
 // Power
 static bool deep_sleep_enabled = true;  // Enabled by default
+
+// Config sync
+static int64_t config_last_updated = 0;
 
 esp_err_t config_manager_init(void)
 {
@@ -198,6 +203,21 @@ esp_err_t config_manager_init(void)
             ESP_LOGI(TAG, "No image URL in NVS, using default: %s", image_url);
         }
 
+        // CA Certificate DER blob (heap-allocated)
+        size_t blob_len = 0;
+        if (nvs_get_blob(nvs_handle, NVS_CA_CERT_KEY, NULL, &blob_len) == ESP_OK && blob_len > 0) {
+            ca_cert_der = malloc(blob_len);
+            if (ca_cert_der &&
+                nvs_get_blob(nvs_handle, NVS_CA_CERT_KEY, ca_cert_der, &blob_len) == ESP_OK) {
+                ca_cert_der_len = blob_len;
+                ESP_LOGI(TAG, "Loaded CA certificate from NVS (%zu bytes)", ca_cert_der_len);
+            } else {
+                free(ca_cert_der);
+                ca_cert_der = NULL;
+                ca_cert_der_len = 0;
+            }
+        }
+
         size_t access_token_len = ACCESS_TOKEN_MAX_LEN;
         if (nvs_get_str(nvs_handle, NVS_ACCESS_TOKEN_KEY, access_token, &access_token_len) ==
             ESP_OK) {
@@ -252,6 +272,11 @@ esp_err_t config_manager_init(void)
             deep_sleep_enabled = (deep_sleep_val != 0);
             ESP_LOGI(TAG, "Loaded deep sleep setting from NVS: %s",
                      deep_sleep_enabled ? "enabled" : "disabled");
+        }
+
+        // Config sync timestamp
+        if (nvs_get_i64(nvs_handle, "cfg_updated", &config_last_updated) == ESP_OK) {
+            ESP_LOGI(TAG, "Loaded config_last_updated: %lld", (long long) config_last_updated);
         }
 
         nvs_close(nvs_handle);
@@ -688,6 +713,43 @@ const char *config_manager_get_image_url(void)
     return image_url;
 }
 
+void config_manager_set_ca_cert_der(const uint8_t *der, size_t len)
+{
+    free(ca_cert_der);
+    ca_cert_der = NULL;
+    ca_cert_der_len = 0;
+
+    if (der && len > 0) {
+        ca_cert_der = malloc(len);
+        if (ca_cert_der) {
+            memcpy(ca_cert_der, der, len);
+            ca_cert_der_len = len;
+        }
+    }
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        if (ca_cert_der) {
+            nvs_set_blob(nvs_handle, NVS_CA_CERT_KEY, ca_cert_der, ca_cert_der_len);
+        } else {
+            nvs_erase_key(nvs_handle, NVS_CA_CERT_KEY);
+        }
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "CA certificate %s (%zu bytes)", ca_cert_der ? "set" : "cleared",
+             ca_cert_der_len);
+}
+
+const uint8_t *config_manager_get_ca_cert_der(size_t *out_len)
+{
+    if (out_len) {
+        *out_len = ca_cert_der_len;
+    }
+    return ca_cert_der;
+}
+
 void config_manager_set_access_token(const char *token)
 {
     if (token == NULL) {
@@ -869,4 +931,27 @@ void config_manager_set_deep_sleep_enabled(bool enabled)
 bool config_manager_get_deep_sleep_enabled(void)
 {
     return deep_sleep_enabled;
+}
+
+void config_manager_set_config_last_updated(int64_t timestamp)
+{
+    config_last_updated = timestamp;
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_i64(nvs_handle, "cfg_updated", config_last_updated);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+}
+
+int64_t config_manager_get_config_last_updated(void)
+{
+    return config_last_updated;
+}
+
+void config_manager_touch_config(void)
+{
+    time_t now;
+    time(&now);
+    config_manager_set_config_last_updated((int64_t) now);
 }

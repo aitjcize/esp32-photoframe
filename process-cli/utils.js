@@ -10,6 +10,7 @@ import heicConvert from "heic-convert";
 import {
   processImage,
   applyExifOrientation,
+  rotateImage,
   SPECTRA6,
 } from "@aitjcize/epaper-image-convert";
 
@@ -58,7 +59,10 @@ function getExifOrientation(imagePath) {
  * @param {Object} options - Processing options:
  *   - verbose {boolean} - Enable verbose logging
  *   - skipDithering {boolean} - Skip dithering step
- *   - skipRotation {boolean} - Skip portrait rotation
+ *   - autoOrient {boolean} - Auto-rotate image to match target orientation
+ *   - orientation {string} - Display orientation: "landscape" or "portrait"
+ *   - scaleMode {string} - Scale mode: "cover" or "fit" (default: "cover")
+ *   - backgroundColor {string} - Palette color name for fit mode background (default: "white")
  * @returns {Promise<Object>} { canvas, originalCanvas, thumbnail }
  */
 export async function processImagePipeline(
@@ -72,7 +76,10 @@ export async function processImagePipeline(
   const {
     verbose = false,
     skipDithering = false,
-    skipRotation = false,
+    autoOrient = false,
+    orientation = "landscape",
+    scaleMode = "cover",
+    backgroundColor = "white",
   } = options;
 
   // Load image (with HEIC conversion if needed)
@@ -82,14 +89,28 @@ export async function processImagePipeline(
   ctx.drawImage(img, 0, 0);
 
   // Apply EXIF orientation
-  const orientation = getExifOrientation(imagePath);
-  if (orientation > 1) {
+  const exifOrientation = getExifOrientation(imagePath);
+  if (exifOrientation > 1) {
     if (verbose) {
-      console.log(`  Applying EXIF orientation: ${orientation}`);
+      console.log(`  Applying EXIF orientation: ${exifOrientation}`);
     }
-    canvas = applyExifOrientation(canvas, orientation, createCanvas);
+    canvas = applyExifOrientation(canvas, exifOrientation, createCanvas);
     if (verbose) {
       console.log(`  After EXIF correction: ${canvas.width}x${canvas.height}`);
+    }
+  }
+
+  // Auto-orient: rotate to match target orientation if they differ
+  if (autoOrient) {
+    const isSourcePortrait = canvas.height > canvas.width;
+    const isTargetPortrait = displayHeight > displayWidth;
+    if (isSourcePortrait !== isTargetPortrait) {
+      canvas = rotateImage(canvas, 90, createCanvas);
+      if (verbose) {
+        console.log(
+          `  Auto-oriented: rotated 90° to match ${isTargetPortrait ? "portrait" : "landscape"} target`,
+        );
+      }
     }
   }
 
@@ -114,9 +135,11 @@ export async function processImagePipeline(
     displayHeight,
     palette,
     params: processingParams,
+    orientation,
+    scaleMode,
+    backgroundColor,
     verbose,
     createCanvas,
     skipDithering,
-    skipRotation,
   });
 }

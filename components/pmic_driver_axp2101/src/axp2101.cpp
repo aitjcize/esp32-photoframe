@@ -7,39 +7,22 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 
 const char *TAG = "axp2101";
 
 static XPowersPMU axp2101;
 static i2c_master_dev_handle_t axp_dev_handle = NULL;
-static i2c_master_bus_handle_t axp_i2c_bus = NULL;
-
-// I2C timing constants (matching Waveshare stock firmware)
-#define AXP_I2C_TIMEOUT pdMS_TO_TICKS(1000)
-#define AXP_I2C_RETRY_COUNT 3
-#define AXP_I2C_RETRY_DELAY_MS 100
 
 static int AXP2101_SLAVE_Read(uint8_t devAddr, uint8_t regAddr, uint8_t *data, uint8_t len)
 {
     if (!axp_dev_handle)
         return -1;
 
-    for (int attempt = 0; attempt < AXP_I2C_RETRY_COUNT; attempt++) {
-        // Wait for any pending I2C transactions to complete
-        if (i2c_master_bus_wait_all_done(axp_i2c_bus, AXP_I2C_TIMEOUT) != ESP_OK)
-            continue;
-
-        esp_err_t ret =
-            i2c_master_transmit_receive(axp_dev_handle, &regAddr, 1, data, len, AXP_I2C_TIMEOUT);
-        if (ret == ESP_OK)
-            return 0;
-
-        ESP_LOGW(TAG, "I2C read reg 0x%02x failed (attempt %d/%d): %s", regAddr, attempt + 1,
-                 AXP_I2C_RETRY_COUNT, esp_err_to_name(ret));
-        vTaskDelay(pdMS_TO_TICKS(AXP_I2C_RETRY_DELAY_MS));
-    }
-    return -1;
+    esp_err_t ret =
+        i2c_master_transmit_receive(axp_dev_handle, &regAddr, 1, data, len, pdMS_TO_TICKS(100));
+    return (ret == ESP_OK) ? 0 : -1;
 }
 
 static int AXP2101_SLAVE_Write(uint8_t devAddr, uint8_t regAddr, uint8_t *data, uint8_t len)
@@ -54,32 +37,37 @@ static int AXP2101_SLAVE_Write(uint8_t devAddr, uint8_t regAddr, uint8_t *data, 
     write_buf[0] = regAddr;
     memcpy(write_buf + 1, data, len);
 
-    for (int attempt = 0; attempt < AXP_I2C_RETRY_COUNT; attempt++) {
-        if (i2c_master_bus_wait_all_done(axp_i2c_bus, AXP_I2C_TIMEOUT) != ESP_OK)
-            continue;
-
-        esp_err_t ret = i2c_master_transmit(axp_dev_handle, write_buf, len + 1, AXP_I2C_TIMEOUT);
-        if (ret == ESP_OK) {
-            free(write_buf);
-            return 0;
-        }
-
-        ESP_LOGW(TAG, "I2C write reg 0x%02x failed (attempt %d/%d): %s", regAddr, attempt + 1,
-                 AXP_I2C_RETRY_COUNT, esp_err_to_name(ret));
-        vTaskDelay(pdMS_TO_TICKS(AXP_I2C_RETRY_DELAY_MS));
-    }
+    esp_err_t ret = i2c_master_transmit(axp_dev_handle, write_buf, len + 1, pdMS_TO_TICKS(100));
     free(write_buf);
-    return -1;
+
+    return (ret == ESP_OK) ? 0 : -1;
 }
 
-void axp2101_init(i2c_master_bus_handle_t i2c_bus)
+void axp2101_init(i2c_master_bus_handle_t i2c_bus, gpio_num_t irq_pin)
 {
-    axp_i2c_bus = i2c_bus;
+    // Wake AXP2101 PMIC by toggling its IRQ pin low for >16ms.
+    // After deep sleep with PMIC sleep enabled, the AXP2101's I2C interface
+    // is powered down. The IRQ pin wakeup source (REG26H[4]) triggers the
+    // PMIC to restore power outputs and re-enable I2C.
+    if (irq_pin != GPIO_NUM_NC) {
+        gpio_config_t irq_conf = {
+            .pin_bit_mask = (1ULL << irq_pin),
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_ENABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        gpio_config(&irq_conf);
+        gpio_set_level(irq_pin, 0);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        gpio_set_level(irq_pin, 1);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
 
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = AXP2101_SLAVE_ADDRESS,
-        .scl_speed_hz = 300000,  // 300 kHz (matches Waveshare stock firmware)
+        .scl_speed_hz = 100000,  // Match stock firmware (xiaozhi-esp32)
     };
 
     ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus, &dev_cfg, &axp_dev_handle));
@@ -162,6 +150,20 @@ void axp2101_cmd_init(void)
         axp2101.setALDO4Voltage(3300);
         ESP_LOGW("axp2101_init_log", "Set ALDO4 to output 3V3");
     }
+    // Charger settings (match stock firmware)
+    axp2101.setPrechargeCurr(XPOWERS_AXP2101_PRECHARGE_50MA);
+    axp2101.setChargerTerminationCurr(XPOWERS_AXP2101_CHG_ITERM_25MA);
+    // Enable battery voltage measurement and detection (disabled during sleep)
+    uint8_t reg = axp2101.readRegister(0x30);
+    if (!(reg & 0x01)) {
+        axp2101.enableBattVoltageMeasure();
+        ESP_LOGW("axp2101_init_log", "Enable battery voltage measure");
+    }
+    reg = axp2101.readRegister(0x68);
+    if (!(reg & 0x01)) {
+        axp2101.enableBattDetection();
+        ESP_LOGW("axp2101_init_log", "Enable battery detection");
+    }
     // Set system power-down voltage (VOFF) to 2.9V to prevent battery over-discharge
     // Li-ion/LiPo batteries should not be discharged below ~2.8V to prevent damage
     if (axp2101.getSysPowerDownVoltage() != 2900) {
@@ -195,6 +197,16 @@ void axp2101_basic_sleep_start(void)
         axp2101.wakeupControl(XPOWERS_AXP2101_WAKEUP_IRQ_PIN_TO_LOW, true);
         ESP_LOGW("axp2101_log", "Set the wake-up source, the interrupt pin of axp2101");
     }
+    // Disable battery measurement before sleep (match stock firmware)
+    uint8_t reg = axp2101.readRegister(0x30);
+    if (reg & 0x01) {
+        axp2101.disableBattVoltageMeasure();
+    }
+    reg = axp2101.readRegister(0x68);
+    if (reg & 0x01) {
+        axp2101.disableBattDetection();
+    }
+
     /*Enable entering sleep mode*/
     axp2101.enableSleep();
     /*Log output*/
@@ -308,9 +320,21 @@ bool axp2101_is_battery_connected(void)
     return axp2101.isBatteryConnect();
 }
 
+// Cache USB connection status to reduce I2C polling frequency.
+// The AXP2101 can intermittently NACK status register reads,
+// and polling every second generates excessive warning logs.
+static bool cached_usb_connected = false;
+static int64_t last_usb_check_time = 0;
+#define USB_CHECK_INTERVAL_US (5 * 1000 * 1000)  // 5 seconds
+
 bool axp2101_is_usb_connected(void)
 {
-    return axp2101.isVbusIn();
+    int64_t now = esp_timer_get_time();
+    if (now - last_usb_check_time >= USB_CHECK_INTERVAL_US) {
+        last_usb_check_time = now;
+        cached_usb_connected = axp2101.isVbusIn();
+    }
+    return cached_usb_connected;
 }
 
 void axp2101_shutdown(void)

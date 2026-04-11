@@ -699,6 +699,8 @@ image_format_t image_processor_detect_format_buffer(const uint8_t *data, size_t 
         return IMAGE_FORMAT_BMP;
     } else if (data[0] == 0xFF && data[1] == 0xD8) {
         return IMAGE_FORMAT_JPG;
+    } else if (data[0] == 0x1F && data[1] == 0x8B) {
+        return IMAGE_FORMAT_EPD_GZ;
     }
 
     return IMAGE_FORMAT_UNKNOWN;
@@ -1046,6 +1048,8 @@ image_format_t image_processor_detect_format(const char *input_path)
         return IMAGE_FORMAT_BMP;
     } else if (magic[0] == 0xFF && magic[1] == 0xD8) {
         return IMAGE_FORMAT_JPG;
+    } else if (magic[0] == 0x1F && magic[1] == 0x8B) {
+        return IMAGE_FORMAT_EPD_GZ;
     }
 
     return IMAGE_FORMAT_UNKNOWN;

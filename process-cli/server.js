@@ -14,6 +14,7 @@ import {
   generateThumbnail,
   createPNG,
   createBMP,
+  createEPDGZ,
   getDefaultParams,
   getPreset,
 } from "@aitjcize/epaper-image-convert";
@@ -49,7 +50,7 @@ export async function createImageServer(
   options = {},
 ) {
   // Validate serve format
-  const validFormats = ["png", "jpg", "bmp"];
+  const validFormats = ["epdgz", "png", "jpg", "bmp"];
   if (!validFormats.includes(serveFormat)) {
     throw new Error(
       `Invalid serve format "${serveFormat}". Must be one of: ${validFormats.join(", ")}`,
@@ -198,9 +199,8 @@ export async function createImageServer(
         // Generate and cache thumbnail
         if (!thumbnailCache.has(image.name)) {
           const thumbCanvas = generateThumbnail(
-            originalCanvas,
+            processedCanvas,
             400,
-            240,
             createCanvas,
           );
           const thumbBuffer = thumbCanvas.toBuffer("image/jpeg", {
@@ -213,7 +213,10 @@ export async function createImageServer(
         let imageBuffer;
         let contentType;
 
-        if (serveFormat === "jpg") {
+        if (serveFormat === "epdgz") {
+          contentType = "application/octet-stream";
+          imageBuffer = await createEPDGZ(processedCanvas);
+        } else if (serveFormat === "jpg") {
           contentType = "image/jpeg";
           imageBuffer = processedCanvas.toBuffer("image/jpeg", {
             quality: 0.95,
@@ -294,7 +297,6 @@ export async function createImageServer(
         const thumbCanvas = generateThumbnail(
           originalCanvas,
           400,
-          240,
           createCanvas,
         );
         const thumbBuffer = thumbCanvas.toBuffer("image/jpeg", {

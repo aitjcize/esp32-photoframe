@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [ main, dev ]
   pull_request:
     branches: [ main, dev ]
 
@@ -43,46 +41,6 @@ jobs:
 
       - name: Check code formatting
         run: make format-check
-
-  build-firmware:
-    name: Build Firmware
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        board: [waveshare_photopainter_73, seeedstudio_xiao_ee02, seeedstudio_reterminal_e1002, seeedstudio_xiao_ee04]
-      fail-fast: false
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
-
-      - name: Extract version
-        id: version
-        run: |
-          VERSION=$(python3 scripts/get_version.py --type dev)
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Building version: ${VERSION}"
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Build webapp
-        run: |
-          cd webapp
-          npm ci
-          npm run build
-
-      - name: Setup ESP-IDF
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: release-v6.0
-          target: esp32s3
-          command: |
-             idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/sdkconfig.defaults.${{ matrix.board }}" \
-                    -DFIRMWARE_VERSION='${{ steps.version.outputs.version }}' build
 
   host-tests:
     name: Host-Based Unit Tests

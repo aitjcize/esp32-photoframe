@@ -92,14 +92,17 @@ esp_err_t board_hal_prepare_for_sleep(void)
 
     epaper_enter_deepsleep();
 
-    // Disable ADC enable pin to save power
-    gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);
+    // Set TPS22916 enable pin to input with pull-down to prevent current
+    // leakage during deep sleep. Pull-down keeps TPS22916 disabled (active-high).
+    gpio_set_direction(VBAT_ADC_ENABLE_PIN, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(VBAT_ADC_ENABLE_PIN, GPIO_PULLDOWN_ONLY);
 
     // Disable ADC to save power
     if (adc_handle) {
         adc_oneshot_del_unit(adc_handle);
         adc_handle = NULL;
     }
+
     return ESP_OK;
 }
 

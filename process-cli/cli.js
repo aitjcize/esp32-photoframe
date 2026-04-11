@@ -11,6 +11,7 @@ import FormData from "form-data";
 import {
   generateThumbnail,
   createPNG,
+  createEPDGZ,
   getPreset,
   getPresetNames,
   getDefaultParams,
@@ -21,9 +22,7 @@ import { createImageServer } from "./server.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Thumbnail dimensions (half of display resolution)
-const THUMBNAIL_WIDTH = 400;
-const THUMBNAIL_HEIGHT = 240;
+const THUMBNAIL_MAX_DIM = 400;
 
 // Get default parameters from the library
 const DEFAULT_PARAMS = {
@@ -127,11 +126,35 @@ async function fetchDevicePalette(host) {
   });
 }
 
-// Fetch device display resolution from system info
-async function fetchDeviceResolution(host) {
+// Minimum firmware version that supports epdgz format
+const MIN_EPDGZ_VERSION = "2.6.1";
+
+// Compare two semver strings (with optional "v" prefix).
+// Returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2.
+function compareVersions(v1, v2) {
+  v1 = v1.replace(/^v/, "");
+  v2 = v2.replace(/^v/, "");
+  if (v1.startsWith("dev-")) return -1;
+  if (v2.startsWith("dev-")) return 1;
+  const p1 = v1.split(".").map(Number);
+  const p2 = v2.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((p1[i] || 0) < (p2[i] || 0)) return -1;
+    if ((p1[i] || 0) > (p2[i] || 0)) return 1;
+  }
+  return 0;
+}
+
+function supportsEPDGZ(version) {
+  return version && compareVersions(version, MIN_EPDGZ_VERSION) > 0;
+}
+
+// Fetch device system info (resolution + version)
+
+async function fetchDeviceSystemInfo(host) {
   return new Promise((resolve, reject) => {
     const url = `http://${host}/api/system-info`;
-    console.log(`Fetching display resolution from device: ${url}`);
+    console.log(`Fetching system info from device: ${url}`);
 
     http
       .get(url, (res) => {
@@ -149,7 +172,14 @@ async function fetchDeviceResolution(host) {
                 console.log(
                   `Device display resolution: ${info.width}x${info.height}`,
                 );
-                resolve({ width: info.width, height: info.height });
+                if (info.version) {
+                  console.log(`Device firmware version: ${info.version}`);
+                }
+                resolve({
+                  width: info.width,
+                  height: info.height,
+                  version: info.version || "",
+                });
               } else {
                 reject(
                   new Error("Device system info does not contain width/height"),
@@ -179,6 +209,41 @@ async function fetchDeviceResolution(host) {
   });
 }
 
+// Fetch display orientation from device settings
+async function fetchDeviceOrientation(host) {
+  return new Promise((resolve, reject) => {
+    const url = `http://${host}/api/config`;
+    console.log(`Fetching display orientation from device: ${url}`);
+
+    http
+      .get(url, (res) => {
+        let data = "";
+
+        res.on("data", (chunk) => {
+          data += chunk;
+        });
+
+        res.on("end", () => {
+          if (res.statusCode === 200) {
+            try {
+              const settings = JSON.parse(data);
+              const orientation = settings.display_orientation || "landscape";
+              console.log(`Device display orientation: ${orientation}`);
+              resolve(orientation);
+            } catch (error) {
+              resolve("landscape");
+            }
+          } else {
+            resolve("landscape");
+          }
+        });
+      })
+      .on("error", () => {
+        resolve("landscape");
+      });
+  });
+}
+
 // Display image directly on device without saving (via /api/display-image)
 async function displayDirectly(host, pngPath, thumbPath, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -202,16 +267,19 @@ async function displayDirectly(host, pngPath, thumbPath, retries = 3) {
 }
 
 // Single direct display attempt
-function displayDirectlyOnce(host, pngPath, thumbPath) {
+function displayDirectlyOnce(host, imagePath, thumbPath) {
   return new Promise((resolve, reject) => {
     console.log(`Displaying image directly on device: ${host}`);
-    console.log(`  Image: ${pngPath}`);
+    console.log(`  Image: ${imagePath}`);
     console.log(`  Thumbnail: ${thumbPath}`);
 
+    const contentType = imagePath.endsWith(".epdgz")
+      ? "application/octet-stream"
+      : "image/png";
     const form = new FormData();
-    form.append("image", fs.createReadStream(pngPath), {
-      filename: path.basename(pngPath),
-      contentType: "image/png",
+    form.append("image", fs.createReadStream(imagePath), {
+      filename: path.basename(imagePath),
+      contentType,
     });
     form.append("thumbnail", fs.createReadStream(thumbPath), {
       filename: path.basename(thumbPath),
@@ -293,19 +361,22 @@ async function uploadToDevice(
 }
 
 // Single upload attempt
-function uploadToDeviceOnce(host, pngPath, thumbPath, album = null) {
+function uploadToDeviceOnce(host, imagePath, thumbPath, album = null) {
   return new Promise((resolve, reject) => {
     console.log(`Uploading to device: ${host}`);
-    console.log(`  Image: ${pngPath}`);
+    console.log(`  Image: ${imagePath}`);
     console.log(`  Thumbnail: ${thumbPath}`);
     if (album) {
       console.log(`  Album: ${album}`);
     }
 
+    const contentType = imagePath.endsWith(".epdgz")
+      ? "application/octet-stream"
+      : "image/png";
     const form = new FormData();
-    form.append("image", fs.createReadStream(pngPath), {
-      filename: path.basename(pngPath),
-      contentType: "image/png",
+    form.append("image", fs.createReadStream(imagePath), {
+      filename: path.basename(imagePath),
+      contentType,
     });
     form.append("thumbnail", fs.createReadStream(thumbPath), {
       filename: path.basename(thumbPath),
@@ -509,7 +580,9 @@ async function processFolderStructure(
       const imageFile = imageFiles[i];
       const inputPath = path.join(albumInputPath, imageFile);
       const baseName = path.basename(imageFile, path.extname(imageFile));
-      const outputPng = path.join(albumOutputPath, `${baseName}.png`);
+      const fmt = options.format || "epdgz";
+      const ext = fmt === "bmp" ? ".bmp" : fmt === "png" ? ".png" : ".epdgz";
+      const outputFile = path.join(albumOutputPath, `${baseName}${ext}`);
       const outputThumb = path.join(albumOutputPath, `${baseName}.jpg`);
 
       try {
@@ -518,7 +591,7 @@ async function processFolderStructure(
         );
         await processImageFile(
           inputPath,
-          outputPng,
+          outputFile,
           outputThumb,
           options,
           devicePalette,
@@ -528,7 +601,12 @@ async function processFolderStructure(
         // Upload if requested
         if (uploadHost) {
           try {
-            await uploadToDevice(uploadHost, outputPng, outputThumb, albumName);
+            await uploadToDevice(
+              uploadHost,
+              outputFile,
+              outputThumb,
+              albumName,
+            );
             totalUploaded++;
           } catch (error) {
             console.error(`  ERROR uploading ${imageFile}: ${error.message}`);
@@ -572,16 +650,23 @@ async function processImageFile(
     devicePalette,
     {
       verbose: processingOptions.verbose || true,
-      skipRotation: processingOptions.renderMeasured,
+      autoOrient: processingOptions.autoOrient || false,
+      orientation: processingOptions.orientation || "landscape",
+      scaleMode: processingOptions.scaleMode || "cover",
+      backgroundColor: processingOptions.backgroundColor || "white",
     },
   );
 
   const ctx = canvas.getContext("2d");
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-  // 5. Write output file (BMP or PNG)
-  const format = processingOptions.format || "png";
-  if (format === "png") {
+  // 5. Write output file
+  const format = processingOptions.format || "epdgz";
+  if (format === "epdgz") {
+    console.log(`  Writing EPDGZ: ${outputBmp}`);
+    const epdBuffer = await createEPDGZ(canvas);
+    fs.writeFileSync(outputBmp, epdBuffer);
+  } else if (format === "png") {
     const outputPng = outputBmp.replace(/\.bmp$/, ".png");
     console.log(`  Writing PNG: ${outputPng}`);
     const pngBuffer = await createPNG(canvas);
@@ -590,18 +675,19 @@ async function processImageFile(
     console.log(`  Writing BMP: ${outputBmp}`);
     writeBMP(imageData, outputBmp);
   } else {
-    throw new Error(`Unsupported format: ${format}. Use 'png' or 'bmp'`);
+    throw new Error(
+      `Unsupported format: ${format}. Use 'epdgz', 'png', or 'bmp'`,
+    );
   }
 
   // 6. Generate thumbnail if requested (from EXIF-corrected source, not processed image)
   if (processingOptions.generateThumbnail && outputThumb) {
     console.log(`  Generating thumbnail: ${outputThumb}`);
 
-    // Use shared thumbnail generation function
+    // Generate thumbnail from original source (clean, unprocessed)
     const thumbCanvas = generateThumbnail(
       originalCanvas,
-      THUMBNAIL_WIDTH,
-      THUMBNAIL_HEIGHT,
+      THUMBNAIL_MAX_DIM,
       createCanvas,
     );
 
@@ -630,7 +716,7 @@ program
     "",
   )
   .option("-v, --verbose", "Enable verbose logging")
-  .option("--format <format>", "Output format: png or bmp", "png")
+  .option("--format <format>", "Output format: epdgz, png, or bmp", "epdgz")
   .option(
     "--preset <name>",
     `Processing preset: ${getPresetNames().join(", ")} `,
@@ -651,8 +737,8 @@ program
   .option("--serve-port <port>", "Port for HTTP server in --serve mode", "8080")
   .option(
     "--serve-format <format>",
-    "Image format to serve: png, jpg, or bmp (default: png)",
-    "png",
+    "Image format to serve: epdgz, png, jpg, or bmp",
+    "epdgz",
   )
   .option(
     "--host <host>",
@@ -701,6 +787,25 @@ program
     "--dither-algorithm <algorithm>",
     "Dithering algorithm: floyd-steinberg, stucki, burkes, or sierra",
   )
+  .option(
+    "--auto-orient",
+    "Auto-rotate images to match target display orientation",
+  )
+  .option(
+    "--orientation <mode>",
+    "Display orientation: landscape or portrait (overridden by --device-parameters)",
+    "landscape",
+  )
+  .option(
+    "--scale-mode <mode>",
+    "Scale mode: cover (crop to fill) or fit (letterbox)",
+    "cover",
+  )
+  .option(
+    "--background-color <name>",
+    "Background palette color for fit mode (black, white, etc.)",
+    "white",
+  )
   .option("--display-width <width>", "Display width in pixels", parseInt, 800)
   .option(
     "--display-height <height>",
@@ -725,6 +830,8 @@ program
       try {
         deviceSettings = await fetchDeviceSettings(options.host);
         devicePalette = await fetchDevicePalette(options.host);
+        // Fetch orientation from device (overrides --orientation flag)
+        options.orientation = await fetchDeviceOrientation(options.host);
       } catch (error) {
         console.error(`Error: ${error.message}`);
         process.exit(1);
@@ -753,20 +860,35 @@ program
       }
 
       // If --host is explicitly specified, query device for display resolution
+      // and firmware version (to determine output format)
       // This overwrites any -d / --display-width / --display-height values
+      let deviceVersion = "";
       const hostExplicit = program.getOptionValueSource("host") === "cli";
       if (hostExplicit) {
         try {
-          const resolution = await fetchDeviceResolution(options.host);
-          options.displayWidth = resolution.width;
-          options.displayHeight = resolution.height;
+          const sysInfo = await fetchDeviceSystemInfo(options.host);
+          options.displayWidth = sysInfo.width;
+          options.displayHeight = sysInfo.height;
+          deviceVersion = sysInfo.version;
         } catch (error) {
           console.error(
-            `Warning: Could not fetch display resolution from device: ${error.message}`,
+            `Warning: Could not fetch system info from device: ${error.message}`,
           );
           console.error(
             `  Using default resolution: ${options.displayWidth}x${options.displayHeight}`,
           );
+        }
+      }
+
+      // Auto-select format based on firmware version when uploading/displaying
+      // to device and format is not explicitly overridden by user
+      const formatExplicit = program.getOptionValueSource("format") === "cli";
+      if (!formatExplicit && (options.upload || options.direct)) {
+        if (!supportsEPDGZ(deviceVersion)) {
+          console.log(
+            `Device firmware ${deviceVersion || "(unknown)"} does not support epdgz, using PNG`,
+          );
+          options.format = "png";
         }
       }
 
@@ -842,6 +964,10 @@ program
             displayWidth: options.displayWidth,
             displayHeight: options.displayHeight,
             format: options.format,
+            autoOrient: options.autoOrient || false,
+            orientation: options.orientation || "landscape",
+            scaleMode: options.scaleMode || "cover",
+            backgroundColor: options.backgroundColor || "white",
           }
         : {
             generateThumbnail: true,
@@ -894,6 +1020,10 @@ program
             displayWidth: options.displayWidth,
             displayHeight: options.displayHeight,
             format: options.format,
+            autoOrient: options.autoOrient || false,
+            orientation: options.orientation || "landscape",
+            scaleMode: options.scaleMode || "cover",
+            backgroundColor: options.backgroundColor || "white",
           };
 
       // Check if --serve mode is enabled
@@ -976,8 +1106,9 @@ program
         // Process single file
         const baseName = path.basename(input, path.extname(input));
         const suffix = options.suffix || "";
-        const format = options.format || "png";
-        const ext = format === "bmp" ? ".bmp" : ".png";
+        const format = processOptions.format || "epdgz";
+        const ext =
+          format === "bmp" ? ".bmp" : format === "png" ? ".png" : ".epdgz";
         const outputFile = path.join(outputDir, `${baseName}${suffix}${ext}`);
         const outputThumb = path.join(outputDir, `${baseName}${suffix}.jpg`);
 
@@ -989,14 +1120,16 @@ program
           devicePalette,
         );
 
-        // Upload or display directly on device (only works with PNG)
+        // Upload or display directly on device
         if (options.upload || options.direct) {
-          if (format !== "png") {
-            console.error(`Error: Upload/direct display requires PNG format`);
+          if (format === "bmp") {
+            console.error(
+              `Error: Upload/direct display does not support BMP format`,
+            );
             process.exit(1);
           }
           if (!fs.existsSync(outputFile)) {
-            console.error(`Error: PNG file not found: ${outputFile}`);
+            console.error(`Error: Output file not found: ${outputFile}`);
             process.exit(1);
           }
           if (!fs.existsSync(outputThumb)) {

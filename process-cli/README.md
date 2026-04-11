@@ -90,8 +90,8 @@ Processes in temp directory, uploads via HTTP API, auto-cleans up.
 # Serve images over HTTP (no SD card needed)
 photoframe-process --serve ~/Photos/Albums --serve-port 9000 --device-parameters --host photoframe.local
 
-# Different formats: png (smaller), bmp (faster), jpg (smallest)
-photoframe-process --serve ~/Photos --serve-port 9000 --serve-format png
+# Different formats: epdgz (default, fastest), png, bmp, jpg
+photoframe-process --serve ~/Photos --serve-port 9000 --serve-format epdgz
 ```
 
 Serves random images on each request. Configure ESP32: **Rotation Mode** → URL, **Image URL** → `http://your-ip:9000/image`
@@ -108,11 +108,12 @@ Options:
   -V, --version               output the version number
   -o, --output-dir <dir>      Output directory (default: ".")
   --suffix <suffix>           Suffix to add to output filename (single file mode only) (default: "")
-  --upload                    Upload converted PNG and thumbnail to device (requires --host)
+  --format <format>           Output format: epdgz, png, or bmp (default: "epdgz")
+  --upload                    Upload converted image and thumbnail to device (requires --host)
   --direct                    Display image directly on device without saving (requires --host, single file only)
   --serve                     Start HTTP server to serve images from album directory structure
   --serve-port <port>         Port for HTTP server in --serve mode (default: "8080")
-  --serve-format <format>     Image format to serve: png, jpg, or bmp (default: "png")
+  --serve-format <format>     Image format to serve: epdgz, png, jpg, or bmp (default: "epdgz")
   --host <host>               Device hostname or IP address (default: "photoframe.local")
   --device-parameters         Fetch processing parameters from device
   --exposure <value>          Exposure multiplier (0.5-2.0, 1.0=normal) (default: 1)
@@ -131,13 +132,15 @@ Options:
 
 ## Output Files
 
-- `photo.bmp` - 800x480 dithered BMP (theoretical palette for device)
+- `photo.epdgz` - Compressed 4-bit-per-pixel display-ready format (default, smallest and fastest)
+- `photo.png` - 800x480 dithered PNG (theoretical palette for device)
+- `photo.bmp` - 800x480 dithered BMP
 - `photo.jpg` - 400x240 thumbnail
 - `--render-measured` - Use measured palette (darker, preview mode)
 
 ## Processing Pipeline
 
-1. Load image → 2. EXIF orientation → 3. Rotate if portrait → 4. Resize to 800x480 (cover mode) → 5. Tone mapping (S-curve/contrast) → 6. Saturation adjustment → 7. Floyd-Steinberg dithering → 8. Output BMP + thumbnail
+1. Load image → 2. EXIF orientation → 3. Rotate if portrait → 4. Resize to 800x480 (cover mode) → 5. Tone mapping (S-curve/contrast) → 6. Saturation adjustment → 7. Floyd-Steinberg dithering → 8. Output EPDGZ + thumbnail
 
 ## Examples
 

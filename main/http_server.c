@@ -22,12 +22,14 @@
 #include "esp_http_server.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
+#include "esp_tls.h"
 #include "esp_vfs.h"
 #include "esp_vfs_fat.h"
 #include "freertos/task.h"
 #include "ha_integration.h"
 #include "image_processor.h"
-#include "mdns_service.h"
+#include "mbedtls/ssl.h"
+#include "mbedtls/x509_crt.h"
 #include "nvs_flash.h"
 #include "ota_manager.h"
 #include "periodic_tasks.h"
@@ -36,7 +38,6 @@
 #include "sdcard.h"
 #include "storage.h"
 #include "utils.h"
-#include "wifi_manager.h"
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -267,12 +268,13 @@ static esp_err_t parse_multipart_upload(httpd_req_t *req, const char *base_dir,
                         if (require_png) {
                             // Check PNG extension for image field
                             char *ext = strrchr(result->original_filename, '.');
-                            if (!ext || strcasecmp(ext, ".png") != 0) {
+                            if (!ext ||
+                                (strcasecmp(ext, ".png") != 0 && strcasecmp(ext, ".epdgz") != 0)) {
                                 if (fp)
                                     fclose(fp);
                                 free(buf);
                                 httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                                    "Only PNG files are allowed");
+                                                    "Only PNG and EPDGZ files are allowed");
                                 return ESP_FAIL;
                             }
                         }
@@ -434,7 +436,19 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         }
 
         // Process the uploaded image
-        if (image_format == IMAGE_FORMAT_PNG) {
+        if (image_format == IMAGE_FORMAT_EPD_GZ) {
+            unlink(CURRENT_EPD_PATH);
+            if (rename(result.image_path, CURRENT_EPD_PATH) != 0) {
+                ESP_LOGE(TAG, "Failed to move EPDGZ");
+                unlink(result.image_path);
+                if (result.has_thumbnail)
+                    unlink(result.thumbnail_path);
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                    "Failed to process EPDGZ");
+                return ESP_FAIL;
+            }
+            display_path = CURRENT_EPD_PATH;
+        } else if (image_format == IMAGE_FORMAT_PNG) {
             unlink(temp_png_path);
 
             bool already_processed = image_processor_is_processed(result.image_path);
@@ -523,6 +537,7 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         // Keep the thumbnail (.current.jpg) for the web UI.
         unlink(temp_bmp_path);
         unlink(temp_png_path);
+        unlink(CURRENT_EPD_PATH);
 
         ha_notify_update();
 
@@ -578,6 +593,7 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
     unlink(temp_jpg_path);
     unlink(temp_bmp_path);
     unlink(temp_png_path);
+    unlink(CURRENT_EPD_PATH);
 
     // Open file for writing
     FILE *fp = fopen(temp_upload_path, "wb");
@@ -630,6 +646,8 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             ESP_LOGI(TAG, "Detected BMP format from file");
         } else if (image_format == IMAGE_FORMAT_JPG) {
             ESP_LOGI(TAG, "Detected JPG format from file");
+        } else if (image_format == IMAGE_FORMAT_EPD_GZ) {
+            ESP_LOGI(TAG, "Detected EPDGZ format from file");
         } else {
             ESP_LOGE(TAG, "Unsupported image format or format detection failed");
             unlink(temp_upload_path);
@@ -647,7 +665,15 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
     esp_err_t err = ESP_OK;
     const char *display_path = NULL;
 
-    if (image_format == IMAGE_FORMAT_BMP) {
+    if (image_format == IMAGE_FORMAT_EPD_GZ) {
+        if (rename(temp_upload_path, CURRENT_EPD_PATH) != 0) {
+            ESP_LOGE(TAG, "Failed to move uploaded EPDGZ to temp location");
+            unlink(temp_upload_path);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to process EPDGZ");
+            return ESP_FAIL;
+        }
+        display_path = CURRENT_EPD_PATH;
+    } else if (image_format == IMAGE_FORMAT_BMP) {
         // Move uploaded BMP to temp location
         if (rename(temp_upload_path, temp_bmp_path) != 0) {
             ESP_LOGE(TAG, "Failed to move uploaded BMP to temp location");
@@ -811,6 +837,8 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
                 httpd_resp_sendstr(req, json_str);
                 free(json_str);
                 cJSON_Delete(response);
+
+                return ESP_OK;
             }
         }
         display_path = temp_png_path;
@@ -829,6 +857,7 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
     // Keep the thumbnail (.current.jpg) for the web UI.
     unlink(temp_bmp_path);
     unlink(temp_png_path);
+    unlink(CURRENT_EPD_PATH);
 
     ha_notify_update();
 
@@ -946,25 +975,30 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
         filename_base[sizeof(filename_base) - 1] = '\0';
     }
 
-    char png_filename[128];
-    char jpg_filename[128];
-    char final_png_path[512];
+    char file_ext[16] = ".png";
+    if (ext && strcasecmp(ext, ".epdgz") == 0) {
+        strcpy(file_ext, ".epdgz");
+    }
+
+    char dest_filename[256];
+    char jpg_filename[256];
+    char final_dest_path[512];
     char final_thumb_path[512];
 
     // Use original filename (will overwrite if exists)
-    snprintf(png_filename, sizeof(png_filename), "%s.png", filename_base);
+    snprintf(dest_filename, sizeof(dest_filename), "%s%s", filename_base, file_ext);
     snprintf(jpg_filename, sizeof(jpg_filename), "%s.jpg", filename_base);
-    snprintf(final_png_path, sizeof(final_png_path), "%s/%s", album_path, png_filename);
+    snprintf(final_dest_path, sizeof(final_dest_path), "%s/%s", album_path, dest_filename);
     snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s", album_path, jpg_filename);
 
     // Remove old files
-    unlink(final_png_path);
+    unlink(final_dest_path);
     unlink(final_thumb_path);
 
-    // Move PNG to final location
-    ESP_LOGI(TAG, "Saving PNG: %s -> %s", result.image_path, final_png_path);
-    if (rename(result.image_path, final_png_path) != 0) {
-        ESP_LOGE(TAG, "Failed to move PNG to album");
+    // Move PNG/EPDGZ to final location
+    ESP_LOGI(TAG, "Saving image: %s -> %s", result.image_path, final_dest_path);
+    if (rename(result.image_path, final_dest_path) != 0) {
+        ESP_LOGE(TAG, "Failed to move image to album");
         unlink(result.image_path);
         unlink(result.thumbnail_path);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save image");
@@ -977,11 +1011,11 @@ static esp_err_t upload_image_handler(httpd_req_t *req)
         unlink(result.thumbnail_path);
     }
 
-    ESP_LOGI(TAG, "Image saved successfully: %s (thumbnail: %s)", png_filename, jpg_filename);
+    ESP_LOGI(TAG, "Image saved successfully: %s (thumbnail: %s)", dest_filename, jpg_filename);
 
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "success");
-    cJSON_AddStringToObject(response, "filepath", final_png_path);
+    cJSON_AddStringToObject(response, "filepath", final_dest_path);
 
     char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
@@ -1158,7 +1192,8 @@ static esp_err_t delete_image_handler(httpd_req_t *req)
     strncpy(jpg_filename, filepath_copy, sizeof(jpg_filename) - 1);
     jpg_filename[sizeof(jpg_filename) - 1] = '\0';
     char *ext = strrchr(jpg_filename, '.');
-    if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0)) {
+    if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
+                strcasecmp(ext, ".epdgz") == 0)) {
         strcpy(ext, ".jpg");
     }
 
@@ -1358,6 +1393,159 @@ static void delayed_sleep_task(void *arg)
     vTaskDelete(NULL);
 }
 
+// POST /api/trust-cert - fetch and pin the server's TLS certificate
+static esp_err_t trust_cert_handler(httpd_req_t *req)
+{
+    if (req->method == HTTP_POST) {
+        // Read request body (JSON with "url" field)
+        char buf[512];
+        int received = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf) - 1));
+        if (received <= 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to receive data");
+            return ESP_FAIL;
+        }
+        buf[received] = '\0';
+
+        cJSON *root = cJSON_Parse(buf);
+        if (!root) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+            return ESP_FAIL;
+        }
+
+        cJSON *url_obj = cJSON_GetObjectItem(root, "url");
+        if (!url_obj || !cJSON_IsString(url_obj)) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing 'url' field");
+            return ESP_FAIL;
+        }
+
+        const char *url = cJSON_GetStringValue(url_obj);
+
+        // Parse host and port from URL
+        char host[256] = {0};
+        int port = 443;
+        const char *host_start = strstr(url, "://");
+        if (!host_start) {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid URL format");
+            return ESP_FAIL;
+        }
+        host_start += 3;
+        const char *host_end = strchr(host_start, '/');
+        if (!host_end)
+            host_end = host_start + strlen(host_start);
+        const char *port_sep = strchr(host_start, ':');
+        if (port_sep && port_sep < host_end) {
+            strncpy(host, host_start, port_sep - host_start);
+            port = atoi(port_sep + 1);
+        } else {
+            strncpy(host, host_start, host_end - host_start);
+        }
+
+        cJSON_Delete(root);
+
+        ESP_LOGI(TAG, "Fetching TLS certificate from %s:%d", host, port);
+
+        // Connect with esp_tls (skip cert verification) to get server cert
+        // Note: skip_common_name must be false for SNI to work
+        esp_tls_cfg_t tls_cfg = {0};
+
+        esp_tls_t *tls = esp_tls_init();
+        if (!tls) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "TLS init failed");
+            return ESP_FAIL;
+        }
+
+        int ret = esp_tls_conn_new_sync(host, strlen(host), port, &tls_cfg, tls);
+        if (ret != 1) {
+            int esp_tls_err = 0;
+            int mbedtls_err = 0;
+            esp_tls_error_handle_t error_handle = NULL;
+            esp_tls_get_error_handle(tls, &error_handle);
+            if (error_handle) {
+                esp_tls_get_and_clear_last_error(error_handle, &esp_tls_err, &mbedtls_err);
+            }
+            ESP_LOGE(TAG, "TLS connection failed to %s:%d (esp_tls=0x%x, mbedtls=-0x%04x)", host,
+                     port, esp_tls_err, -mbedtls_err);
+            esp_tls_conn_destroy(tls);
+
+            // Return JSON error for better UI display
+            cJSON *err_resp = cJSON_CreateObject();
+            char err_detail[384];
+            snprintf(err_detail, sizeof(err_detail),
+                     "TLS handshake failed with %s:%d (mbedtls error -0x%04x)", host, port,
+                     -mbedtls_err);
+            cJSON_AddStringToObject(err_resp, "error", err_detail);
+            char *err_json = cJSON_Print(err_resp);
+            httpd_resp_set_status(req, HTTPD_500);
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_sendstr(req, err_json);
+            free(err_json);
+            cJSON_Delete(err_resp);
+            return ESP_FAIL;
+        }
+
+        // Get the peer certificate via the mbedtls SSL context
+        mbedtls_ssl_context *ssl = (mbedtls_ssl_context *) esp_tls_get_ssl_context(tls);
+        const mbedtls_x509_crt *peer_cert = mbedtls_ssl_get_peer_cert(ssl);
+        if (!peer_cert) {
+            ESP_LOGE(TAG, "No peer certificate received");
+            esp_tls_conn_destroy(tls);
+            httpd_resp_set_status(req, HTTPD_500);
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_sendstr(req, "{\"error\":\"No certificate received from server\"}");
+            return ESP_FAIL;
+        }
+
+        // Copy DER cert data before destroying the TLS connection
+        size_t cert_der_len = peer_cert->raw.len;
+        unsigned char *cert_der = malloc(cert_der_len);
+        char subject[256] = {0};
+        char issuer[256] = {0};
+
+        if (!cert_der) {
+            esp_tls_conn_destroy(tls);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+            return ESP_FAIL;
+        }
+        memcpy(cert_der, peer_cert->raw.p, cert_der_len);
+        mbedtls_x509_dn_gets(subject, sizeof(subject), &peer_cert->subject);
+        mbedtls_x509_dn_gets(issuer, sizeof(issuer), &peer_cert->issuer);
+
+        esp_tls_conn_destroy(tls);
+
+        // Store the DER cert
+        config_manager_set_ca_cert_der(cert_der, cert_der_len);
+        config_manager_touch_config();
+
+        // Build response with cert info
+        cJSON *response = cJSON_CreateObject();
+        cJSON_AddStringToObject(response, "status", "trusted");
+        cJSON_AddStringToObject(response, "subject", subject);
+        cJSON_AddStringToObject(response, "issuer", issuer);
+        cJSON_AddNumberToObject(response, "size", (double) cert_der_len);
+
+        free(cert_der);
+
+        char *json_str = cJSON_Print(response);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, json_str);
+        free(json_str);
+        cJSON_Delete(response);
+        return ESP_OK;
+    } else if (req->method == HTTP_DELETE) {
+        // Clear the pinned cert
+        config_manager_set_ca_cert_der(NULL, 0);
+        config_manager_touch_config();
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"status\":\"cleared\"}");
+        return ESP_OK;
+    }
+
+    httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
+    return ESP_FAIL;
+}
+
 static esp_err_t sleep_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -1489,7 +1677,8 @@ static esp_err_t current_image_handler(httpd_req_t *req)
     thumbnail_path[sizeof(thumbnail_path) - 1] = '\0';
 
     char *ext = strrchr(thumbnail_path, '.');
-    if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0)) {
+    if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
+                strcasecmp(ext, ".epdgz") == 0)) {
         strcpy(ext, ".jpg");
     }
 
@@ -1591,6 +1780,15 @@ static esp_err_t config_handler(httpd_req_t *req)
         const char *image_url = config_manager_get_image_url();
         cJSON_AddStringToObject(root, "image_url", image_url ? image_url : "");
 
+        size_t ca_cert_len = 0;
+        config_manager_get_ca_cert_der(&ca_cert_len);
+        cJSON_AddBoolToObject(root, "ca_cert_set", ca_cert_len > 0);
+
+        const char *fetch_error = utils_get_last_fetch_error();
+        if (fetch_error && strlen(fetch_error) > 0) {
+            cJSON_AddStringToObject(root, "last_fetch_error", fetch_error);
+        }
+
         const char *access_token = config_manager_get_access_token();
         cJSON_AddStringToObject(root, "access_token", access_token ? access_token : "");
 
@@ -1656,224 +1854,29 @@ static esp_err_t config_handler(httpd_req_t *req)
             return ESP_FAIL;
         }
 
-        // General
-        cJSON *device_name_obj = cJSON_GetObjectItem(root, "device_name");
-        if (device_name_obj && cJSON_IsString(device_name_obj)) {
-            const char *new_name = cJSON_GetStringValue(device_name_obj);
-            const char *current_name = config_manager_get_device_name();
-
-            // Only update mDNS if the device name actually changed
-            if (strcmp(new_name, current_name) != 0) {
-                config_manager_set_device_name(new_name);
-                mdns_service_update_hostname();
-            }
-        }
-
-        cJSON *timezone_obj = cJSON_GetObjectItem(root, "timezone");
-        if (timezone_obj && cJSON_IsString(timezone_obj)) {
-            const char *tz = cJSON_GetStringValue(timezone_obj);
-            config_manager_set_timezone(tz);
-            // Apply timezone immediately
-            setenv("TZ", tz, 1);
-            tzset();
-        }
-
-        cJSON *ntp_server_obj = cJSON_GetObjectItem(root, "ntp_server");
-        if (ntp_server_obj && cJSON_IsString(ntp_server_obj)) {
-            config_manager_set_ntp_server(cJSON_GetStringValue(ntp_server_obj));
-            // Re-sync SNTP with the new server
-            periodic_tasks_force_run(SNTP_TASK_NAME);
-            periodic_tasks_check_and_run();
-        }
-
-        cJSON *wifi_ssid_obj = cJSON_GetObjectItem(root, "wifi_ssid");
-        cJSON *wifi_password_obj = cJSON_GetObjectItem(root, "wifi_password");
-        if (wifi_ssid_obj && cJSON_IsString(wifi_ssid_obj)) {
-            const char *new_ssid = cJSON_GetStringValue(wifi_ssid_obj);
-            const char *new_password = NULL;
-            if (wifi_password_obj && cJSON_IsString(wifi_password_obj) &&
-                strlen(cJSON_GetStringValue(wifi_password_obj)) > 0) {
-                new_password = cJSON_GetStringValue(wifi_password_obj);
-            }
-
-            // Check if WiFi credentials actually changed
-            const char *current_ssid = config_manager_get_wifi_ssid();
-            if (strcmp(new_ssid, current_ssid) != 0 || new_password != NULL) {
-                // Use current password if no new password provided
-                if (new_password == NULL) {
-                    new_password = config_manager_get_wifi_password();
-                }
-
-                ESP_LOGI(TAG, "WiFi credentials changed, testing connection to: %s", new_ssid);
-
-                // Try connecting to new WiFi first
-                esp_err_t err = wifi_manager_connect(new_ssid, new_password);
-                if (err == ESP_OK) {
-                    // Connection successful, save credentials
-                    config_manager_set_wifi_ssid(new_ssid);
-                    if (wifi_password_obj && cJSON_IsString(wifi_password_obj) &&
-                        strlen(cJSON_GetStringValue(wifi_password_obj)) > 0) {
-                        config_manager_set_wifi_password(new_password);
-                    }
-                    ESP_LOGI(TAG, "Successfully connected and saved WiFi credentials");
-                } else {
-                    // Connection failed, revert to previous credentials
-                    ESP_LOGW(TAG,
-                             "Failed to connect to new WiFi, reverting to previous credentials");
-                    wifi_manager_connect(current_ssid, config_manager_get_wifi_password());
-
-                    // Return error response
-                    cJSON_Delete(root);
-                    cJSON *error_response = cJSON_CreateObject();
-                    cJSON_AddStringToObject(error_response, "status", "error");
-                    cJSON_AddStringToObject(
-                        error_response, "message",
-                        "Failed to connect to WiFi network. Please check SSID and password.");
-
-                    char *json_str = cJSON_Print(error_response);
-                    httpd_resp_set_type(req, "application/json");
-                    httpd_resp_set_status(req, "400 Bad Request");
-                    httpd_resp_sendstr(req, json_str);
-
-                    free(json_str);
-                    cJSON_Delete(error_response);
-                    return ESP_FAIL;
-                }
-            }
-        }
-
-        cJSON *display_orient_obj = cJSON_GetObjectItem(root, "display_orientation");
-        if (display_orient_obj && cJSON_IsString(display_orient_obj)) {
-            const char *orient_str = cJSON_GetStringValue(display_orient_obj);
-            if (strcmp(orient_str, "portrait") == 0) {
-                config_manager_set_display_orientation(DISPLAY_ORIENTATION_PORTRAIT);
-            } else {
-                config_manager_set_display_orientation(DISPLAY_ORIENTATION_LANDSCAPE);
-            }
-        }
-
-        cJSON *disp_rot_deg_obj = cJSON_GetObjectItem(root, "display_rotation_deg");
-        if (disp_rot_deg_obj && cJSON_IsNumber(disp_rot_deg_obj)) {
-            config_manager_set_display_rotation_deg(disp_rot_deg_obj->valueint);
-            display_manager_initialize_paint();
-        }
-
-        // Auto Rotate
-        cJSON *auto_rotate_obj = cJSON_GetObjectItem(root, "auto_rotate");
-        if (auto_rotate_obj && cJSON_IsBool(auto_rotate_obj)) {
-            config_manager_set_auto_rotate(cJSON_IsTrue(auto_rotate_obj));
-            power_manager_reset_rotate_timer();
-        }
-
-        cJSON *interval_obj = cJSON_GetObjectItem(root, "rotate_interval");
-        if (interval_obj && cJSON_IsNumber(interval_obj)) {
-            config_manager_set_rotate_interval(interval_obj->valueint);
-            power_manager_reset_rotate_timer();
-        }
-
-        cJSON *auto_rotate_aligned_obj = cJSON_GetObjectItem(root, "auto_rotate_aligned");
-        if (auto_rotate_aligned_obj && cJSON_IsBool(auto_rotate_aligned_obj)) {
-            config_manager_set_auto_rotate_aligned(cJSON_IsTrue(auto_rotate_aligned_obj));
-            power_manager_reset_rotate_timer();
-        }
-
-        cJSON *sleep_sched_enabled_obj = cJSON_GetObjectItem(root, "sleep_schedule_enabled");
-        if (sleep_sched_enabled_obj && cJSON_IsBool(sleep_sched_enabled_obj)) {
-            bool enabled = cJSON_IsTrue(sleep_sched_enabled_obj);
-            config_manager_set_sleep_schedule_enabled(enabled);
-        }
-
-        cJSON *sleep_sched_start_obj = cJSON_GetObjectItem(root, "sleep_schedule_start");
-        if (sleep_sched_start_obj && cJSON_IsNumber(sleep_sched_start_obj)) {
-            int start_minutes = sleep_sched_start_obj->valueint;
-            config_manager_set_sleep_schedule_start(start_minutes);
-        }
-
-        cJSON *sleep_sched_end_obj = cJSON_GetObjectItem(root, "sleep_schedule_end");
-        if (sleep_sched_end_obj && cJSON_IsNumber(sleep_sched_end_obj)) {
-            int end_minutes = sleep_sched_end_obj->valueint;
-            config_manager_set_sleep_schedule_end(end_minutes);
-        }
-
-        cJSON *rotation_mode_obj = cJSON_GetObjectItem(root, "rotation_mode");
-        if (rotation_mode_obj && cJSON_IsString(rotation_mode_obj)) {
-            const char *mode_str = cJSON_GetStringValue(rotation_mode_obj);
-            rotation_mode_t mode = ROTATION_MODE_STORAGE;
-            if (strcmp(mode_str, "url") == 0)
-                mode = ROTATION_MODE_URL;
-            // Backwards compatibility: accept "sdcard" as alias for "storage"
-            if (strcmp(mode_str, "sdcard") == 0)
-                mode = ROTATION_MODE_STORAGE;
-            config_manager_set_rotation_mode(mode);
-        }
-
-        // Auto Rotate - SDCARD
-        cJSON *sd_rotation_mode_obj = cJSON_GetObjectItem(root, "sd_rotation_mode");
-        if (sd_rotation_mode_obj && cJSON_IsString(sd_rotation_mode_obj)) {
-            const char *mode_str = cJSON_GetStringValue(sd_rotation_mode_obj);
-            sd_rotation_mode_t mode =
-                (strcmp(mode_str, "sequential") == 0) ? SD_ROTATION_SEQUENTIAL : SD_ROTATION_RANDOM;
-            config_manager_set_sd_rotation_mode(mode);
-        }
-
-        // Auto Rotate - URL
-        cJSON *image_url_obj = cJSON_GetObjectItem(root, "image_url");
-        if (image_url_obj && cJSON_IsString(image_url_obj)) {
-            const char *url = cJSON_GetStringValue(image_url_obj);
-            config_manager_set_image_url(url);
-        }
-
-        cJSON *access_token_obj = cJSON_GetObjectItem(root, "access_token");
-        if (access_token_obj && cJSON_IsString(access_token_obj)) {
-            const char *token = cJSON_GetStringValue(access_token_obj);
-            config_manager_set_access_token(token);
-        }
-
-        cJSON *http_header_key_obj = cJSON_GetObjectItem(root, "http_header_key");
-        if (http_header_key_obj && cJSON_IsString(http_header_key_obj)) {
-            const char *key = cJSON_GetStringValue(http_header_key_obj);
-            config_manager_set_http_header_key(key);
-        }
-
-        cJSON *http_header_value_obj = cJSON_GetObjectItem(root, "http_header_value");
-        if (http_header_value_obj && cJSON_IsString(http_header_value_obj)) {
-            const char *value = cJSON_GetStringValue(http_header_value_obj);
-            config_manager_set_http_header_value(value);
-        }
-
-        cJSON *save_dl_obj = cJSON_GetObjectItem(root, "save_downloaded_images");
-        if (save_dl_obj && cJSON_IsBool(save_dl_obj)) {
-            bool save_dl = cJSON_IsTrue(save_dl_obj);
-            config_manager_set_save_downloaded_images(save_dl);
-        }
-
-        // Home Assistant
-        cJSON *ha_url_obj = cJSON_GetObjectItem(root, "ha_url");
-        if (ha_url_obj && cJSON_IsString(ha_url_obj)) {
-            const char *url = cJSON_GetStringValue(ha_url_obj);
-            config_manager_set_ha_url(url);
-        }
-
-        // AI API Keys
-        cJSON *openai_key_obj = cJSON_GetObjectItem(root, "openai_api_key");
-        if (openai_key_obj && cJSON_IsString(openai_key_obj)) {
-            const char *key = cJSON_GetStringValue(openai_key_obj);
-            config_manager_set_openai_api_key(key);
-        }
-
-        cJSON *google_key_obj = cJSON_GetObjectItem(root, "google_api_key");
-        if (google_key_obj && cJSON_IsString(google_key_obj)) {
-            const char *key = cJSON_GetStringValue(google_key_obj);
-            config_manager_set_google_api_key(key);
-        }
-
-        // Power
-        cJSON *deep_sleep_obj = cJSON_GetObjectItem(root, "deep_sleep_enabled");
-        if (deep_sleep_obj && cJSON_IsBool(deep_sleep_obj)) {
-            power_manager_set_deep_sleep_enabled(cJSON_IsTrue(deep_sleep_obj));
-        }
-
+        esp_err_t apply_result = apply_config_from_json(root);
         cJSON_Delete(root);
+
+        if (apply_result != ESP_OK) {
+            // WiFi connection failed
+            cJSON *error_response = cJSON_CreateObject();
+            cJSON_AddStringToObject(error_response, "status", "error");
+            cJSON_AddStringToObject(
+                error_response, "message",
+                "Failed to connect to WiFi network. Please check SSID and password.");
+
+            char *json_str = cJSON_Print(error_response);
+            httpd_resp_set_type(req, "application/json");
+            httpd_resp_set_status(req, "400 Bad Request");
+            httpd_resp_sendstr(req, json_str);
+
+            free(json_str);
+            cJSON_Delete(error_response);
+            return ESP_FAIL;
+        }
+
+        // Update config timestamp for remote sync
+        config_manager_touch_config();
 
         cJSON *response = cJSON_CreateObject();
         cJSON_AddStringToObject(response, "status", "success");
@@ -2139,8 +2142,8 @@ static esp_err_t album_images_handler(httpd_req_t *req)
                 continue;
             }
             const char *ext = strrchr(entry->d_name, '.');
-            if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0 ||
-                        strcmp(ext, ".png") == 0 || strcmp(ext, ".PNG") == 0)) {
+            if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
+                        strcasecmp(ext, ".epdgz") == 0)) {
                 cJSON *image_obj = cJSON_CreateObject();
                 cJSON_AddStringToObject(image_obj, "filename", entry->d_name);
                 cJSON_AddStringToObject(image_obj, "album", decoded_album_name);
@@ -2462,45 +2465,7 @@ static esp_err_t processing_settings_handler(httpd_req_t *req)
 
         processing_settings_t settings;
         processing_settings_get_defaults(&settings);
-
-        cJSON *item;
-        if ((item = cJSON_GetObjectItem(json, "exposure")) && cJSON_IsNumber(item)) {
-            settings.exposure = (float) item->valuedouble;
-        }
-        if ((item = cJSON_GetObjectItem(json, "saturation")) && cJSON_IsNumber(item)) {
-            settings.saturation = (float) item->valuedouble;
-        }
-        if ((item = cJSON_GetObjectItem(json, "toneMode")) && cJSON_IsString(item)) {
-            strncpy(settings.tone_mode, item->valuestring, sizeof(settings.tone_mode) - 1);
-        }
-        if ((item = cJSON_GetObjectItem(json, "contrast")) && cJSON_IsNumber(item)) {
-            settings.contrast = (float) item->valuedouble;
-        }
-        if ((item = cJSON_GetObjectItem(json, "strength")) && cJSON_IsNumber(item)) {
-            settings.strength = (float) item->valuedouble;
-        }
-        if ((item = cJSON_GetObjectItem(json, "shadowBoost")) && cJSON_IsNumber(item)) {
-            settings.shadow_boost = (float) item->valuedouble;
-        }
-        if ((item = cJSON_GetObjectItem(json, "highlightCompress")) && cJSON_IsNumber(item)) {
-            settings.highlight_compress = (float) item->valuedouble;
-        }
-        if ((item = cJSON_GetObjectItem(json, "midpoint")) && cJSON_IsNumber(item)) {
-            settings.midpoint = (float) item->valuedouble;
-        }
-        if ((item = cJSON_GetObjectItem(json, "colorMethod")) && cJSON_IsString(item)) {
-            strncpy(settings.color_method, item->valuestring, sizeof(settings.color_method) - 1);
-        }
-        cJSON *compress_dr = cJSON_GetObjectItem(json, "compressDynamicRange");
-        if (compress_dr && cJSON_IsBool(compress_dr)) {
-            settings.compress_dynamic_range = cJSON_IsTrue(compress_dr);
-        }
-        cJSON *dither_algo = cJSON_GetObjectItem(json, "ditherAlgorithm");
-        if (dither_algo && cJSON_IsString(dither_algo)) {
-            strncpy(settings.dither_algorithm, dither_algo->valuestring,
-                    sizeof(settings.dither_algorithm) - 1);
-        }
-
+        processing_settings_from_json(json, &settings);
         cJSON_Delete(json);
 
         esp_err_t err = processing_settings_save(&settings);
@@ -2677,64 +2642,7 @@ static esp_err_t color_palette_handler(httpd_req_t *req)
 
         color_palette_t palette;
         color_palette_get_defaults(&palette);
-
-        cJSON *color;
-        cJSON *component;
-
-        if ((color = cJSON_GetObjectItem(json, "black"))) {
-            if ((component = cJSON_GetObjectItem(color, "r")) && cJSON_IsNumber(component))
-                palette.black.r = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "g")) && cJSON_IsNumber(component))
-                palette.black.g = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "b")) && cJSON_IsNumber(component))
-                palette.black.b = (uint8_t) component->valueint;
-        }
-
-        if ((color = cJSON_GetObjectItem(json, "white"))) {
-            if ((component = cJSON_GetObjectItem(color, "r")) && cJSON_IsNumber(component))
-                palette.white.r = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "g")) && cJSON_IsNumber(component))
-                palette.white.g = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "b")) && cJSON_IsNumber(component))
-                palette.white.b = (uint8_t) component->valueint;
-        }
-
-        if ((color = cJSON_GetObjectItem(json, "yellow"))) {
-            if ((component = cJSON_GetObjectItem(color, "r")) && cJSON_IsNumber(component))
-                palette.yellow.r = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "g")) && cJSON_IsNumber(component))
-                palette.yellow.g = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "b")) && cJSON_IsNumber(component))
-                palette.yellow.b = (uint8_t) component->valueint;
-        }
-
-        if ((color = cJSON_GetObjectItem(json, "red"))) {
-            if ((component = cJSON_GetObjectItem(color, "r")) && cJSON_IsNumber(component))
-                palette.red.r = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "g")) && cJSON_IsNumber(component))
-                palette.red.g = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "b")) && cJSON_IsNumber(component))
-                palette.red.b = (uint8_t) component->valueint;
-        }
-
-        if ((color = cJSON_GetObjectItem(json, "blue"))) {
-            if ((component = cJSON_GetObjectItem(color, "r")) && cJSON_IsNumber(component))
-                palette.blue.r = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "g")) && cJSON_IsNumber(component))
-                palette.blue.g = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "b")) && cJSON_IsNumber(component))
-                palette.blue.b = (uint8_t) component->valueint;
-        }
-
-        if ((color = cJSON_GetObjectItem(json, "green"))) {
-            if ((component = cJSON_GetObjectItem(color, "r")) && cJSON_IsNumber(component))
-                palette.green.r = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "g")) && cJSON_IsNumber(component))
-                palette.green.g = (uint8_t) component->valueint;
-            if ((component = cJSON_GetObjectItem(color, "b")) && cJSON_IsNumber(component))
-                palette.green.b = (uint8_t) component->valueint;
-        }
-
+        color_palette_from_json(json, &palette);
         cJSON_Delete(json);
 
         esp_err_t err = color_palette_save(&palette);
@@ -2856,6 +2764,18 @@ esp_err_t http_server_init(void)
                                         .handler = config_handler,
                                         .user_ctx = NULL};
         httpd_register_uri_handler(server, &config_patch_uri);
+
+        httpd_uri_t trust_cert_post_uri = {.uri = "/api/trust-cert",
+                                           .method = HTTP_POST,
+                                           .handler = trust_cert_handler,
+                                           .user_ctx = NULL};
+        httpd_register_uri_handler(server, &trust_cert_post_uri);
+
+        httpd_uri_t trust_cert_delete_uri = {.uri = "/api/trust-cert",
+                                             .method = HTTP_DELETE,
+                                             .handler = trust_cert_handler,
+                                             .user_ctx = NULL};
+        httpd_register_uri_handler(server, &trust_cert_delete_uri);
 
         httpd_uri_t battery_uri = {.uri = "/api/battery",
                                    .method = HTTP_GET,

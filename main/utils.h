@@ -1,7 +1,20 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include "cJSON.h"
 #include "esp_err.h"
+
+// Apply config values from a parsed cJSON object.
+// Handles all config fields including side effects (WiFi, mDNS, timers, etc.).
+// Fields not present in the JSON are left unchanged.
+// Returns ESP_FAIL if WiFi connection fails (other fields still applied up to that point).
+// Does NOT call config_manager_touch_config() - caller is responsible.
+// Does NOT take ownership of root - caller must free with cJSON_Delete().
+esp_err_t apply_config_from_json(cJSON *root);
+
+// Get/set the last image fetch error (transient, for UI display)
+void utils_set_last_fetch_error(const char *error);
+const char *utils_get_last_fetch_error(void);
 
 // Fetch image from URL, process it, and save to Downloads album
 // Returns ESP_OK on success, error code on failure
