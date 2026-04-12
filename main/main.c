@@ -169,7 +169,7 @@ static void button_task(void *arg)
                 if (duration > 50 && duration < 3000) {
                     ESP_LOGI(TAG, "Key button pressed, triggering rotation");
                     power_manager_reset_sleep_timer();
-                    trigger_image_rotation();
+                    trigger_image_rotation(1);
                     ha_notify_update();
                 }
             }
@@ -270,7 +270,7 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 
     // Trigger rotation
     power_manager_reset_sleep_timer();
-    trigger_image_rotation();
+    trigger_image_rotation(1);
 
     // Notify HA that data has been updated (after both OTA check and rotation)
     if (wifi_connected && ha_configured) {
