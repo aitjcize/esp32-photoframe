@@ -868,6 +868,10 @@ esp_err_t trigger_image_rotation(int skip_count)
         result = ESP_OK;
     }
 
+    if (result == ESP_OK) {
+        config_manager_set_last_rotation_timestamp(time(NULL));
+    }
+
     return result;
 }
 
