@@ -145,6 +145,47 @@ esp_err_t apply_config_from_json(cJSON *root)
         power_manager_reset_rotate_timer();
     }
 
+    // Advanced Auto Rotate
+    item = cJSON_GetObjectItem(root, "ar_mode");
+    if (item && cJSON_IsString(item)) {
+        const char *mode_str = cJSON_GetStringValue(item);
+        if (strcmp(mode_str, "daily") == 0) {
+            config_manager_set_ar_mode(AR_MODE_DAILY);
+        } else {
+            config_manager_set_ar_mode(AR_MODE_INTERVAL);
+        }
+        power_manager_reset_rotate_timer();
+    }
+
+    item = cJSON_GetObjectItem(root, "ar_start_time");
+    if (item && cJSON_IsNumber(item)) {
+        config_manager_set_ar_start_time(item->valueint);
+        power_manager_reset_rotate_timer();
+    }
+
+    item = cJSON_GetObjectItem(root, "ar_policy");
+    if (item && cJSON_IsString(item)) {
+        const char *policy_str = cJSON_GetStringValue(item);
+        if (strcmp(policy_str, "sequential") == 0) {
+            config_manager_set_ar_sleep_policy(AR_POLICY_SEQUENTIAL);
+        } else {
+            config_manager_set_ar_sleep_policy(AR_POLICY_SYNCHRONIZED);
+        }
+        power_manager_reset_rotate_timer();
+    }
+
+    item = cJSON_GetObjectItem(root, "ar_anchor");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_ar_use_anchor(cJSON_IsTrue(item));
+        power_manager_reset_rotate_timer();
+    }
+
+    item = cJSON_GetObjectItem(root, "auto_rotate_aligned");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_auto_rotate_aligned(cJSON_IsTrue(item));
+        power_manager_reset_rotate_timer();
+    }
+
     item = cJSON_GetObjectItem(root, "sleep_schedule_enabled");
     if (item && cJSON_IsBool(item)) {
         config_manager_set_sleep_schedule_enabled(cJSON_IsTrue(item));
