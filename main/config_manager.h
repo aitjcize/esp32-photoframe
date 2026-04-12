@@ -62,6 +62,21 @@ bool config_manager_is_in_sleep_schedule(void);
 void config_manager_set_rotation_mode(rotation_mode_t mode);
 rotation_mode_t config_manager_get_rotation_mode(void);
 
+void config_manager_set_ar_mode(ar_mode_t mode);
+ar_mode_t config_manager_get_ar_mode(void);
+
+void config_manager_set_ar_start_time(int minutes);
+int config_manager_get_ar_start_time(void);
+
+void config_manager_set_ar_use_anchor(bool enabled);
+bool config_manager_get_ar_use_anchor(void);
+
+void config_manager_set_ar_sleep_policy(ar_policy_t policy);
+ar_policy_t config_manager_get_ar_sleep_policy(void);
+
+void config_manager_set_last_rotation_timestamp(int64_t timestamp);
+int64_t config_manager_get_last_rotation_timestamp(void);
+
 // ============================================================================
 // Auto Rotate - SDCARD
 // ============================================================================

@@ -18,6 +18,7 @@
 #include "ha_integration.h"
 #include "periodic_tasks.h"
 #include "storage.h"
+#include "testable_utils.h"
 #include "utils.h"
 
 // RTC memory to store expected wakeup time (persists across deep sleep)
@@ -50,6 +51,15 @@ static void rotation_timer_task(void *arg)
 
         // Handle active rotation when device stays awake and auto-rotate enabled
         if (config_manager_get_auto_rotate()) {
+            time_t last_rot = (time_t) config_manager_get_last_rotation_timestamp();
+            rotation_config_t rot_config = {
+                .mode = (ar_mode_h_t) config_manager_get_ar_mode(),
+                .interval_sec = config_manager_get_rotate_interval(),
+                .start_time_min = config_manager_get_ar_start_time(),
+                .policy = (ar_policy_h_t) config_manager_get_ar_sleep_policy(),
+                .last_rotation = last_rot,
+            };
+
             // Check if we're in sleep schedule
             if (config_manager_is_in_sleep_schedule()) {
                 // During sleep schedule, don't rotate
@@ -58,33 +68,63 @@ static void rotation_timer_task(void *arg)
             }
 
             int64_t now = esp_timer_get_time();  // Get absolute time in microseconds
+            time_t now_unix = time(NULL);
 
             if (next_rotation_time == 0) {
                 // Initialize next rotation time
                 int seconds_until_next = get_seconds_until_next_wakeup();
 
                 next_rotation_time = now + (seconds_until_next * 1000000LL);
-                const char *reason =
-                    board_hal_is_usb_connected() ? "USB powered" : "deep sleep disabled";
+                const char *reason;
+                if (board_hal_is_usb_connected()) {
+                    reason = "USB powered";
+                } else {
+                    reason = "deep sleep disabled";
+                }
+                const char *mode_str;
+                if (rot_config.mode == AR_MODE_DAILY_H) {
+                    mode_str = "daily";
+                } else {
+                    mode_str = "interval";
+                }
                 ESP_LOGI(TAG, "Active rotation scheduled in %d seconds (%s, %s)",
-                         seconds_until_next,
-                         config_manager_get_auto_rotate_aligned() ? "clock-aligned" : "interval",
-                         reason);
-            } else if (now >= next_rotation_time) {
-                // Time to rotate
-                const char *reason =
-                    board_hal_is_usb_connected() ? "USB powered" : "deep sleep disabled";
-                ESP_LOGI(TAG, "Active rotation triggered (%s)", reason);
+                         seconds_until_next, mode_str, reason);
+            } else {
+                int skip_count = is_rotation_due(now_unix, &rot_config);
+                if (now >= next_rotation_time || skip_count > 0) {
+                    // Time to rotate
+                    const char *reason;
+                    if (board_hal_is_usb_connected()) {
+                        reason = "USB powered";
+                    } else {
+                        reason = "deep sleep disabled";
+                    }
 
-                trigger_image_rotation();
-                ha_notify_update();
+                    // If triggered by timer (now >= next_rotation_time) but is_rotation_due says 0,
+                    // it means we are just slightly ahead or behind. Default to 1 skip.
+                    if (skip_count <= 0) {
+                        skip_count = 1;
+                    }
 
-                // Schedule next rotation
-                int seconds_until_next = get_seconds_until_next_wakeup();
+                    const char *mode_str;
+                    if (rot_config.mode == AR_MODE_DAILY_H) {
+                        mode_str = "daily";
+                    } else {
+                        mode_str = "interval";
+                    }
+                    ESP_LOGI(TAG, "Active rotation triggered (%s, %s, skip: %d)", mode_str, reason,
+                             skip_count);
 
-                next_rotation_time = now + (seconds_until_next * 1000000LL);
-                ESP_LOGI(TAG, "Next rotation scheduled in %d seconds (%s)", seconds_until_next,
-                         config_manager_get_auto_rotate_aligned() ? "clock-aligned" : "interval");
+                    trigger_image_rotation(skip_count);
+                    ha_notify_update();
+
+                    // Schedule next rotation
+                    int seconds_until_next = get_seconds_until_next_wakeup();
+
+                    next_rotation_time = now + (seconds_until_next * 1000000LL);
+                    ESP_LOGI(TAG, "Next rotation scheduled in %d seconds (%s)", seconds_until_next,
+                             mode_str);
+                }
             }
         } else {
             next_rotation_time = 0;  // Reset if auto-rotate disabled
@@ -242,6 +282,25 @@ esp_err_t power_manager_init(void)
         ESP_LOGI(TAG, "Not a deep sleep wakeup");
     }
 
+    // Lazy Evaluation: Whenever we wake up, check if a rotation is due.
+    if (config_manager_get_auto_rotate() && !config_manager_is_in_sleep_schedule()) {
+        time_t last_rot = (time_t) config_manager_get_last_rotation_timestamp();
+        rotation_config_t rot_config = {
+            .mode = (ar_mode_h_t) config_manager_get_ar_mode(),
+            .interval_sec = config_manager_get_rotate_interval(),
+            .start_time_min = config_manager_get_ar_start_time(),
+            .policy = (ar_policy_h_t) config_manager_get_ar_sleep_policy(),
+            .last_rotation = last_rot,
+        };
+        int skip_count = is_rotation_due(time(NULL), &rot_config);
+        if (skip_count > 0) {
+            ESP_LOGI(TAG, "Lazy rotation check: rotation is due (skip: %d). Triggering rotation.",
+                     skip_count);
+            trigger_image_rotation(skip_count);
+            ha_notify_update();
+        }
+    }
+
     // Configure button GPIOs as input with pull-ups
     uint64_t pin_mask = 0;
     if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC) {
@@ -315,7 +374,7 @@ void power_manager_enter_sleep(void)
 
         ESP_LOGI(TAG, "Auto-rotate enabled, setting timer wake-up for %d seconds (%s)",
                  wake_seconds,
-                 config_manager_get_auto_rotate_aligned() ? "clock-aligned" : "interval");
+                 config_manager_get_ar_mode() == AR_MODE_DAILY ? "daily" : "interval");
         esp_sleep_enable_timer_wakeup(wake_seconds * 1000000ULL);
 
         // Store expected wakeup time in RTC memory for drift detection
@@ -367,7 +426,7 @@ void power_manager_reset_rotate_timer(void)
 
     next_rotation_time = esp_timer_get_time() + (seconds_until_next * 1000000LL);
     ESP_LOGI(TAG, "Rotation timer reset, next rotation in %d seconds (%s)", seconds_until_next,
-             config_manager_get_auto_rotate_aligned() ? "clock-aligned" : "interval");
+             config_manager_get_ar_mode() == AR_MODE_DAILY ? "daily" : "interval");
 }
 
 wakeup_source_t power_manager_get_wakeup_source(void)

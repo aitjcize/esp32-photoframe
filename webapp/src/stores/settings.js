@@ -35,6 +35,12 @@ export const useSettingsStore = defineStore("settings", () => {
     sleepScheduleStart: "23:00",
     sleepScheduleEnd: "07:00",
     rotationMode: "storage",
+    // Auto Rotate (v2)
+    arMode: 0, // 0: Interval, 1: Daily
+    arStart: 0, // Minutes since midnight
+    arPolicy: 0, // 0: Synchronized, 1: Sequential
+    arAnchor: true,
+    arLast: 0,
     // Auto Rotate - SDCARD
     sdRotationMode: "random",
     // Auto Rotate - URL
@@ -184,6 +190,13 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.aiCredentials.openaiApiKey = data.openai_api_key || "";
       deviceSettings.value.aiCredentials.googleApiKey = data.google_api_key || "";
 
+      // Auto Rotate (v2)
+      deviceSettings.value.arMode = data.ar_mode ?? 0;
+      deviceSettings.value.arStart = data.ar_start ?? 0;
+      deviceSettings.value.arPolicy = data.ar_policy ?? 0;
+      deviceSettings.value.arAnchor = data.ar_anchor ?? true;
+      deviceSettings.value.arLast = data.ar_last ?? 0;
+
       // Sleep schedule
       deviceSettings.value.sleepScheduleEnabled = data.sleep_schedule_enabled || false;
 
@@ -266,6 +279,11 @@ export const useSettingsStore = defineStore("settings", () => {
       wifi_ssid: deviceSettings.value.wifiSsid,
       openai_api_key: deviceSettings.value.aiCredentials.openaiApiKey,
       google_api_key: deviceSettings.value.aiCredentials.googleApiKey,
+      // Auto Rotate (v2)
+      ar_mode: deviceSettings.value.arMode,
+      ar_start: deviceSettings.value.arStart,
+      ar_policy: deviceSettings.value.arPolicy,
+      ar_anchor: deviceSettings.value.arAnchor,
     };
 
     // Only include password if it's been changed (not empty)

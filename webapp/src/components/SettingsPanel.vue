@@ -135,6 +135,32 @@ const sdRotationModeOptions = [
   { title: "Sequential - In sequence", value: "sequential" },
 ];
 
+const arModeOptions = [
+  { title: "Interval - Every X hours/minutes", value: 0 },
+  { title: "Daily - At a fixed time every day", value: 1 },
+];
+
+const useAnchor = computed({
+  get: () => settingsStore.deviceSettings.arAnchor,
+  set: (v) => (settingsStore.deviceSettings.arAnchor = v),
+});
+
+const arStartTimeStr = computed({
+  get: () => {
+    const mins = settingsStore.deviceSettings.arStart;
+    if (mins === undefined) return "00:00";
+    const h = Math.floor(mins / 60)
+      .toString()
+      .padStart(2, "0");
+    const m = (mins % 60).toString().padStart(2, "0");
+    return `${h}:${m}`;
+  },
+  set: (val) => {
+    const [h, m] = val.split(":").map(Number);
+    settingsStore.deviceSettings.arStart = h * 60 + m;
+  },
+});
+
 const saving = ref(false);
 const saveSuccess = ref(false);
 
@@ -507,47 +533,143 @@ async function performFactoryReset() {
             />
 
             <div class="ml-10">
-              <v-row class="mb-0">
-                <v-col cols="6" md="3">
-                  <v-text-field
-                    v-model.number="settingsStore.deviceSettings.rotateHours"
-                    label="Hours"
-                    type="number"
-                    :min="0"
-                    :max="23"
-                    variant="outlined"
-                    :disabled="!settingsStore.deviceSettings.autoRotate"
-                    hide-details
-                  />
+              <div class="d-flex align-center flex-wrap ga-4 mb-6">
+                <v-btn-toggle
+                  v-model="settingsStore.deviceSettings.arMode"
+                  mandatory
+                  color="primary"
+                  variant="outlined"
+                  class="mb-0"
+                  style="height: 48px"
+                  :disabled="!settingsStore.deviceSettings.autoRotate"
+                >
+                  <v-btn
+                    v-for="opt in arModeOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                    class="px-6"
+                  >
+                    {{ opt.title.split(" - ")[0] }}
+                  </v-btn>
+                </v-btn-toggle>
+
+                <v-checkbox
+                  v-if="settingsStore.deviceSettings.arMode === 0"
+                  v-model="useAnchor"
+                  label="Use Anchor Time"
+                  color="primary"
+                  hide-details
+                  class="mt-0"
+                  :disabled="!settingsStore.deviceSettings.autoRotate"
+                />
+              </div>
+
+              <v-row class="mb-4">
+                <v-col v-if="settingsStore.deviceSettings.arMode === 0" cols="12" md="6">
+                  <v-row dense>
+                    <v-col cols="6">
+                      <v-text-field
+                        v-model.number="settingsStore.deviceSettings.rotateHours"
+                        label="Interval Hours"
+                        type="number"
+                        min="0"
+                        max="23"
+                        variant="outlined"
+                        :disabled="!settingsStore.deviceSettings.autoRotate"
+                        hide-details
+                      />
+                    </v-col>
+                    <v-col cols="6">
+                      <v-text-field
+                        v-model.number="settingsStore.deviceSettings.rotateMinutes"
+                        label="Minutes"
+                        type="number"
+                        min="0"
+                        max="59"
+                        variant="outlined"
+                        :disabled="!settingsStore.deviceSettings.autoRotate"
+                        hide-details
+                      />
+                    </v-col>
+                  </v-row>
+                  <div class="text-caption text-medium-emphasis mt-2">
+                    How often to rotate the image.
+                  </div>
                 </v-col>
-                <v-col cols="6" md="3">
+
+                <v-col cols="12" md="6">
                   <v-text-field
-                    v-model.number="settingsStore.deviceSettings.rotateMinutes"
-                    label="Minutes"
-                    type="number"
-                    :min="0"
-                    :max="59"
+                    v-model="arStartTimeStr"
+                    :label="
+                      settingsStore.deviceSettings.arMode === 1 ? 'Rotation Time' : 'Anchor Time'
+                    "
+                    type="time"
                     variant="outlined"
                     :disabled="!settingsStore.deviceSettings.autoRotate"
+                    v-if="
+                      settingsStore.deviceSettings.arMode === 1 ||
+                      (settingsStore.deviceSettings.arMode === 0 && useAnchor)
+                    "
                     hide-details
                   />
+                  <div
+                    class="text-caption text-medium-emphasis mt-2"
+                    v-if="
+                      settingsStore.deviceSettings.arMode === 1 ||
+                      (settingsStore.deviceSettings.arMode === 0 && useAnchor)
+                    "
+                  >
+                    {{
+                      settingsStore.deviceSettings.arMode === 1
+                        ? "The exact time the image changes every day."
+                        : "The starting point for interval calculation (fixed daily slots)."
+                    }}
+                  </div>
                 </v-col>
               </v-row>
 
-              <v-checkbox
-                v-model="settingsStore.deviceSettings.autoRotateAligned"
-                label="Align rotation to clock boundaries"
-                hide-details
-                class="mb-0 ml-2"
-                :disabled="!settingsStore.deviceSettings.autoRotate"
-              />
-              <v-alert
-                v-if="settingsStore.deviceSettings.autoRotateAligned"
-                type="info"
-                variant="tonal"
-                density="compact"
-              >
-                Rotation aligns to clock boundaries. 1 hour rotates at 1:00, 2:00, etc.
+              <v-row v-if="settingsStore.deviceSettings.arMode === 0" class="mb-4">
+                <v-col cols="12">
+                  <v-radio-group
+                    v-model="settingsStore.deviceSettings.arPolicy"
+                    label="Sleep Behavior"
+                    color="primary"
+                  >
+                    <v-radio
+                      :value="0"
+                      label="Synchronized (Catch-up) - Stays in sync with clock, may skip images"
+                    ></v-radio>
+                    <v-radio
+                      :value="1"
+                      label="Sequential (Pause) - Always shows next image, timer resists skipping"
+                    ></v-radio>
+                  </v-radio-group>
+                </v-col>
+              </v-row>
+
+              <v-alert type="info" variant="tonal" density="compact" class="mb-6">
+                <template v-if="settingsStore.deviceSettings.arMode === 1">
+                  <strong>Daily Mode</strong>: Changes image at {{ arStartTimeStr }}. If the device
+                  is asleep then, it will rotate immediately upon waking.
+                </template>
+                <template v-else>
+                  <strong>Interval Mode</strong>: Changes every
+                  {{ settingsStore.deviceSettings.rotateHours }}h
+                  {{ settingsStore.deviceSettings.rotateMinutes }}m.
+                  <span v-if="settingsStore.deviceSettings.arPolicy === 0">
+                    <strong>Synchronized (Catch-up)</strong>: Slots are fixed to the clock. If the
+                    device was asleep, it skips images to stay on schedule.
+                    <span v-if="settingsStore.deviceSettings.arStart !== undefined">
+                      (Anchor: {{ arStartTimeStr }})</span
+                    >
+                  </span>
+                  <span v-else>
+                    <strong>Sequential (Pause)</strong>: Strictly
+                    {{ settingsStore.deviceSettings.rotateHours }}h
+                    {{ settingsStore.deviceSettings.rotateMinutes }}m between rotations. No images
+                    are skipped.
+                  </span>
+                </template>
               </v-alert>
 
               <v-select
