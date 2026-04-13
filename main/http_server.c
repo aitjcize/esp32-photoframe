@@ -1858,12 +1858,20 @@ static esp_err_t config_handler(httpd_req_t *req)
         cJSON_Delete(root);
 
         if (apply_result != ESP_OK) {
-            // WiFi connection failed
             cJSON *error_response = cJSON_CreateObject();
             cJSON_AddStringToObject(error_response, "status", "error");
-            cJSON_AddStringToObject(
-                error_response, "message",
-                "Failed to connect to WiFi network. Please check SSID and password.");
+
+            const char *cert_err = utils_consume_cert_pin_error();
+            if (cert_err && cert_err[0] != '\0') {
+                char msg[384];
+                snprintf(msg, sizeof(msg),
+                         "Failed to pin TLS certificate for image URL: %s", cert_err);
+                cJSON_AddStringToObject(error_response, "message", msg);
+            } else {
+                cJSON_AddStringToObject(
+                    error_response, "message",
+                    "Failed to connect to WiFi network. Please check SSID and password.");
+            }
 
             char *json_str = cJSON_Print(error_response);
             httpd_resp_set_type(req, "application/json");
