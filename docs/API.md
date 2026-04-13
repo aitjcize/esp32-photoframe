@@ -176,45 +176,11 @@ Update configuration. Only include fields to change.
 }
 ```
 
+**TLS certificate pinning:** If the request changes `image_url` to an HTTPS URL different from the current value, the device fetches and pins that server's TLS certificate before applying the config. If the fetch fails, the request returns `400 Bad Request` with a `message` describing the failure and **no config changes are persisted**. Changing `image_url` to an HTTP URL or clearing it clears any previously pinned certificate. `GET /api/config` reports the current state via `ca_cert_set`.
+
 ### `PATCH /api/config`
 
 Same as `POST /api/config`. Both methods accept partial updates.
-
----
-
-## TLS Certificate Pinning
-
-### `POST /api/trust-cert`
-
-Fetch and pin a server's TLS certificate for HTTPS image URLs.
-
-**Request:**
-```json
-{
-  "url": "https://example.com/image"
-}
-```
-
-**Response:**
-```json
-{
-  "status": "trusted",
-  "subject": "CN=example.com",
-  "issuer": "CN=Let's Encrypt",
-  "size": 1234
-}
-```
-
-### `DELETE /api/trust-cert`
-
-Clear the pinned certificate.
-
-**Response:**
-```json
-{
-  "status": "cleared"
-}
-```
 
 ---
 
