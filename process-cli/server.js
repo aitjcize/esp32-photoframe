@@ -199,7 +199,7 @@ export async function createImageServer(
         // Generate and cache thumbnail
         if (!thumbnailCache.has(image.name)) {
           const thumbCanvas = generateThumbnail(
-            processedCanvas,
+            originalCanvas,
             400,
             createCanvas,
           );
