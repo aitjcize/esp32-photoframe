@@ -67,13 +67,13 @@ esp_err_t cert_pin_fetch_and_store(const char *url, char *err_out, size_t err_ou
         if (error_handle) {
             esp_tls_get_and_clear_last_error(error_handle, &esp_tls_err, &mbedtls_err);
         }
-        ESP_LOGE(TAG, "TLS connection failed to %s:%d (esp_tls=0x%x, mbedtls=-0x%04x)",
-                 host, port, esp_tls_err, -mbedtls_err);
+        ESP_LOGE(TAG, "TLS connection failed to %s:%d (esp_tls=0x%x, mbedtls=-0x%04x)", host, port,
+                 esp_tls_err, -mbedtls_err);
         esp_tls_conn_destroy(tls);
         if (err_out) {
             snprintf(err_out, err_out_len,
-                     "TLS handshake failed with %s:%d (mbedtls error -0x%04x)",
-                     host, port, -mbedtls_err);
+                     "TLS handshake failed with %s:%d (mbedtls error -0x%04x)", host, port,
+                     -mbedtls_err);
         }
         return ESP_FAIL;
     }
@@ -87,7 +87,20 @@ esp_err_t cert_pin_fetch_and_store(const char *url, char *err_out, size_t err_ou
         return ESP_FAIL;
     }
 
-    size_t cert_der_len = peer_cert->raw.len;
+    // Pin the issuer (next cert in the chain), not the leaf, so standard mbedtls
+    // chain verification succeeds during subsequent HTTPS fetches: leaf is
+    // signed by issuer, and the issuer matches our trust anchor.
+    const mbedtls_x509_crt *issuer = peer_cert->next;
+    if (!issuer) {
+        esp_tls_conn_destroy(tls);
+        if (err_out)
+            strncpy(err_out,
+                    "Server sent only a leaf certificate; pinning requires an intermediate",
+                    err_out_len - 1);
+        return ESP_FAIL;
+    }
+
+    size_t cert_der_len = issuer->raw.len;
     unsigned char *cert_der = malloc(cert_der_len);
     if (!cert_der) {
         esp_tls_conn_destroy(tls);
@@ -95,7 +108,7 @@ esp_err_t cert_pin_fetch_and_store(const char *url, char *err_out, size_t err_ou
             strncpy(err_out, "Out of memory", err_out_len - 1);
         return ESP_FAIL;
     }
-    memcpy(cert_der, peer_cert->raw.p, cert_der_len);
+    memcpy(cert_der, issuer->raw.p, cert_der_len);
 
     esp_tls_conn_destroy(tls);
 
@@ -104,7 +117,7 @@ esp_err_t cert_pin_fetch_and_store(const char *url, char *err_out, size_t err_ou
 
     free(cert_der);
 
-    ESP_LOGI(TAG, "Pinned cert for %s:%d", host, port);
+    ESP_LOGI(TAG, "Pinned issuer cert for %s:%d (%zu bytes)", host, port, cert_der_len);
     return ESP_OK;
 }
 

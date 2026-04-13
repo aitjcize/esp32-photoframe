@@ -219,8 +219,7 @@ esp_err_t apply_config_from_json(cJSON *root)
         if (url_changed) {
             if (new_is_https) {
                 char err_buf[256] = {0};
-                esp_err_t pin_ret =
-                    cert_pin_fetch_and_store(new_url, err_buf, sizeof(err_buf));
+                esp_err_t pin_ret = cert_pin_fetch_and_store(new_url, err_buf, sizeof(err_buf));
                 if (pin_ret != ESP_OK) {
                     ESP_LOGE(TAG, "Cert pin failed, rejecting config: %s", err_buf);
                     utils_set_cert_pin_error(err_buf);

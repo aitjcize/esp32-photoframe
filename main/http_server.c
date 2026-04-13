@@ -1708,8 +1708,8 @@ static esp_err_t config_handler(httpd_req_t *req)
             const char *cert_err = utils_consume_cert_pin_error();
             if (cert_err && cert_err[0] != '\0') {
                 char msg[384];
-                snprintf(msg, sizeof(msg),
-                         "Failed to pin TLS certificate for image URL: %s", cert_err);
+                snprintf(msg, sizeof(msg), "Failed to pin TLS certificate for image URL: %s",
+                         cert_err);
                 cJSON_AddStringToObject(error_response, "message", msg);
             } else {
                 cJSON_AddStringToObject(

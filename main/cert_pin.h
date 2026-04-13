@@ -1,7 +1,8 @@
 #pragma once
 
-#include "esp_err.h"
 #include <stddef.h>
+
+#include "esp_err.h"
 
 // Fetch the TLS cert from `url` (https://host[:port][/path]), store it via
 // config_manager_set_ca_cert_der, and call config_manager_touch_config.
