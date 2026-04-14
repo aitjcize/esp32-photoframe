@@ -1,6 +1,8 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include <stdbool.h>
+
 #include "cJSON.h"
 #include "esp_err.h"
 
@@ -22,10 +24,15 @@ const char *utils_get_last_fetch_error(void);
 void utils_set_cert_pin_error(const char *msg);
 const char *utils_consume_cert_pin_error(void);
 
-// Fetch image from URL, process it, and save to Downloads album
-// Returns ESP_OK on success, error code on failure
-// saved_image_path will contain the path to the processed image (PNG)
-esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path, size_t path_size);
+// Fetch image from URL, process it, and save to Downloads album.
+// Returns ESP_OK on success (including 304), error code on failure.
+// On success with a downloaded image, saved_image_path will contain the path
+// to the processed image (PNG). On HTTP 304 Not Modified, *not_modified (if
+// non-NULL) is set to true and saved_image_path is left as an empty string —
+// the caller should skip display refresh because the eInk already holds the
+// correct image. not_modified may be NULL if the caller doesn't care.
+esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path, size_t path_size,
+                                        bool *not_modified);
 
 // Trigger image rotation based on configured rotation mode
 // Handles both URL and SD card rotation modes

@@ -94,6 +94,11 @@ const char *config_manager_get_http_header_value(void);
 void config_manager_set_save_downloaded_images(bool enabled);
 bool config_manager_get_save_downloaded_images(void);
 
+// ETag captured from the last successful image fetch.
+// Empty string means "not set" — skip the If-None-Match request header.
+void config_manager_set_image_etag(const char *etag);
+const char *config_manager_get_image_etag(void);
+
 // ============================================================================
 // Home Assistant
 // ============================================================================

@@ -286,6 +286,7 @@ typedef struct {
     char *content_type;
     char *thumbnail_url;   // Optional thumbnail URL from X-Thumbnail-URL header
     char *config_payload;  // Optional config JSON from X-Config-Payload header
+    char *etag;            // Optional ETag buffer (HTTP_ETAG_MAX_LEN bytes) for 304 caching
 } download_context_t;
 
 // HTTP event handler to write data to file
@@ -317,6 +318,11 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
                 ctx->config_payload[2047] = '\0';
                 ESP_LOGI(TAG, "Config payload received from server");
             }
+        } else if (strcasecmp(evt->header_key, "ETag") == 0) {
+            if (ctx->etag) {
+                strncpy(ctx->etag, evt->header_value, HTTP_ETAG_MAX_LEN - 1);
+                ctx->etag[HTTP_ETAG_MAX_LEN - 1] = '\0';
+            }
         }
         break;
     default:
@@ -325,9 +331,14 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path, size_t path_size)
+esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path, size_t path_size,
+                                        bool *not_modified)
 {
     ESP_LOGI(TAG, "Fetching image from URL: %s", url);
+
+    if (not_modified) {
+        *not_modified = false;
+    }
 
     // Use fixed paths for current image and upload
     const char *temp_jpg_path = CURRENT_JPG_PATH;
@@ -344,17 +355,20 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
     const int max_retries = 3;
 
     char *config_payload_buffer = NULL;
+    char *etag_buffer = NULL;
 
     // Allocate buffers once before retry loop
     thumbnail_url_buffer = calloc(512, 1);
     content_type = calloc(128, 1);
     config_payload_buffer = calloc(2048, 1);
+    etag_buffer = calloc(HTTP_ETAG_MAX_LEN, 1);
 
-    if (!content_type || !thumbnail_url_buffer || !config_payload_buffer) {
+    if (!content_type || !thumbnail_url_buffer || !config_payload_buffer || !etag_buffer) {
         ESP_LOGE(TAG, "Failed to allocate memory for download context");
         free(content_type);
         free(thumbnail_url_buffer);
         free(config_payload_buffer);
+        free(etag_buffer);
         return ESP_FAIL;
     }
 
@@ -374,12 +388,14 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
         // Clear buffers for this retry
         memset(content_type, 0, 128);
         memset(config_payload_buffer, 0, 2048);
+        memset(etag_buffer, 0, HTTP_ETAG_MAX_LEN);
 
         download_context_t ctx = {.file = file,
                                   .total_read = 0,
                                   .content_type = content_type,
                                   .thumbnail_url = thumbnail_url_buffer,
-                                  .config_payload = config_payload_buffer};
+                                  .config_payload = config_payload_buffer,
+                                  .etag = etag_buffer};
 
         // Use custom CA cert for HTTPS if configured
         size_t pinned_cert_len = 0;
@@ -452,6 +468,14 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
         const esp_app_desc_t *app_desc = esp_app_get_description();
         esp_http_client_set_header(client, "X-Firmware-Version", app_desc->version);
 
+        // Add If-None-Match with stored ETag to enable 304 Not Modified responses.
+        // Server may return an opaque ETag header on the previous 200; we echo it
+        // back so the server can short-circuit with 304 when content is unchanged.
+        const char *stored_etag = config_manager_get_image_etag();
+        if (stored_etag && stored_etag[0] != '\0') {
+            esp_http_client_set_header(client, "If-None-Match", stored_etag);
+        }
+
         // Add config timestamp for remote sync
         char config_ts[24];
         snprintf(config_ts, sizeof(config_ts), "%lld",
@@ -489,6 +513,26 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
 
         fclose(file);
         esp_http_client_cleanup(client);
+
+        // 304 Not Modified: server confirmed the cached image is still current.
+        // eInk retains the last rendered image without power, so skip the refresh
+        // entirely and return early — no download body, no decode, no repaint.
+        if (err == ESP_OK && status_code == 304) {
+            ESP_LOGI(TAG, "HTTP 304 Not Modified — skipping refresh");
+            unlink(temp_upload_path);
+            if (not_modified) {
+                *not_modified = true;
+            }
+            if (saved_image_path && path_size > 0) {
+                saved_image_path[0] = '\0';
+            }
+            utils_set_last_fetch_error(NULL);
+            free(content_type);
+            free(thumbnail_url_buffer);
+            free(config_payload_buffer);
+            free(etag_buffer);
+            return ESP_OK;
+        }
 
         // Check if download was successful
         if (err == ESP_OK && status_code == 200 && total_downloaded > 0) {
@@ -531,9 +575,15 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
         free(content_type);
         free(thumbnail_url_buffer);
         free(config_payload_buffer);
+        free(etag_buffer);
         unlink(temp_upload_path);
         return ESP_FAIL;
     }
+
+    // Persist the ETag from this successful 200 response (or clear if the server
+    // dropped it) so the next request can send If-None-Match.
+    config_manager_set_image_etag(etag_buffer);
+    free(etag_buffer);
 
     // Detect format regardless of Content-Type (which might be unreliable)
     image_format_t image_format = image_processor_detect_format(temp_upload_path);
@@ -566,7 +616,9 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
             download_context_t thumb_ctx = {.file = thumb_file,
                                             .total_read = 0,
                                             .content_type = thumb_content_type,
-                                            .thumbnail_url = NULL};
+                                            .thumbnail_url = NULL,
+                                            .config_payload = NULL,
+                                            .etag = NULL};
 
             esp_http_client_config_t thumb_config = {
                 .url = thumbnail_url_buffer,
@@ -890,16 +942,24 @@ esp_err_t trigger_image_rotation(void)
         ESP_LOGI(TAG, "URL rotation mode - downloading from: %s", image_url);
 
         char saved_bmp_path[512];
-        if (fetch_and_save_image_from_url(image_url, saved_bmp_path, sizeof(saved_bmp_path)) ==
-            ESP_OK) {
-            ESP_LOGI(TAG, "Successfully downloaded and saved image, displaying...");
-            display_manager_show_image(saved_bmp_path);
+        bool not_modified = false;
+        if (fetch_and_save_image_from_url(image_url, saved_bmp_path, sizeof(saved_bmp_path),
+                                          &not_modified) == ESP_OK) {
+            if (not_modified) {
+                // Server confirmed cached image still current (HTTP 304).
+                // Keep the existing eInk image — do not refresh, do not fall
+                // back to SD rotation.
+                ESP_LOGI(TAG, "Image unchanged on server, skipping display refresh");
+            } else {
+                ESP_LOGI(TAG, "Successfully downloaded and saved image, displaying...");
+                display_manager_show_image(saved_bmp_path);
 
-            // Delete rendered temp image after display to save storage space,
-            // but only if it wasn't saved to the Downloads album.
-            if (!config_manager_get_save_downloaded_images()) {
-                unlink(CURRENT_BMP_PATH);
-                unlink(CURRENT_PNG_PATH);
+                // Delete rendered temp image after display to save storage space,
+                // but only if it wasn't saved to the Downloads album.
+                if (!config_manager_get_save_downloaded_images()) {
+                    unlink(CURRENT_BMP_PATH);
+                    unlink(CURRENT_PNG_PATH);
+                }
             }
 
             result = ESP_OK;
