@@ -15,6 +15,7 @@ extern "C" {
  */
 typedef struct {
     const char *mount_point;
+    gpio_num_t power_en_pin;  // GPIO for power enable (e.g. TPS22916), -1 if not used
 #ifdef CONFIG_SDCARD_DRIVER_SPI
     int host_id;
     gpio_num_t cs_pin;
@@ -43,6 +44,11 @@ esp_err_t sdcard_init(const sdcard_config_t *config);
  * @return true if mounted, false otherwise
  */
 bool sdcard_is_mounted(void);
+
+/**
+ * @brief Deinitialize SD card and cut power if power_en_pin is configured
+ */
+void sdcard_deinit(void);
 
 #ifdef __cplusplus
 }
