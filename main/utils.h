@@ -64,4 +64,8 @@ void sanitize_hostname(const char *device_name, char *hostname, size_t max_len);
 // Buffer is at least 13 bytes (12 chars + null)
 const char *get_device_id(void);
 
+// Get the unique AP SSID for provisioning (e.g. "PhotoFrame-A1B2C")
+// Returns pointer to static buffer
+const char *get_setup_ap_ssid(void);
+
 #endif

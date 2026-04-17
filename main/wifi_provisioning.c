@@ -16,6 +16,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "power_manager.h"
+#include "utils.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "wifi_prov";
@@ -468,15 +469,14 @@ esp_err_t wifi_provisioning_start_ap(void)
     // Set WiFi mode to AP
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
 
-    // Configure WiFi AP
+    // Configure WiFi AP with unique SSID
+    const char *ap_ssid = get_setup_ap_ssid();
+
     wifi_config_t wifi_config = {
-        .ap = {.ssid = "PhotoFrame-Setup",
-               .ssid_len = strlen("PhotoFrame-Setup"),
-               .channel = 1,
-               .password = "",
-               .max_connection = 4,
-               .authmode = WIFI_AUTH_OPEN},
+        .ap = {.channel = 1, .password = "", .max_connection = 4, .authmode = WIFI_AUTH_OPEN},
     };
+    strncpy((char *) wifi_config.ap.ssid, ap_ssid, sizeof(wifi_config.ap.ssid));
+    wifi_config.ap.ssid_len = strlen(ap_ssid);
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -504,7 +504,7 @@ esp_err_t wifi_provisioning_start_ap(void)
     // Start DHCP server
     ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
 
-    ESP_LOGI(TAG, "WiFi AP started - SSID: PhotoFrame-Setup");
+    ESP_LOGI(TAG, "WiFi AP started - SSID: %s", ap_ssid);
     ESP_LOGI(TAG, "AP IP address set to 192.168.4.1");
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();

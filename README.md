@@ -205,10 +205,16 @@ The device supports two methods for WiFi provisioning:
 
 #### Option 2: Captive Portal
 
-1. Device creates `PhotoFrame-Setup` AP on first boot (if no credentials found)
+1. Device creates a unique AP on first boot (e.g. `PhotoFrame A1B2C3 - Setup`, where `A1B2C3` is derived from the device's MAC address)
 2. Connect to the AP and open `http://192.168.4.1` (or use captive portal)
 3. Enter WiFi credentials (2.4GHz only)
 4. Device tests connection and saves if successful
+
+#### Option 3: Companion App
+
+1. Install the [ESP32 PhotoFrame companion app](http://github.com/aitjcize/esp32-photoframe-app)
+2. Tap the "+" button on the home screen
+3. The app scans for PhotoFrame setup hotspots, connects automatically, and guides you through WiFi configuration
 
 **Re-provision:** Delete credentials with `idf.py erase-flash` or place new `wifi.txt` on SD card after clearing stored credentials
 

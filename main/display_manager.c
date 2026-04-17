@@ -24,6 +24,7 @@
 #include "freertos/semphr.h"
 #include "nvs.h"
 #include "storage.h"
+#include "utils.h"
 
 static const char *TAG = "display_manager";
 #define NVS_LAST_IMAGE_KEY "last_image"
@@ -303,7 +304,9 @@ esp_err_t display_manager_show_setup_screen(void)
     // 2. Draw Text
     sFONT *font = &Font24;
 
-    const char *body_lines[] = {"", "Setup required!", "1. Connect WiFi: PhotoFrame-Setup  ",
+    char ssid_line[64];
+    snprintf(ssid_line, sizeof(ssid_line), "1. Connect WiFi: %s", get_setup_ap_ssid());
+    const char *body_lines[] = {"", "Setup required!", ssid_line,
                                 "2. Visit URL   : http://192.168.4.1", NULL};
 
     // Calculate longest body line dynamically

@@ -1067,3 +1067,25 @@ const char *get_device_id(void)
 
     return device_id;
 }
+
+const char *get_setup_ap_ssid(void)
+{
+    static char ap_ssid[32];
+    static bool built = false;
+
+    if (!built) {
+        const char *id = get_device_id();
+        // Use last 5 hex chars of device ID, uppercased
+        char short_id[6];
+        strncpy(short_id, id + 7, 5);
+        short_id[5] = '\0';
+        for (int i = 0; i < 5; i++) {
+            if (short_id[i] >= 'a' && short_id[i] <= 'f')
+                short_id[i] -= 32;
+        }
+        snprintf(ap_ssid, sizeof(ap_ssid), "PhotoFrame-%s", short_id);
+        built = true;
+    }
+
+    return ap_ssid;
+}

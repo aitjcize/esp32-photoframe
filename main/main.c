@@ -504,7 +504,7 @@ void app_main(void)
                 ESP_LOGI(TAG, "===========================================");
             }
             ESP_LOGI(TAG, "Option 2: Use captive portal:");
-            ESP_LOGI(TAG, "1. Connect to WiFi: PhotoFrame-Setup");
+            ESP_LOGI(TAG, "1. Connect to WiFi: PhotoFrame XXXXXX - Setup");
             ESP_LOGI(TAG, "2. Open browser to: http://192.168.4.1");
             ESP_LOGI(TAG, "3. Enter your WiFi credentials");
             ESP_LOGI(TAG, "===========================================");
