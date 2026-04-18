@@ -445,7 +445,7 @@ When `rotation_mode` is `"url"`, the device issues an HTTP `GET` against `image_
 **Transport:**
 - Method: `GET`
 - Timeout: 120s per attempt
-- Retries: up to 3 attempts with a 2s delay between retries (failed status, zero-length body, or transport errors all trigger a retry)
+- Retries: up to 3 attempts with a 3s delay between retries (failed status, zero-length body, or transport errors all trigger a retry)
 - Redirects: up to 5 followed automatically
 - User-Agent: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`
 - TLS: if a pinned CA certificate is set (`ca_cert_set: true` in `/api/config`), it is used to validate the server; otherwise the default trust store applies

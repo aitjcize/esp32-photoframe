@@ -375,8 +375,8 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
     // Retry loop
     for (int retry = 0; retry < max_retries; retry++) {
         if (retry > 0) {
-            ESP_LOGW(TAG, "Retry attempt %d/%d after 2 second delay...", retry + 1, max_retries);
-            vTaskDelay(pdMS_TO_TICKS(2000));  // 2 second delay between retries
+            ESP_LOGW(TAG, "Retry attempt %d/%d after 3 second delay...", retry + 1, max_retries);
+            vTaskDelay(pdMS_TO_TICKS(3000));  // 3 second delay between retries
         }
 
         FILE *file = fopen(temp_upload_path, "wb");
