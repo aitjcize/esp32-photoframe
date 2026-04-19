@@ -218,13 +218,12 @@ const aiModelOptions = computed(() => {
       { title: "GPT Image 1.5", value: "gpt-image-1.5" },
       { title: "GPT Image 1", value: "gpt-image-1" },
       { title: "GPT Image 1 Mini", value: "gpt-image-1-mini" },
-      { title: "DALL-E 3", value: "dall-e-3" },
-      { title: "DALL-E 2", value: "dall-e-2" },
     ];
   } else {
     return [
-      { title: "Gemini 2.5 Flash Image", value: "gemini-2.5-flash-image" },
+      { title: "Gemini 3.1 Flash Image", value: "gemini-3.1-flash-image-preview" },
       { title: "Gemini 3 Pro Image", value: "gemini-3-pro-image-preview" },
+      { title: "Gemini 2.5 Flash Image", value: "gemini-2.5-flash-image" },
     ];
   }
 });
@@ -243,7 +242,7 @@ const aiProviderOptions = computed(() => {
 
 // Reset model to first option when provider changes
 watch(aiProvider, (newProvider) => {
-  aiModel.value = newProvider === 0 ? "gpt-image-1.5" : "gemini-2.5-flash-image";
+  aiModel.value = newProvider === 0 ? "gpt-image-1.5" : "gemini-3.1-flash-image-preview";
 });
 
 const showFormatConfirm = ref(false);
@@ -291,7 +290,7 @@ function openAiDialog() {
   aiPrompt.value = "";
   // Default to OpenAI if key exists, otherwise Google
   aiProvider.value = openaiKey ? 0 : 1;
-  aiModel.value = aiProvider.value === 0 ? "gpt-image-1.5" : "gemini-2.5-flash-image";
+  aiModel.value = aiProvider.value === 0 ? "gpt-image-1.5" : "gemini-3.1-flash-image-preview";
   showAiDialog.value = true;
 }
 
