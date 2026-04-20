@@ -498,6 +498,11 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
             free(palette_json);
         }
 
+        // Add battery level
+        char batt_str[4];
+        snprintf(batt_str, sizeof(batt_str), "%i", board_hal_get_battery_percent());
+        esp_http_client_set_header(client, "X-Battery-Percentage", batt_str);
+
         err = esp_http_client_perform(client);
 
         status_code = esp_http_client_get_status_code(client);
