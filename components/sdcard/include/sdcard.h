@@ -44,6 +44,16 @@ esp_err_t sdcard_init(const sdcard_config_t *config);
  */
 bool sdcard_is_mounted(void);
 
+/**
+ * @brief Unmount the SD card and release host resources
+ *
+ * Safe to call when no card is mounted (returns ESP_OK). Use before cutting
+ * SD card power so the bus is released cleanly.
+ *
+ * @return esp_err_t ESP_OK on success or when nothing was mounted
+ */
+esp_err_t sdcard_deinit(void);
+
 #ifdef __cplusplus
 }
 #endif

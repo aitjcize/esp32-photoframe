@@ -654,6 +654,7 @@ async function processImageFile(
       orientation: processingOptions.orientation || "landscape",
       scaleMode: processingOptions.scaleMode || "cover",
       backgroundColor: processingOptions.backgroundColor || "white",
+      usePerceivedOutput: processingOptions.usePerceivedOutput || false,
     },
   );
 
@@ -780,8 +781,8 @@ program
   .option("--scurve-midpoint <value>", "S-curve midpoint (0.3-0.7)", parseFloat)
   .option("--color-method <method>", "Color matching: rgb or lab")
   .option(
-    "--render-measured",
-    "Render BMP with measured palette colors (darker output for preview)",
+    "--use-perceived-output",
+    "Use perceived (measured) palette colors in output for realistic preview",
   )
   .option(
     "--dither-algorithm <algorithm>",
@@ -957,7 +958,7 @@ program
             scurveHighlight: deviceSettings.highlightCompress,
             scurveMidpoint: deviceSettings.midpoint,
             colorMethod: deviceSettings.colorMethod,
-            renderMeasured: options.renderMeasured || false, // Not in device settings usually
+            usePerceivedOutput: options.usePerceivedOutput || false,
             ditherAlgorithm:
               deviceSettings.ditherAlgorithm || options.ditherAlgorithm,
             compressDynamicRange: deviceSettings.compressDynamicRange,
@@ -1008,7 +1009,7 @@ program
               options.colorMethod ??
               presetParams?.colorMethod ??
               DEFAULT_PARAMS.colorMethod,
-            renderMeasured: options.renderMeasured ?? false,
+            usePerceivedOutput: options.usePerceivedOutput ?? false,
             ditherAlgorithm:
               options.ditherAlgorithm ??
               presetParams?.ditherAlgorithm ??

@@ -38,5 +38,8 @@ export default defineConfig({
   },
   server: {
     open: "/esp32-photoframe/index.html",
+    fs: {
+      allow: [resolve(__dirname, "..")],
+    },
   },
 });

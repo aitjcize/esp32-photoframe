@@ -25,6 +25,7 @@ This project has companion tools for different use cases:
 |---------|-------------|
 | [**ha-esp32-photoframe**](https://github.com/aitjcize/ha-esp32-photoframe) | Home Assistant integration for control, monitoring, and automation |
 | [**esp32-photoframe-server**](https://github.com/aitjcize/esp32-photoframe-server) | Image server with text overlay, Google Photos, Synology DS Photos, and Telegram Bot integration. Can be run as a Home Assistant add-on. |
+| [**esp32-photoframe-app**](https://github.com/aitjcize/esp32-photoframe-app) | Mobile companion app for WiFi provisioning and device control (**coming soon**) |
 | [**epaper-image-convert**](https://github.com/aitjcize/epaper-image-convert) | CLI tool & npm library for e-paper image conversion with advanced dithering |
 
 ## Third Party Integrations
@@ -179,10 +180,6 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 For more details, see [DEV.md](docs/DEV.md)
 
-## Setup
-
-> **💡 SD card is optional.** Boards with SD card slots (Waveshare, reTerminal) will use SD card storage if inserted, otherwise the device falls back to an in-memory filesystem (MemFS). An SD card is recommended for persistent image storage and SD card WiFi provisioning.
-
 ### WiFi Provisioning
 
 The device supports two methods for WiFi provisioning:
@@ -209,10 +206,16 @@ The device supports two methods for WiFi provisioning:
 
 #### Option 2: Captive Portal
 
-1. Device creates `PhotoFrame-Setup` AP on first boot (if no credentials found)
+1. Device creates a unique AP on first boot (e.g. `PhotoFrame - A1B2C3`, where `A1B2C3` is derived from the device's MAC address)
 2. Connect to the AP and open `http://192.168.4.1` (or use captive portal)
 3. Enter WiFi credentials (2.4GHz only)
 4. Device tests connection and saves if successful
+
+#### Option 3: Companion App *(coming soon)*
+
+1. Install the [ESP32 PhotoFrame companion app](https://github.com/aitjcize/esp32-photoframe-app)
+2. Tap the "+" button on the home screen
+3. The app scans for PhotoFrame setup hotspots, connects automatically, and guides you through WiFi configuration
 
 **Re-provision:** Delete credentials with `idf.py erase-flash` or place new `wifi.txt` on SD card after clearing stored credentials
 
@@ -255,6 +258,8 @@ node cli.js --serve ~/Photos --serve-port 9000 --device-parameters --host photof
 The ESP32 can fetch images from your computer instead of storing them on SD card. Supports EPDGZ, BMP, PNG, and JPG formats with automatic thumbnail generation.
 
 See [process-cli/README.md](process-cli/README.md) for details.
+
+**Building your own image server?** The firmware's URL rotation fetch protocol — request method, custom `X-*` headers, `Authorization` / custom-header handling, and the `ETag` / `304 Not Modified` caching flow — is documented in [docs/API.md → URL Rotation Fetch](docs/API.md#url-rotation-fetch).
 
 ## Support
 

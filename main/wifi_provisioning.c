@@ -16,6 +16,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "power_manager.h"
+#include "utils.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "wifi_prov";
@@ -43,8 +44,8 @@ extern const uint8_t browser_js_end[] asm("_binary_browser_js_end");
 extern const uint8_t vite_browser_external_js_start[] asm(
     "_binary___vite_browser_external_js_start");
 extern const uint8_t vite_browser_external_js_end[] asm("_binary___vite_browser_external_js_end");
-extern const uint8_t favicon_svg_start[] asm("_binary_favicon_svg_start");
-extern const uint8_t favicon_svg_end[] asm("_binary_favicon_svg_end");
+extern const uint8_t icon_svg_start[] asm("_binary_icon_svg_start");
+extern const uint8_t icon_svg_end[] asm("_binary_icon_svg_end");
 
 static esp_err_t provision_keep_alive_handler(httpd_req_t *req)
 {
@@ -118,11 +119,11 @@ static esp_err_t provision_vite_js_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t provision_favicon_handler(httpd_req_t *req)
+static esp_err_t provision_icon_handler(httpd_req_t *req)
 {
-    const size_t favicon_svg_size = (favicon_svg_end - favicon_svg_start);
+    const size_t icon_svg_size = (icon_svg_end - icon_svg_start);
     httpd_resp_set_type(req, "image/svg+xml");
-    httpd_resp_send(req, (const char *) favicon_svg_start, favicon_svg_size);
+    httpd_resp_send(req, (const char *) icon_svg_start, icon_svg_size);
     return ESP_OK;
 }
 
@@ -468,15 +469,14 @@ esp_err_t wifi_provisioning_start_ap(void)
     // Set WiFi mode to AP
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
 
-    // Configure WiFi AP
+    // Configure WiFi AP with unique SSID
+    const char *ap_ssid = get_setup_ap_ssid();
+
     wifi_config_t wifi_config = {
-        .ap = {.ssid = "PhotoFrame-Setup",
-               .ssid_len = strlen("PhotoFrame-Setup"),
-               .channel = 1,
-               .password = "",
-               .max_connection = 4,
-               .authmode = WIFI_AUTH_OPEN},
+        .ap = {.channel = 1, .password = "", .max_connection = 4, .authmode = WIFI_AUTH_OPEN},
     };
+    strncpy((char *) wifi_config.ap.ssid, ap_ssid, sizeof(wifi_config.ap.ssid));
+    wifi_config.ap.ssid_len = strlen(ap_ssid);
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -504,7 +504,7 @@ esp_err_t wifi_provisioning_start_ap(void)
     // Start DHCP server
     ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
 
-    ESP_LOGI(TAG, "WiFi AP started - SSID: PhotoFrame-Setup");
+    ESP_LOGI(TAG, "WiFi AP started - SSID: %s", ap_ssid);
     ESP_LOGI(TAG, "AP IP address set to 192.168.4.1");
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -560,11 +560,11 @@ esp_err_t wifi_provisioning_start_ap(void)
                                 .user_ctx = NULL};
         httpd_register_uri_handler(provisioning_server, &vite_uri);
 
-        httpd_uri_t favicon_uri = {.uri = "/favicon.svg",
-                                   .method = HTTP_GET,
-                                   .handler = provision_favicon_handler,
-                                   .user_ctx = NULL};
-        httpd_register_uri_handler(provisioning_server, &favicon_uri);
+        httpd_uri_t icon_uri = {.uri = "/icon.svg",
+                                .method = HTTP_GET,
+                                .handler = provision_icon_handler,
+                                .user_ctx = NULL};
+        httpd_register_uri_handler(provisioning_server, &icon_uri);
 
         // Save credentials handler
         httpd_uri_t save_uri = {.uri = "/save",

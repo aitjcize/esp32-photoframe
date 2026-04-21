@@ -60,6 +60,15 @@ esp_err_t board_hal_init(void)
 {
     ESP_LOGI(TAG, "Initializing reTerminal E1002 Board HAL");
 
+    // Release any pad holds latched by the previous deep-sleep cycle so we
+    // can reconfigure these outputs during init. Matching `gpio_hold_en()`
+    // calls in board_hal_prepare_for_sleep() re-apply the hold before sleep.
+    gpio_hold_dis(BOARD_HAL_LED_PIN);
+    gpio_hold_dis(BOARD_HAL_BAT_EN_PIN);
+#ifdef CONFIG_HAS_SDCARD
+    gpio_hold_dis(BOARD_HAL_SD_PWR_PIN);
+#endif
+
     // --- SPI bus ---
     ESP_LOGI(TAG, "Initializing SPI bus...");
 
@@ -174,14 +183,22 @@ esp_err_t board_hal_prepare_for_sleep(void)
 {
     ESP_LOGI(TAG, "Preparing reTerminal E1002 for sleep");
 
+    // Put SHT40 sensor to sleep before we tear down the I2C bus
+    if (sensor_is_available()) {
+        sensor_sleep();
+        ESP_LOGI(TAG, "SHT40 sensor put to sleep");
+    }
+
     // Turn off LED
     board_hal_led_set(BOARD_HAL_LED_ACTIVITY, false);
 
     // Put display to deep sleep
     epaper_enter_deepsleep();
 
-    // Turn off SD Power
+    // Unmount SD card and release the SPI bus before cutting power so the
+    // card sees a clean shutdown instead of a VCC yank.
 #ifdef CONFIG_HAS_SDCARD
+    sdcard_deinit();
     gpio_set_level(BOARD_HAL_SD_PWR_PIN, 0);
 #endif
 
@@ -193,6 +210,15 @@ esp_err_t board_hal_prepare_for_sleep(void)
         adc_oneshot_del_unit(adc_handle);
         adc_handle = NULL;
     }
+
+    // Latch the output pins so their levels survive into deep sleep instead
+    // of floating once the digital IO domain powers down.
+    gpio_hold_en(BOARD_HAL_LED_PIN);
+    gpio_hold_en(BOARD_HAL_BAT_EN_PIN);
+#ifdef CONFIG_HAS_SDCARD
+    gpio_hold_en(BOARD_HAL_SD_PWR_PIN);
+#endif
+    gpio_deep_sleep_hold_en();
 
     return ESP_OK;
 }

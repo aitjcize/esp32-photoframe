@@ -80,6 +80,7 @@ export async function processImagePipeline(
     orientation = "landscape",
     scaleMode = "cover",
     backgroundColor = "white",
+    usePerceivedOutput = false,
   } = options;
 
   // Load image (with HEIC conversion if needed)
@@ -141,5 +142,6 @@ export async function processImagePipeline(
     verbose,
     createCanvas,
     skipDithering,
+    usePerceivedOutput,
   });
 }

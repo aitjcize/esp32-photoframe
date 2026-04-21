@@ -1,0 +1,34 @@
+[
+  {
+    "id": "waveshare_photopainter_73",
+    "label": "Waveshare ESP32-S3-PhotoPainter",
+    "display": "7.3\" 6-color",
+    "resolution": [800, 480],
+    "storage": "SD card (SDIO)",
+    "url": "https://www.waveshare.com/wiki/ESP32-S3-PhotoPainter"
+  },
+  {
+    "id": "seeedstudio_xiao_ee02",
+    "label": "Seeed Studio XIAO EE02",
+    "display": "13.3\" 6-color",
+    "resolution": [1200, 1600],
+    "storage": "Internal flash",
+    "url": "https://www.seeedstudio.com/XIAO-ePaper-DIY-Kit-EE02-for-13-3-Spectratm-6-E-Ink.html"
+  },
+  {
+    "id": "seeedstudio_xiao_ee04",
+    "label": "Seeed Studio XIAO EE04",
+    "display": "7.3\" 6-color",
+    "resolution": [800, 480],
+    "storage": "Internal flash",
+    "url": "https://www.seeedstudio.com/XIAO-ePaper-EE04-DIY-Bundle-Kit.html"
+  },
+  {
+    "id": "seeedstudio_reterminal_e1002",
+    "label": "Seeed Studio reTerminal E1002",
+    "display": "7.3\" 6-color",
+    "resolution": [800, 480],
+    "storage": "SD (SPI) + Internal flash",
+    "url": "https://www.seeedstudio.com/reTerminal-E1002-p-6533.html"
+  }
+]

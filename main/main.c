@@ -36,6 +36,7 @@
 #include "periodic_tasks.h"
 #include "power_manager.h"
 #include "processing_settings.h"
+#include "splash_screen.h"
 #include "storage.h"
 #include "utils.h"
 #include "wifi_manager.h"
@@ -492,8 +493,8 @@ void app_main(void)
             ESP_LOGI(TAG, "No WiFi credentials found - Starting AP mode");
             ESP_LOGI(TAG, "===========================================");
 
-            // Show setup screen on e-paper
-            display_manager_show_setup_screen();
+            // Show OOBE splash screen with WiFi QR code
+            splash_screen_display();
 
             if (storage_has_persistent_storage()) {
                 ESP_LOGI(TAG, "Option 1: Place wifi.txt on root of storage with:");
@@ -504,7 +505,7 @@ void app_main(void)
                 ESP_LOGI(TAG, "===========================================");
             }
             ESP_LOGI(TAG, "Option 2: Use captive portal:");
-            ESP_LOGI(TAG, "1. Connect to WiFi: PhotoFrame-Setup");
+            ESP_LOGI(TAG, "1. Connect to WiFi: PhotoFrame - XXXXXX");
             ESP_LOGI(TAG, "2. Open browser to: http://192.168.4.1");
             ESP_LOGI(TAG, "3. Enter your WiFi credentials");
             ESP_LOGI(TAG, "===========================================");
@@ -513,6 +514,14 @@ void app_main(void)
 
             while (!wifi_provisioning_is_provisioned()) {
                 vTaskDelay(pdMS_TO_TICKS(1000));
+            }
+
+            // Set flag to show setup-complete screen after restart
+            nvs_handle_t nvs_handle;
+            if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+                nvs_set_u8(nvs_handle, NVS_SETUP_COMPLETE_KEY, 1);
+                nvs_commit(nvs_handle);
+                nvs_close(nvs_handle);
             }
 
             ESP_LOGI(TAG, "WiFi credentials saved! Restarting...");
@@ -562,6 +571,20 @@ void app_main(void)
         ESP_LOGI(TAG, "Web interface available at: http://%s", ip_str);
         ESP_LOGI(TAG, "Or use: http://%s.local", hostname);
         ESP_LOGI(TAG, "===========================================");
+
+        // Show setup-complete screen if just provisioned
+        nvs_handle_t nvs_handle;
+        uint8_t setup_complete = 0;
+        if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+            if (nvs_get_u8(nvs_handle, NVS_SETUP_COMPLETE_KEY, &setup_complete) == ESP_OK &&
+                setup_complete == 1) {
+                nvs_erase_key(nvs_handle, NVS_SETUP_COMPLETE_KEY);
+                nvs_commit(nvs_handle);
+                ESP_LOGI(TAG, "First boot after provisioning — showing setup complete screen");
+                splash_screen_display_setup_complete(hostname);
+            }
+            nvs_close(nvs_handle);
+        }
     }
 
     // Notify HA that device is online (HA will poll for all data via REST API)

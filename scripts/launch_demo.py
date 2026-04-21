@@ -27,6 +27,11 @@ import urllib.request
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from boards import SUPPORTED_BOARDS
+
+ALL_BOARDS = list(SUPPORTED_BOARDS.keys())
+
 
 class CORSRequestHandler(SimpleHTTPRequestHandler):
     """HTTP request handler with CORS headers."""
@@ -93,7 +98,7 @@ def download_stable_firmware(demo_dir, project_root):
 
     print("\nDownloading stable release firmware...")
 
-    BOARDS = ["waveshare_photopainter_73", "seeedstudio_xiao_ee02"]
+    BOARDS = ALL_BOARDS
     success_count = 0
 
     try:
@@ -219,7 +224,7 @@ def generate_manifests(project_root, boards=None):
     """Run the manifest generation script for all boards."""
 
     if boards is None:
-        boards = ["waveshare_photopainter_73", "seeedstudio_xiao_ee02"]
+        boards = ALL_BOARDS
 
     print("\nGenerating manifests...")
     demo_dir = project_root / "demo"
@@ -359,7 +364,7 @@ def main():
     parser.add_argument(
         "--board",
         default="waveshare_photopainter_73",
-        choices=["waveshare_photopainter_73", "seeedstudio_xiao_ee02", "all"],
+        choices=ALL_BOARDS + ["all"],
         help="Board type to build (default: waveshare_photopainter_73)",
     )
 
@@ -375,8 +380,7 @@ def main():
     print("=" * 60)
 
     # Determine boards to handle
-    all_boards = ["waveshare_photopainter_73", "seeedstudio_xiao_ee02"]
-    selected_boards = [args.board] if args.board != "all" else all_boards
+    selected_boards = [args.board] if args.board != "all" else ALL_BOARDS
 
     # Build firmware
     if not args.skip_build:
@@ -430,7 +434,7 @@ def main():
 
     # Generate manifests (process ALL boards so demo works)
     if not args.skip_manifests:
-        if not generate_manifests(project_root, boards=all_boards):
+        if not generate_manifests(project_root, boards=ALL_BOARDS):
             print("\n⚠ Warning: Manifest generation failed, but continuing...")
 
     # Handle --dev mode: use Vite dev server

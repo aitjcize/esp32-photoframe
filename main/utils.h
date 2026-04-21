@@ -1,6 +1,8 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include <stdbool.h>
+
 #include "cJSON.h"
 #include "esp_err.h"
 
@@ -16,10 +18,21 @@ esp_err_t apply_config_from_json(cJSON *root);
 void utils_set_last_fetch_error(const char *error);
 const char *utils_get_last_fetch_error(void);
 
-// Fetch image from URL, process it, and save to Downloads album
-// Returns ESP_OK on success, error code on failure
-// saved_image_path will contain the path to the processed image (PNG)
-esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path, size_t path_size);
+// Last cert pin error (transient). set: stash a message after a failed pin.
+// consume: read and clear; returns "" if empty. Used by the config HTTP handler
+// to surface why apply_config_from_json returned ESP_FAIL.
+void utils_set_cert_pin_error(const char *msg);
+const char *utils_consume_cert_pin_error(void);
+
+// Fetch image from URL, process it, and save to Downloads album.
+// Returns ESP_OK on success (including 304), error code on failure.
+// On success with a downloaded image, saved_image_path will contain the path
+// to the processed image (PNG). On HTTP 304 Not Modified, *not_modified (if
+// non-NULL) is set to true and saved_image_path is left as an empty string —
+// the caller should skip display refresh because the eInk already holds the
+// correct image. not_modified may be NULL if the caller doesn't care.
+esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path, size_t path_size,
+                                        bool *not_modified);
 
 // Trigger image rotation based on configured rotation mode
 // Handles both URL and SD card rotation modes
@@ -50,5 +63,9 @@ void sanitize_hostname(const char *device_name, char *hostname, size_t max_len);
 // Returns pointer to static buffer containing ID
 // Buffer is at least 13 bytes (12 chars + null)
 const char *get_device_id(void);
+
+// Get the unique AP SSID for provisioning (e.g. "PhotoFrame - A1B2C")
+// Returns pointer to static buffer
+const char *get_setup_ap_ssid(void);
 
 #endif

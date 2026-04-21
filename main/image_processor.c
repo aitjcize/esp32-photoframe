@@ -538,8 +538,8 @@ static esp_err_t process_rgb_buffer_core(uint8_t *rgb_buffer, int width, int hei
         final_height = BOARD_HAL_DISPLAY_HEIGHT;
     }
 
-    // Apply fast Compress Dynamic Range (fast CDR)
-    ESP_LOGI(TAG, "Applying fast Compress Dynamic Range (fast CDR)");
+    // Apply fast Compressed Dynamic Range (fast CDR)
+    ESP_LOGI(TAG, "Applying fast Compressed Dynamic Range (fast CDR)");
     fast_compress_dynamic_range(final_image, final_width, final_height, palette_measured);
 
     // Apply Dithering (always use measured palette)

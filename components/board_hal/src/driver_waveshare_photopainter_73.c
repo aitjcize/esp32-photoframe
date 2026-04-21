@@ -132,6 +132,12 @@ esp_err_t board_hal_prepare_for_sleep(void)
         ESP_LOGI(TAG, "SHTC3 sensor put to sleep");
     }
 
+    // Unmount the SD card before the PMIC cuts its power rail so the card
+    // sees a clean shutdown and the SDIO host releases its pins.
+#ifdef CONFIG_HAS_SDCARD
+    sdcard_deinit();
+#endif
+
     ESP_LOGI(TAG, "Preparing AXP2101 for sleep");
     axp2101_basic_sleep_start();
     return ESP_OK;

@@ -22,14 +22,11 @@
 #include "esp_http_server.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
-#include "esp_tls.h"
 #include "esp_vfs.h"
 #include "esp_vfs_fat.h"
 #include "freertos/task.h"
 #include "ha_integration.h"
 #include "image_processor.h"
-#include "mbedtls/ssl.h"
-#include "mbedtls/x509_crt.h"
 #include "nvs_flash.h"
 #include "ota_manager.h"
 #include "periodic_tasks.h"
@@ -82,8 +79,8 @@ extern const uint8_t browser_js_end[] asm("_binary_browser_js_end");
 extern const uint8_t vite_browser_external_js_start[] asm(
     "_binary___vite_browser_external_js_start");
 extern const uint8_t vite_browser_external_js_end[] asm("_binary___vite_browser_external_js_end");
-extern const uint8_t favicon_svg_start[] asm("_binary_favicon_svg_start");
-extern const uint8_t favicon_svg_end[] asm("_binary_favicon_svg_end");
+extern const uint8_t icon_svg_start[] asm("_binary_icon_svg_start");
+extern const uint8_t icon_svg_end[] asm("_binary_icon_svg_end");
 extern const uint8_t measurement_sample_jpg_start[] asm("_binary_measurement_sample_jpg_start");
 extern const uint8_t measurement_sample_jpg_end[] asm("_binary_measurement_sample_jpg_end");
 
@@ -145,11 +142,11 @@ static esp_err_t vite_browser_external_js_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t favicon_handler(httpd_req_t *req)
+static esp_err_t icon_handler(httpd_req_t *req)
 {
-    const size_t favicon_svg_size = (favicon_svg_end - favicon_svg_start);
+    const size_t icon_svg_size = (icon_svg_end - icon_svg_start);
     httpd_resp_set_type(req, "image/svg+xml");
-    httpd_resp_send(req, (const char *) favicon_svg_start, favicon_svg_size);
+    httpd_resp_send(req, (const char *) icon_svg_start, icon_svg_size);
     return ESP_OK;
 }
 
@@ -1393,159 +1390,6 @@ static void delayed_sleep_task(void *arg)
     vTaskDelete(NULL);
 }
 
-// POST /api/trust-cert - fetch and pin the server's TLS certificate
-static esp_err_t trust_cert_handler(httpd_req_t *req)
-{
-    if (req->method == HTTP_POST) {
-        // Read request body (JSON with "url" field)
-        char buf[512];
-        int received = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf) - 1));
-        if (received <= 0) {
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to receive data");
-            return ESP_FAIL;
-        }
-        buf[received] = '\0';
-
-        cJSON *root = cJSON_Parse(buf);
-        if (!root) {
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
-            return ESP_FAIL;
-        }
-
-        cJSON *url_obj = cJSON_GetObjectItem(root, "url");
-        if (!url_obj || !cJSON_IsString(url_obj)) {
-            cJSON_Delete(root);
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing 'url' field");
-            return ESP_FAIL;
-        }
-
-        const char *url = cJSON_GetStringValue(url_obj);
-
-        // Parse host and port from URL
-        char host[256] = {0};
-        int port = 443;
-        const char *host_start = strstr(url, "://");
-        if (!host_start) {
-            cJSON_Delete(root);
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid URL format");
-            return ESP_FAIL;
-        }
-        host_start += 3;
-        const char *host_end = strchr(host_start, '/');
-        if (!host_end)
-            host_end = host_start + strlen(host_start);
-        const char *port_sep = strchr(host_start, ':');
-        if (port_sep && port_sep < host_end) {
-            strncpy(host, host_start, port_sep - host_start);
-            port = atoi(port_sep + 1);
-        } else {
-            strncpy(host, host_start, host_end - host_start);
-        }
-
-        cJSON_Delete(root);
-
-        ESP_LOGI(TAG, "Fetching TLS certificate from %s:%d", host, port);
-
-        // Connect with esp_tls (skip cert verification) to get server cert
-        // Note: skip_common_name must be false for SNI to work
-        esp_tls_cfg_t tls_cfg = {0};
-
-        esp_tls_t *tls = esp_tls_init();
-        if (!tls) {
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "TLS init failed");
-            return ESP_FAIL;
-        }
-
-        int ret = esp_tls_conn_new_sync(host, strlen(host), port, &tls_cfg, tls);
-        if (ret != 1) {
-            int esp_tls_err = 0;
-            int mbedtls_err = 0;
-            esp_tls_error_handle_t error_handle = NULL;
-            esp_tls_get_error_handle(tls, &error_handle);
-            if (error_handle) {
-                esp_tls_get_and_clear_last_error(error_handle, &esp_tls_err, &mbedtls_err);
-            }
-            ESP_LOGE(TAG, "TLS connection failed to %s:%d (esp_tls=0x%x, mbedtls=-0x%04x)", host,
-                     port, esp_tls_err, -mbedtls_err);
-            esp_tls_conn_destroy(tls);
-
-            // Return JSON error for better UI display
-            cJSON *err_resp = cJSON_CreateObject();
-            char err_detail[384];
-            snprintf(err_detail, sizeof(err_detail),
-                     "TLS handshake failed with %s:%d (mbedtls error -0x%04x)", host, port,
-                     -mbedtls_err);
-            cJSON_AddStringToObject(err_resp, "error", err_detail);
-            char *err_json = cJSON_Print(err_resp);
-            httpd_resp_set_status(req, HTTPD_500);
-            httpd_resp_set_type(req, "application/json");
-            httpd_resp_sendstr(req, err_json);
-            free(err_json);
-            cJSON_Delete(err_resp);
-            return ESP_FAIL;
-        }
-
-        // Get the peer certificate via the mbedtls SSL context
-        mbedtls_ssl_context *ssl = (mbedtls_ssl_context *) esp_tls_get_ssl_context(tls);
-        const mbedtls_x509_crt *peer_cert = mbedtls_ssl_get_peer_cert(ssl);
-        if (!peer_cert) {
-            ESP_LOGE(TAG, "No peer certificate received");
-            esp_tls_conn_destroy(tls);
-            httpd_resp_set_status(req, HTTPD_500);
-            httpd_resp_set_type(req, "application/json");
-            httpd_resp_sendstr(req, "{\"error\":\"No certificate received from server\"}");
-            return ESP_FAIL;
-        }
-
-        // Copy DER cert data before destroying the TLS connection
-        size_t cert_der_len = peer_cert->raw.len;
-        unsigned char *cert_der = malloc(cert_der_len);
-        char subject[256] = {0};
-        char issuer[256] = {0};
-
-        if (!cert_der) {
-            esp_tls_conn_destroy(tls);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
-            return ESP_FAIL;
-        }
-        memcpy(cert_der, peer_cert->raw.p, cert_der_len);
-        mbedtls_x509_dn_gets(subject, sizeof(subject), &peer_cert->subject);
-        mbedtls_x509_dn_gets(issuer, sizeof(issuer), &peer_cert->issuer);
-
-        esp_tls_conn_destroy(tls);
-
-        // Store the DER cert
-        config_manager_set_ca_cert_der(cert_der, cert_der_len);
-        config_manager_touch_config();
-
-        // Build response with cert info
-        cJSON *response = cJSON_CreateObject();
-        cJSON_AddStringToObject(response, "status", "trusted");
-        cJSON_AddStringToObject(response, "subject", subject);
-        cJSON_AddStringToObject(response, "issuer", issuer);
-        cJSON_AddNumberToObject(response, "size", (double) cert_der_len);
-
-        free(cert_der);
-
-        char *json_str = cJSON_Print(response);
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, json_str);
-        free(json_str);
-        cJSON_Delete(response);
-        return ESP_OK;
-    } else if (req->method == HTTP_DELETE) {
-        // Clear the pinned cert
-        config_manager_set_ca_cert_der(NULL, 0);
-        config_manager_touch_config();
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, "{\"status\":\"cleared\"}");
-        return ESP_OK;
-    }
-
-    httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
-    return ESP_FAIL;
-}
-
 static esp_err_t sleep_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -1869,12 +1713,20 @@ static esp_err_t config_handler(httpd_req_t *req)
         cJSON_Delete(root);
 
         if (apply_result != ESP_OK) {
-            // WiFi connection failed
             cJSON *error_response = cJSON_CreateObject();
             cJSON_AddStringToObject(error_response, "status", "error");
-            cJSON_AddStringToObject(
-                error_response, "message",
-                "Failed to connect to WiFi network. Please check SSID and password.");
+
+            const char *cert_err = utils_consume_cert_pin_error();
+            if (cert_err && cert_err[0] != '\0') {
+                char msg[384];
+                snprintf(msg, sizeof(msg), "Failed to pin TLS certificate for image URL: %s",
+                         cert_err);
+                cJSON_AddStringToObject(error_response, "message", msg);
+            } else {
+                cJSON_AddStringToObject(
+                    error_response, "message",
+                    "Failed to connect to WiFi network. Please check SSID and password.");
+            }
 
             char *json_str = cJSON_Print(error_response);
             httpd_resp_set_type(req, "application/json");
@@ -2740,11 +2592,9 @@ esp_err_t http_server_init(void)
                                                     .user_ctx = NULL};
         httpd_register_uri_handler(server, &vite_browser_external_js_uri);
 
-        httpd_uri_t favicon_uri = {.uri = "/favicon.svg",
-                                   .method = HTTP_GET,
-                                   .handler = favicon_handler,
-                                   .user_ctx = NULL};
-        httpd_register_uri_handler(server, &favicon_uri);
+        httpd_uri_t icon_uri = {
+            .uri = "/icon.svg", .method = HTTP_GET, .handler = icon_handler, .user_ctx = NULL};
+        httpd_register_uri_handler(server, &icon_uri);
 
         httpd_uri_t measurement_sample_uri = {.uri = "/measurement_sample.jpg",
                                               .method = HTTP_GET,
@@ -2775,18 +2625,6 @@ esp_err_t http_server_init(void)
                                         .handler = config_handler,
                                         .user_ctx = NULL};
         httpd_register_uri_handler(server, &config_patch_uri);
-
-        httpd_uri_t trust_cert_post_uri = {.uri = "/api/trust-cert",
-                                           .method = HTTP_POST,
-                                           .handler = trust_cert_handler,
-                                           .user_ctx = NULL};
-        httpd_register_uri_handler(server, &trust_cert_post_uri);
-
-        httpd_uri_t trust_cert_delete_uri = {.uri = "/api/trust-cert",
-                                             .method = HTTP_DELETE,
-                                             .handler = trust_cert_handler,
-                                             .user_ctx = NULL};
-        httpd_register_uri_handler(server, &trust_cert_delete_uri);
 
         httpd_uri_t battery_uri = {.uri = "/api/battery",
                                    .method = HTTP_GET,

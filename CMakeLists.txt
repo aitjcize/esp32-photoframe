@@ -40,7 +40,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/sdkconfig)
 endif()
 
 execute_process(
-    COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/gen_partitions.py
+    COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/generate_partitions.py
         --sdkconfig ${_config_files}
         --output ${CMAKE_SOURCE_DIR}/partitions.csv
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}

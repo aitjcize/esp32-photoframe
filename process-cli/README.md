@@ -125,7 +125,7 @@ Options:
   --scurve-highlight <value>  S-curve highlight compress (0.5-5.0) (default: 1.5)
   --scurve-midpoint <value>   S-curve midpoint (0.3-0.7) (default: 0.5)
   --color-method <method>     Color matching: rgb or lab (default: "rgb")
-  --render-measured           Render BMP with measured palette colors (darker output for preview)
+  --use-perceived-output      Use perceived (measured) palette colors in output for realistic preview
   --processing-mode <mode>    Processing algorithm: enhanced (with tone mapping) or stock (Waveshare original) (default: "enhanced")
   -h, --help                  display help for command
 ```
@@ -136,7 +136,7 @@ Options:
 - `photo.png` - 800x480 dithered PNG (theoretical palette for device)
 - `photo.bmp` - 800x480 dithered BMP
 - `photo.jpg` - 400x240 thumbnail
-- `--render-measured` - Use measured palette (darker, preview mode)
+- `--use-perceived-output` - Use perceived palette colors (realistic preview)
 
 ## Processing Pipeline
 
@@ -158,7 +158,7 @@ photoframe-process ~/Photos/Albums --upload --device-parameters --host photofram
 photoframe-process photo.jpg --scurve-strength 1.0 --saturation 1.5 -o output/
 
 # Preview mode (darker, matches e-paper)
-photoframe-process photo.jpg --render-measured -o preview/
+photoframe-process photo.jpg --use-perceived-output -o preview/
 ```
 
 ## Publishing to npm

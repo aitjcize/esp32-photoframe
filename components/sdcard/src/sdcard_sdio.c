@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "driver/sdmmc_host.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -8,6 +10,7 @@
 static const char *TAG = "sdcard_sdio";
 
 sdmmc_card_t *card_host = NULL;
+static char mount_point_buf[32] = {0};
 
 esp_err_t sdcard_init(const sdcard_config_t *config)
 {
@@ -15,6 +18,9 @@ esp_err_t sdcard_init(const sdcard_config_t *config)
         ESP_LOGE(TAG, "Invalid configuration");
         return ESP_ERR_INVALID_ARG;
     }
+
+    strncpy(mount_point_buf, config->mount_point, sizeof(mount_point_buf) - 1);
+    mount_point_buf[sizeof(mount_point_buf) - 1] = '\0';
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
@@ -67,4 +73,20 @@ esp_err_t sdcard_init(const sdcard_config_t *config)
 bool sdcard_is_mounted(void)
 {
     return card_host != NULL;
+}
+
+esp_err_t sdcard_deinit(void)
+{
+    if (card_host == NULL) {
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "Unmounting SD card");
+    esp_err_t ret = esp_vfs_fat_sdcard_unmount(mount_point_buf, card_host);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Unmount returned %s", esp_err_to_name(ret));
+    }
+    card_host = NULL;
+    mount_point_buf[0] = '\0';
+    return ret;
 }

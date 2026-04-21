@@ -1,5 +1,6 @@
-set(SOURCES 
+set(SOURCES
     "album_manager.c"
+    "cert_pin.c"
     "color_palette.c"
     "config_manager.c"
     "display_manager.c"
@@ -14,6 +15,7 @@ set(SOURCES
     "png_decoder.c"
     "power_manager.c"
     "processing_settings.c"
+    "splash_screen.c"
     "storage.c"
     "testable_utils.c"
     "utils.c"
@@ -26,6 +28,7 @@ set(INCLUDE_DIRS ".")
 set(PRIV_REQUIRES
     app_update
     board_hal
+    espressif__qrcode
     epaper
     epaper_src
     esp_app_format
@@ -41,6 +44,7 @@ set(PRIV_REQUIRES
     espressif__cjson
     espressif__esp_jpeg
     espressif__libpng
+    espressif__zlib
     espressif__mdns
     fatfs
     mbedtls
@@ -54,5 +58,9 @@ idf_component_register(
     INCLUDE_DIRS "."
     REQUIRES ""
     PRIV_REQUIRES ${PRIV_REQUIRES} 
-    EMBED_FILES "webapp/index.html" "webapp/favicon.svg" "webapp/assets/index.css" "webapp/assets/index.js" "webapp/assets/index2.js" "webapp/assets/exif-reader.js" "webapp/assets/browser.js" "webapp/assets/__vite-browser-external.js" "resources/measurement_sample.jpg"
+    EMBED_FILES "webapp/index.html" "webapp/icon.svg" "webapp/assets/index.css" "webapp/assets/index.js" "webapp/assets/index2.js" "webapp/assets/exif-reader.js" "webapp/assets/browser.js" "webapp/assets/__vite-browser-external.js" "resources/measurement_sample.jpg"
 )
+
+# Embed splash screen EPDGZ files (generated at build time by generate_splash.py)
+target_add_binary_data(${COMPONENT_LIB} "splash_data/splash.epdgz" BINARY)
+target_add_binary_data(${COMPONENT_LIB} "splash_data/setup_complete.epdgz" BINARY)

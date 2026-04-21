@@ -49,7 +49,9 @@ static size_t ca_cert_der_len = 0;
 static char access_token[ACCESS_TOKEN_MAX_LEN] = {0};
 static char http_header_key[HTTP_HEADER_KEY_MAX_LEN] = {0};
 static char http_header_value[HTTP_HEADER_VALUE_MAX_LEN] = {0};
-static bool save_downloaded_images = true;
+
+static bool save_downloaded_images = false;
+static char image_etag[HTTP_ETAG_MAX_LEN] = {0};
 
 // Home Assistant
 static char ha_url[HA_URL_MAX_LEN] = {0};
@@ -248,6 +250,11 @@ esp_err_t config_manager_init(void)
             save_downloaded_images = (stored_save_dl != 0);
             ESP_LOGI(TAG, "Loaded save_downloaded_images from NVS: %s",
                      save_downloaded_images ? "yes" : "no");
+        }
+
+        size_t etag_len = HTTP_ETAG_MAX_LEN;
+        if (nvs_get_str(nvs_handle, NVS_IMAGE_ETAG_KEY, image_etag, &etag_len) == ESP_OK) {
+            ESP_LOGI(TAG, "Loaded image ETag from NVS (length: %zu)", etag_len);
         }
 
         // Home Assistant
@@ -817,12 +824,11 @@ int32_t config_manager_get_last_index(void)
 
 void config_manager_set_image_url(const char *url)
 {
-    if (url) {
-        strncpy(image_url, url, IMAGE_URL_MAX_LEN - 1);
-        image_url[IMAGE_URL_MAX_LEN - 1] = '\0';
-    } else {
-        image_url[0] = '\0';
-    }
+    const char *new_url = url ? url : "";
+    bool url_changed = strcmp(image_url, new_url) != 0;
+
+    strncpy(image_url, new_url, IMAGE_URL_MAX_LEN - 1);
+    image_url[IMAGE_URL_MAX_LEN - 1] = '\0';
 
     nvs_handle_t nvs_handle;
     if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
@@ -833,6 +839,10 @@ void config_manager_set_image_url(const char *url)
         }
         nvs_commit(nvs_handle);
         nvs_close(nvs_handle);
+    }
+
+    if (url_changed) {
+        config_manager_set_image_etag("");
     }
 
     ESP_LOGI(TAG, "Image URL set to: %s", image_url[0] ? image_url : "(empty)");
@@ -965,6 +975,36 @@ void config_manager_set_save_downloaded_images(bool enabled)
 bool config_manager_get_save_downloaded_images(void)
 {
     return save_downloaded_images;
+}
+
+void config_manager_set_image_etag(const char *etag)
+{
+    const char *new_etag = etag ? etag : "";
+
+    // No-op if value unchanged — avoids NVS wear when the server does not send
+    // an ETag (empty stays empty across every 200) or repeats the same ETag.
+    if (strncmp(image_etag, new_etag, HTTP_ETAG_MAX_LEN) == 0) {
+        return;
+    }
+
+    strncpy(image_etag, new_etag, HTTP_ETAG_MAX_LEN - 1);
+    image_etag[HTTP_ETAG_MAX_LEN - 1] = '\0';
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        if (image_etag[0] != '\0') {
+            nvs_set_str(nvs_handle, NVS_IMAGE_ETAG_KEY, image_etag);
+        } else {
+            nvs_erase_key(nvs_handle, NVS_IMAGE_ETAG_KEY);
+        }
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+}
+
+const char *config_manager_get_image_etag(void)
+{
+    return image_etag;
 }
 // ============================================================================
 // Home Assistant

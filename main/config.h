@@ -27,6 +27,7 @@ typedef enum {
 #define HTTP_HEADER_KEY_MAX_LEN 64
 #define HTTP_HEADER_VALUE_MAX_LEN 512
 #define CA_CERT_MAX_LEN 4096
+#define HTTP_ETAG_MAX_LEN 128
 
 #define DEFAULT_DEVICE_NAME "PhotoFrame"
 #define DEFAULT_WIFI_SSID "PhotoFrame"
@@ -67,6 +68,7 @@ typedef enum {
 
 // General
 #define NVS_NAMESPACE "photoframe"
+#define NVS_SETUP_COMPLETE_KEY "setup_complete"
 #define NVS_DEVICE_NAME_KEY "device_name"
 #define NVS_TIMEZONE_KEY "timezone"
 #define NVS_NTP_SERVER_KEY "ntp_server"
@@ -101,6 +103,7 @@ typedef enum {
 #define NVS_HTTP_HEADER_KEY_KEY "http_hdr_key"
 #define NVS_HTTP_HEADER_VALUE_KEY "http_hdr_val"
 #define NVS_SAVE_DOWNLOADED_KEY "save_dl"
+#define NVS_IMAGE_ETAG_KEY "image_etag"
 
 // Power
 #define NVS_DEEP_SLEEP_KEY "deep_sleep"

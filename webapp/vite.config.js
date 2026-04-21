@@ -27,5 +27,8 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    fs: {
+      allow: [resolve(__dirname, "..")],
+    },
   },
 });
