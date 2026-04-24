@@ -371,13 +371,7 @@ async function uploadToDevice(
         await new Promise((resolve) => setTimeout(resolve, 5000));
       }
 
-      await uploadToDeviceOnce(
-        host,
-        pngPath,
-        thumbPath,
-        album,
-        uploadBasename,
-      );
+      await uploadToDeviceOnce(host, pngPath, thumbPath, album, uploadBasename);
       return; // Success, exit retry loop
     } catch (error) {
       if (attempt === retries) {

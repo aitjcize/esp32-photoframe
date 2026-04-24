@@ -316,9 +316,7 @@ function newImage() {
                 prepend-icon="mdi-cellphone"
               >
                 Mobile App
-                <v-chip size="x-small" class="ml-2" color="info" variant="flat">
-                  Testing
-                </v-chip>
+                <v-chip size="x-small" class="ml-2" color="info" variant="flat"> Testing </v-chip>
               </v-btn>
             </div>
           </v-card-text>
@@ -557,14 +555,9 @@ function newImage() {
                     Available for Public Testing
                   </v-chip>
 
-                  <v-alert
-                    type="info"
-                    variant="tonal"
-                    density="comfortable"
-                    class="text-left mb-8"
-                  >
-                    The app is in public beta via TestFlight (iOS) and Google Play internal
-                    testing (Android). Tap a store below for install instructions, or open the
+                  <v-alert type="info" variant="tonal" density="comfortable" class="text-left mb-8">
+                    The app is in public beta via TestFlight (iOS) and Google Play internal testing
+                    (Android). Tap a store below for install instructions, or open the
                     <a
                       href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
                       target="_blank"

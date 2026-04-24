@@ -159,9 +159,7 @@ async function uploadImage(mode = "upload") {
       fnv ^= payload.charCodeAt(i);
       fnv = Math.imul(fnv, 0x01000193);
     }
-    const baseName =
-      (fnv >>> 0).toString(16).padStart(8, "0") +
-      uploadTs.toString(36).slice(-4);
+    const baseName = (fnv >>> 0).toString(16).padStart(8, "0") + uploadTs.toString(36).slice(-4);
     const rawFilename = `${baseName}.epdgz`;
 
     // Generate thumbnail from the post-layout, pre-dither canvas returned by
@@ -607,8 +605,8 @@ async function generateAiImage() {
         <v-card-title>Format Storage</v-card-title>
         <v-card-text>
           This will erase all images
-          {{ appStore.systemInfo.sdcard_inserted ? "on the SD card" : "on internal storage" }}.
-          This action cannot be undone.
+          {{ appStore.systemInfo.sdcard_inserted ? "on the SD card" : "on internal storage" }}. This
+          action cannot be undone.
         </v-card-text>
         <v-card-actions>
           <v-spacer />
