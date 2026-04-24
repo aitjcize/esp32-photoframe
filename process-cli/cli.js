@@ -332,6 +332,24 @@ function displayDirectlyOnce(host, imagePath, thumbPath) {
   });
 }
 
+// Derive a short, unique upload basename from the local file's name +
+// current timestamp so the device-side album avoids collisions when many
+// sources share a filename (e.g. "IMG_1234.jpg"). 32-bit FNV-1a over the
+// payload plus a base-36 millisecond suffix = 12 chars. Same algorithm
+// as the mobile app and firmware webapp, so the scheme stays consistent
+// across clients and has no runtime crypto-API dependency.
+function hashedUploadBasename(localPath) {
+  const source = path.basename(localPath, path.extname(localPath));
+  const ts = Date.now();
+  const payload = `${source}:${ts}`;
+  let fnv = 0x811c9dc5;
+  for (let i = 0; i < payload.length; i++) {
+    fnv ^= payload.charCodeAt(i);
+    fnv = Math.imul(fnv, 0x01000193);
+  }
+  return (fnv >>> 0).toString(16).padStart(8, "0") + ts.toString(36).slice(-4);
+}
+
 // Upload PNG and thumbnail to device with retry logic
 async function uploadToDevice(
   host,
@@ -340,6 +358,10 @@ async function uploadToDevice(
   album = null,
   retries = 3,
 ) {
+  // Compute the device-side basename once so the image and its thumbnail
+  // end up paired under the same hash across retries.
+  const uploadBasename = hashedUploadBasename(pngPath);
+
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       if (attempt > 1) {
@@ -349,7 +371,13 @@ async function uploadToDevice(
         await new Promise((resolve) => setTimeout(resolve, 5000));
       }
 
-      await uploadToDeviceOnce(host, pngPath, thumbPath, album);
+      await uploadToDeviceOnce(
+        host,
+        pngPath,
+        thumbPath,
+        album,
+        uploadBasename,
+      );
       return; // Success, exit retry loop
     } catch (error) {
       if (attempt === retries) {
@@ -361,7 +389,13 @@ async function uploadToDevice(
 }
 
 // Single upload attempt
-function uploadToDeviceOnce(host, imagePath, thumbPath, album = null) {
+function uploadToDeviceOnce(
+  host,
+  imagePath,
+  thumbPath,
+  album = null,
+  uploadBasename = null,
+) {
   return new Promise((resolve, reject) => {
     console.log(`Uploading to device: ${host}`);
     console.log(`  Image: ${imagePath}`);
@@ -370,16 +404,18 @@ function uploadToDeviceOnce(host, imagePath, thumbPath, album = null) {
       console.log(`  Album: ${album}`);
     }
 
+    const imageExt = path.extname(imagePath);
     const contentType = imagePath.endsWith(".epdgz")
       ? "application/octet-stream"
       : "image/png";
+    const base = uploadBasename || path.basename(imagePath, imageExt);
     const form = new FormData();
     form.append("image", fs.createReadStream(imagePath), {
-      filename: path.basename(imagePath),
+      filename: `${base}${imageExt}`,
       contentType,
     });
     form.append("thumbnail", fs.createReadStream(thumbPath), {
-      filename: path.basename(thumbPath),
+      filename: `${base}${path.extname(thumbPath)}`,
       contentType: "image/jpeg",
     });
 

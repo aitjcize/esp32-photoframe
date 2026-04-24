@@ -144,9 +144,25 @@ async function uploadImage(mode = "upload") {
     const compressedBuffer = await imageProcessor.createEPDGZ(result.canvas);
     const rawBlob = new Blob([compressedBuffer], { type: "application/gzip" });
 
-    // Generate filename with .epdgz extension
-    const originalName = selectedFile.value.name.replace(/\.[^/.]+$/, "");
-    const rawFilename = `${originalName}.epdgz`;
+    // Derive a short, unique basename from (filename + upload timestamp)
+    // so two photos that share a name (e.g. "IMG_1234.jpg" from different
+    // sources) don't collide in the device album. crypto.subtle.digest()
+    // requires a secure context (HTTPS/localhost) and is undefined on the
+    // device's plain-HTTP mDNS origin, so we use a 32-bit FNV-1a hash over
+    // the payload plus a base-36 millisecond suffix. 12 chars total,
+    // deterministic from the inputs, collision-resistant enough here.
+    const sourceName = selectedFile.value.name.replace(/\.[^/.]+$/, "");
+    const uploadTs = Date.now();
+    const payload = `${sourceName}:${uploadTs}`;
+    let fnv = 0x811c9dc5;
+    for (let i = 0; i < payload.length; i++) {
+      fnv ^= payload.charCodeAt(i);
+      fnv = Math.imul(fnv, 0x01000193);
+    }
+    const baseName =
+      (fnv >>> 0).toString(16).padStart(8, "0") +
+      uploadTs.toString(36).slice(-4);
+    const rawFilename = `${baseName}.epdgz`;
 
     // Generate thumbnail from the post-layout, pre-dither canvas returned by
     // processImage so the gallery preview matches what the device actually
@@ -156,7 +172,7 @@ async function uploadImage(mode = "upload") {
     const thumbnailBlob = await new Promise((resolve) => {
       thumbCanvas.toBlob(resolve, "image/jpeg", 0.85);
     });
-    const thumbFilename = `${originalName}.jpg`;
+    const thumbFilename = `${baseName}.jpg`;
 
     // Create form data
     const formData = new FormData();
