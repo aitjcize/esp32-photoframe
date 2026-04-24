@@ -316,8 +316,8 @@ function newImage() {
                 prepend-icon="mdi-cellphone"
               >
                 Mobile App
-                <v-chip size="x-small" class="ml-2" color="warning" variant="flat">
-                  Coming Soon
+                <v-chip size="x-small" class="ml-2" color="info" variant="flat">
+                  Testing
                 </v-chip>
               </v-btn>
             </div>
@@ -547,35 +547,60 @@ function newImage() {
                 <v-card class="text-center pa-8">
                   <v-icon icon="mdi-cellphone-arrow-down" size="80" color="primary" class="mb-4" />
                   <div class="text-h4 font-weight-bold mb-2">ESP Frame Companion App</div>
-                  <div class="text-body-1 text-grey-darken-1 mb-8">
+                  <div class="text-body-1 text-grey-darken-1 mb-6">
                     Manage your e-paper photo frame from your phone. Discover devices, upload
                     photos, generate AI images, and configure settings — all from one app.
                   </div>
 
-                  <v-chip color="info" size="large" class="mb-8">
-                    <v-icon icon="mdi-clock-outline" start />
-                    Coming Soon
+                  <v-chip color="info" size="large" class="mb-4">
+                    <v-icon icon="mdi-flask-outline" start />
+                    Available for Public Testing
                   </v-chip>
+
+                  <v-alert
+                    type="info"
+                    variant="tonal"
+                    density="comfortable"
+                    class="text-left mb-8"
+                  >
+                    The app is in public beta via TestFlight (iOS) and Google Play internal
+                    testing (Android). Tap a store below for install instructions, or open the
+                    <a
+                      href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
+                      target="_blank"
+                      rel="noopener"
+                      >testing discussion</a
+                    >
+                    to report feedback and bugs.
+                  </v-alert>
 
                   <v-row justify="center" class="mb-6">
                     <v-col cols="auto">
                       <v-card
                         variant="outlined"
                         class="pa-4"
-                        style="opacity: 0.5; min-width: 180px"
+                        style="min-width: 180px; cursor: pointer"
+                        href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
+                        target="_blank"
+                        rel="noopener"
                       >
                         <v-icon icon="mdi-apple" size="40" class="mb-2" />
                         <div class="text-subtitle-2">App Store</div>
+                        <div class="text-caption text-grey-darken-1">TestFlight</div>
                       </v-card>
                     </v-col>
                     <v-col cols="auto">
                       <v-card
                         variant="outlined"
                         class="pa-4"
-                        style="opacity: 0.5; min-width: 180px"
+                        style="min-width: 180px; cursor: pointer"
+                        href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
+                        target="_blank"
+                        rel="noopener"
                       >
                         <v-icon icon="mdi-google-play" size="40" class="mb-2" />
                         <div class="text-subtitle-2">Google Play</div>
+                        <div class="text-caption text-grey-darken-1">Internal Testing</div>
                       </v-card>
                     </v-col>
                   </v-row>
