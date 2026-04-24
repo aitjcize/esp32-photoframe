@@ -54,6 +54,17 @@ bool sdcard_is_mounted(void);
  */
 esp_err_t sdcard_deinit(void);
 
+/**
+ * @brief Format the mounted SD card as FAT32 (erases all data).
+ *
+ * Requires the card to already be mounted via sdcard_init(). The card
+ * remains mounted at the same mount point after a successful format.
+ *
+ * @return esp_err_t ESP_OK on success, ESP_ERR_INVALID_STATE if no card
+ *         is mounted, or the underlying FATFS error code.
+ */
+esp_err_t sdcard_format(void);
+
 #ifdef __cplusplus
 }
 #endif

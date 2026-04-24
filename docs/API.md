@@ -430,7 +430,10 @@ Start firmware update. Device reboots after completion.
 
 ### `POST /api/format-storage`
 
-Format the storage filesystem.
+Format the currently mounted storage filesystem. Supported for both
+internal flash (LittleFS) and SD cards (FAT32). Returns `400` if the
+active storage is neither (e.g. MemFS fallback when no persistent
+storage is available).
 
 ### `POST /api/factory-reset`
 

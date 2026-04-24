@@ -472,7 +472,6 @@ async function generateAiImage() {
           {{ storageUsedPercent }}%
         </v-chip>
         <v-btn
-          v-if="appStore.systemInfo.has_flash_storage && !appStore.systemInfo.sdcard_inserted"
           icon="mdi-delete-sweep"
           size="x-small"
           variant="text"
@@ -607,7 +606,9 @@ async function generateAiImage() {
       <v-card>
         <v-card-title>Format Storage</v-card-title>
         <v-card-text>
-          This will erase all images on internal storage. This action cannot be undone.
+          This will erase all images
+          {{ appStore.systemInfo.sdcard_inserted ? "on the SD card" : "on internal storage" }}.
+          This action cannot be undone.
         </v-card-text>
         <v-card-actions>
           <v-spacer />

@@ -75,6 +75,23 @@ bool sdcard_is_mounted(void)
     return card_host != NULL;
 }
 
+esp_err_t sdcard_format(void)
+{
+    if (card_host == NULL) {
+        ESP_LOGE(TAG, "Cannot format: no card mounted");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_LOGW(TAG, "Formatting SD card at %s (all data will be erased)", mount_point_buf);
+    esp_err_t ret = esp_vfs_fat_sdcard_format(mount_point_buf, card_host);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Format failed: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "SD card formatted successfully");
+    }
+    return ret;
+}
+
 esp_err_t sdcard_deinit(void)
 {
     if (card_host == NULL) {

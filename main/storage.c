@@ -122,40 +122,50 @@ void storage_unmount(void)
 
 esp_err_t storage_format(void)
 {
+    esp_err_t ret = ESP_ERR_NOT_SUPPORTED;
+
+    switch (current_storage_type) {
 #ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE
-    if (current_storage_type != STORAGE_TYPE_LITTLEFS) {
-        ESP_LOGE(TAG, "Format only supported for LittleFS storage");
+    case STORAGE_TYPE_LITTLEFS:
+        ESP_LOGW(TAG, "Formatting LittleFS partition...");
+        // Unmount, format, and remount
+        esp_vfs_littlefs_unregister(LITTLEFS_PARTITION_LABEL);
+        ret = esp_littlefs_format(LITTLEFS_PARTITION_LABEL);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to format LittleFS: %s", esp_err_to_name(ret));
+            // Try to remount anyway
+            mount_littlefs();
+            return ret;
+        }
+        ESP_LOGI(TAG, "LittleFS formatted successfully, remounting...");
+        ret = mount_littlefs();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to remount LittleFS after format");
+            return ret;
+        }
+        break;
+#endif
+#ifdef CONFIG_HAS_SDCARD
+    case STORAGE_TYPE_SDCARD:
+        // SD card stays mounted across format; only the filesystem is
+        // reinitialised as fresh FAT32.
+        ret = sdcard_format();
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        break;
+#endif
+    default:
+        ESP_LOGE(TAG, "Format not supported for current storage type (%d)", current_storage_type);
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    ESP_LOGW(TAG, "Formatting LittleFS partition...");
-
-    // Unmount, format, and remount
-    esp_vfs_littlefs_unregister(LITTLEFS_PARTITION_LABEL);
-    esp_err_t ret = esp_littlefs_format(LITTLEFS_PARTITION_LABEL);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to format LittleFS: %s", esp_err_to_name(ret));
-        // Try to remount anyway
-        mount_littlefs();
-        return ret;
-    }
-
-    ESP_LOGI(TAG, "LittleFS formatted successfully, remounting...");
-    ret = mount_littlefs();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to remount LittleFS after format");
-        return ret;
-    }
-
-    // Recreate the images directory after format
+    // Recreate the images directory and default album regardless of backend
     mkdir(IMAGE_DIRECTORY, 0775);
     album_manager_ensure_default_album();
 
     ESP_LOGI(TAG, "Storage format complete");
     return ESP_OK;
-#else
-    return ESP_ERR_NOT_SUPPORTED;
-#endif
 }
 
 esp_err_t storage_read_wifi_credentials(char *ssid, char *password)

@@ -1423,9 +1423,10 @@ static esp_err_t format_storage_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    if (storage_get_type() != STORAGE_TYPE_LITTLEFS) {
+    storage_type_t storage_type = storage_get_type();
+    if (storage_type != STORAGE_TYPE_LITTLEFS && storage_type != STORAGE_TYPE_SDCARD) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                            "Format only supported for internal flash storage");
+                            "Format requires a persistent storage (SD card or flash)");
         return ESP_FAIL;
     }
 
