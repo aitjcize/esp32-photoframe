@@ -159,20 +159,15 @@ function getThumbnailUrl(image) {
                   </div>
                 </template>
               </v-img>
-              <v-card-actions class="pa-1">
-                <span class="text-caption text-truncate flex-grow-1 px-1">
-                  {{ image.filename }}
-                </span>
+              <div class="delete-hotspot">
                 <v-btn
-                  icon
+                  icon="mdi-delete"
                   size="x-small"
-                  variant="text"
                   color="error"
-                  @click="confirmDeleteImage(image)"
-                >
-                  <v-icon size="small"> mdi-delete </v-icon>
-                </v-btn>
-              </v-card-actions>
+                  class="delete-overlay"
+                  @click.stop="confirmDeleteImage(image)"
+                />
+              </div>
             </v-card>
           </v-col>
         </v-row>
@@ -227,7 +222,17 @@ function getThumbnailUrl(image) {
         <v-icon icon="mdi-monitor" class="mr-2" />
         Display Image?
       </v-card-title>
-      <v-card-text> Show "{{ imageToDisplay?.filename }}" on the e-paper display? </v-card-text>
+      <v-card-text>
+        <div class="mb-3">Show this image on the e-paper display?</div>
+        <div class="d-flex justify-center">
+          <img
+            v-if="imageToDisplay"
+            :src="getThumbnailUrl(imageToDisplay)"
+            alt=""
+            class="confirm-thumb"
+          />
+        </div>
+      </v-card-text>
       <v-card-actions>
         <v-spacer />
         <v-btn variant="text" @click="displayDialog = false"> Cancel </v-btn>
@@ -243,7 +248,17 @@ function getThumbnailUrl(image) {
         <v-icon icon="mdi-delete" color="error" class="mr-2" />
         Delete Image?
       </v-card-title>
-      <v-card-text> Are you sure you want to delete "{{ imageToDelete?.filename }}"? </v-card-text>
+      <v-card-text>
+        <div class="mb-3">Are you sure you want to delete this image?</div>
+        <div class="d-flex justify-center">
+          <img
+            v-if="imageToDelete"
+            :src="getThumbnailUrl(imageToDelete)"
+            alt=""
+            class="confirm-thumb"
+          />
+        </div>
+      </v-card-text>
       <v-card-actions>
         <v-spacer />
         <v-btn variant="text" @click="deleteImageDialog = false"> Cancel </v-btn>
@@ -283,5 +298,28 @@ function getThumbnailUrl(image) {
 }
 .cursor-pointer {
   cursor: pointer;
+}
+.delete-hotspot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 48px;
+  height: 48px;
+  z-index: 1;
+}
+.delete-overlay {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.delete-hotspot:hover .delete-overlay {
+  opacity: 1;
+}
+.confirm-thumb {
+  max-width: 100%;
+  max-height: 60vh;
+  display: block;
 }
 </style>
