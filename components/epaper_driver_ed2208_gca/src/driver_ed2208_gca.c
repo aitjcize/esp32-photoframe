@@ -178,6 +178,10 @@ static void gpio_init(void)
     ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_config(&in_conf));
 
     if (g_cfg.pin_enable >= 0) {
+        // Release any pad hold latched by a previous deep-sleep cycle
+        // (see epaper_enter_deepsleep) so gpio_config + gpio_set_level
+        // below can re-drive the enable pin.
+        gpio_hold_dis(g_cfg.pin_enable);
         gpio_config_t en_conf = {
             .mode = GPIO_MODE_OUTPUT,
             .pin_bit_mask = (1ULL << g_cfg.pin_enable),
@@ -332,6 +336,12 @@ void epaper_enter_deepsleep(void)
     if (g_cfg.pin_enable >= 0) {
         vTaskDelay(pdMS_TO_TICKS(100));       // Ensure display enters sleep before cutting power
         gpio_set_level(g_cfg.pin_enable, 0);  // Cut power
+        // Latch the pad low so the rail stays cut once the digital IO
+        // domain powers down during deep sleep, and arm deep-sleep hold
+        // so the latch survives into deep sleep. Both calls are
+        // idempotent; other pins the board holds aren't affected.
+        gpio_hold_en(g_cfg.pin_enable);
+        gpio_deep_sleep_hold_en();
     }
 
 #ifdef CONFIG_PM_ENABLE
