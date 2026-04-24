@@ -148,8 +148,11 @@ async function uploadImage(mode = "upload") {
     const originalName = selectedFile.value.name.replace(/\.[^/.]+$/, "");
     const rawFilename = `${originalName}.epdgz`;
 
-    // Generate thumbnail from original source (clean, unprocessed)
-    const thumbCanvas = imageProcessor.generateThumbnail(sourceCanvas.value, THUMBNAIL_MAX_DIM);
+    // Generate thumbnail from the post-layout, pre-dither canvas returned by
+    // processImage so the gallery preview matches what the device actually
+    // displays (cover / fit / custom scaleMode, zoom, pan, and bg colour all
+    // reflected). Using sourceCanvas directly would show the raw input.
+    const thumbCanvas = imageProcessor.generateThumbnail(result.originalCanvas, THUMBNAIL_MAX_DIM);
     const thumbnailBlob = await new Promise((resolve) => {
       thumbCanvas.toBlob(resolve, "image/jpeg", 0.85);
     });
