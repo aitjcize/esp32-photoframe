@@ -37,7 +37,7 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
 // Trigger image rotation based on configured rotation mode
 // Handles both URL and SD card rotation modes
 // Returns ESP_OK on success, error code on failure
-esp_err_t trigger_image_rotation(void);
+esp_err_t trigger_image_rotation(int skip_count);
 
 // Create battery status JSON object with all battery fields
 // Returns cJSON object (caller must delete with cJSON_Delete)

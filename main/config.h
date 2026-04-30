@@ -84,6 +84,13 @@ typedef enum {
 #define NVS_SLEEP_SCHEDULE_START_KEY "sleep_start"
 #define NVS_SLEEP_SCHEDULE_END_KEY "sleep_end"
 
+// Auto Rotate (Advanced)
+#define NVS_AR_MODE_KEY "ar_mode"
+#define NVS_AR_START_TIME_KEY "ar_start"
+#define NVS_AR_POLICY_KEY "ar_policy"
+#define NVS_AR_ANCHOR_KEY "ar_anchor"
+#define NVS_AR_LAST_ROTATION_KEY "ar_last_rot"
+
 // Auto Rotate - SDCard
 #define NVS_SD_ROTATION_MODE_KEY "sd_rot_mode"
 #define NVS_LAST_INDEX_KEY "last_idx"

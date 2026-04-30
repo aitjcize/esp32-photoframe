@@ -120,6 +120,10 @@ Get current device configuration.
   "sleep_schedule_enabled": false,
   "sleep_schedule_start": 1380,
   "sleep_schedule_end": 420,
+  "ar_mode": "interval",
+  "ar_start_time": 0,
+  "ar_policy": "synchronized",
+  "ar_anchor": true,
   "rotation_mode": "url",
   "sd_rotation_mode": "random",
   "image_url": "http://server:9607/image/immich",
@@ -148,6 +152,10 @@ Get current device configuration.
 - `sleep_schedule_enabled`: Enable sleep schedule
 - `sleep_schedule_start`: Sleep start time in minutes since midnight
 - `sleep_schedule_end`: Sleep end time in minutes since midnight
+- `ar_mode`: Advanced auto-rotate mode (`"interval"` or `"daily"`)
+- `ar_start_time`: Anchor start time for advanced rotation (minutes since midnight)
+- `ar_policy`: Wake-up rotation policy (`"synchronized"` to catch up, `"sequential"` to never skip)
+- `ar_anchor`: Whether to use fixed time-slots for rotation
 - `rotation_mode`: `"storage"` (local SD/flash) or `"url"` (fetch from URL)
 - `sd_rotation_mode`: `"random"` or `"sequential"`
 - `image_url`: URL to fetch images from (max 256 chars)

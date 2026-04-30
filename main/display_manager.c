@@ -407,11 +407,11 @@ const char *display_manager_get_current_image(void)
     return current_image;
 }
 
-static void rotate_sequential(char **enabled_albums, int album_count)
+static void rotate_sequential(char **enabled_albums, int album_count, int skip_count)
 {
-    ESP_LOGI(TAG, "Sequential rotation mode");
+    ESP_LOGI(TAG, "Sequential rotation mode (skip %d)", skip_count);
     int32_t last_idx = config_manager_get_last_index();
-    int32_t target_idx = last_idx + 1;
+    int32_t target_idx = last_idx + skip_count;
     int32_t current_idx = 0;
     char first_image[512] = {0};
     bool found_target = false;
@@ -479,9 +479,9 @@ static void rotate_sequential(char **enabled_albums, int album_count)
     }
 }
 
-static void rotate_random(char **enabled_albums, int album_count)
+static void rotate_random(char **enabled_albums, int album_count, int skip_count)
 {
-    ESP_LOGI(TAG, "Random rotation mode");
+    ESP_LOGI(TAG, "Random rotation mode (skipping %d intervals, showing 1 new image)", skip_count);
 
     // Count total images across all enabled albums
     int total_image_count = 0;
@@ -605,7 +605,7 @@ static void rotate_random(char **enabled_albums, int album_count)
     free(image_list);
 }
 
-void display_manager_rotate_from_storage(void)
+void display_manager_rotate_from_storage(int skip_count)
 {
     if (!config_manager_get_auto_rotate()) {
         ESP_LOGI(TAG, "Manual rotation triggered (auto-rotate is disabled)");
@@ -658,9 +658,9 @@ void display_manager_rotate_from_storage(void)
     sd_rotation_mode_t mode = config_manager_get_sd_rotation_mode();
 
     if (mode == SD_ROTATION_SEQUENTIAL) {
-        rotate_sequential(enabled_albums, album_count);
+        rotate_sequential(enabled_albums, album_count, skip_count);
     } else {
-        rotate_random(enabled_albums, album_count);
+        rotate_random(enabled_albums, album_count, skip_count);
     }
 
     album_manager_free_album_list(enabled_albums, album_count);

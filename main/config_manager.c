@@ -28,6 +28,13 @@ static bool sleep_schedule_enabled = false;
 static int sleep_schedule_start = 1380;  // Minutes since midnight (23:00 = 23*60)
 static int sleep_schedule_end = 420;     // Minutes since midnight (07:00 = 7*60)
 
+// Auto Rotate (v2)
+static ar_mode_t ar_mode = AR_MODE_INTERVAL;
+static int ar_start_time = 0;  // Minutes since midnight
+static ar_policy_t ar_policy = AR_POLICY_SYNCHRONIZED;
+static bool ar_use_anchor = false;
+static int64_t last_rotation_timestamp = 0;
+
 static rotation_mode_t rotation_mode =
     ROTATION_MODE_STORAGE;  // Default, will be validated during init
 
@@ -42,6 +49,7 @@ static size_t ca_cert_der_len = 0;
 static char access_token[ACCESS_TOKEN_MAX_LEN] = {0};
 static char http_header_key[HTTP_HEADER_KEY_MAX_LEN] = {0};
 static char http_header_value[HTTP_HEADER_VALUE_MAX_LEN] = {0};
+
 static bool save_downloaded_images = false;
 static char image_etag[HTTP_ETAG_MAX_LEN] = {0};
 
@@ -237,7 +245,7 @@ esp_err_t config_manager_init(void)
             ESP_LOGI(TAG, "Loaded HTTP header value from NVS (length: %zu)", http_header_value_len);
         }
 
-        uint8_t stored_save_dl = 0;
+        uint8_t stored_save_dl = 1;
         if (nvs_get_u8(nvs_handle, NVS_SAVE_DOWNLOADED_KEY, &stored_save_dl) == ESP_OK) {
             save_downloaded_images = (stored_save_dl != 0);
             ESP_LOGI(TAG, "Loaded save_downloaded_images from NVS: %s",
@@ -283,6 +291,42 @@ esp_err_t config_manager_init(void)
         // Config sync timestamp
         if (nvs_get_i64(nvs_handle, "cfg_updated", &config_last_updated) == ESP_OK) {
             ESP_LOGI(TAG, "Loaded config_last_updated: %lld", (long long) config_last_updated);
+        }
+
+        // Auto Rotate (v2)
+        uint8_t stored_ar_mode = AR_MODE_INTERVAL;
+        if (nvs_get_u8(nvs_handle, NVS_AR_MODE_KEY, &stored_ar_mode) == ESP_OK) {
+            ar_mode = (ar_mode_t) stored_ar_mode;
+            ESP_LOGI(TAG, "Loaded AR mode from NVS: %s",
+                     ar_mode == AR_MODE_DAILY ? "daily" : "interval");
+        } else {
+            // Migration: if old auto_rotate_aligned was true, it's similar to interval mode
+            ar_mode = AR_MODE_INTERVAL;
+        }
+
+        int32_t stored_ar_start = 0;
+        if (nvs_get_i32(nvs_handle, NVS_AR_START_TIME_KEY, &stored_ar_start) == ESP_OK) {
+            ar_start_time = stored_ar_start;
+            ESP_LOGI(TAG, "Loaded AR start time from NVS: %d minutes (%02d:%02d)", ar_start_time,
+                     ar_start_time / 60, ar_start_time % 60);
+        }
+
+        uint8_t stored_ar_policy = AR_POLICY_SYNCHRONIZED;
+        if (nvs_get_u8(nvs_handle, NVS_AR_POLICY_KEY, &stored_ar_policy) == ESP_OK) {
+            ar_policy = (ar_policy_t) stored_ar_policy;
+            ESP_LOGI(TAG, "Loaded AR sleep policy from NVS: %s",
+                     ar_policy == AR_POLICY_SEQUENTIAL ? "sequential" : "synchronized");
+        }
+
+        uint8_t stored_ar_anchor = 0;
+        if (nvs_get_u8(nvs_handle, NVS_AR_ANCHOR_KEY, &stored_ar_anchor) == ESP_OK) {
+            ar_use_anchor = (stored_ar_anchor != 0);
+            ESP_LOGI(TAG, "Loaded AR use anchor from NVS: %s", ar_use_anchor ? "yes" : "no");
+        }
+
+        if (nvs_get_i64(nvs_handle, NVS_AR_LAST_ROTATION_KEY, &last_rotation_timestamp) == ESP_OK) {
+            ESP_LOGI(TAG, "Loaded last rotation timestamp: %lld",
+                     (long long) last_rotation_timestamp);
         }
 
         nvs_close(nvs_handle);
@@ -647,6 +691,92 @@ void config_manager_set_rotation_mode(rotation_mode_t mode)
 rotation_mode_t config_manager_get_rotation_mode(void)
 {
     return rotation_mode;
+}
+
+void config_manager_set_ar_mode(ar_mode_t mode)
+{
+    ar_mode = mode;
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_AR_MODE_KEY, (uint8_t) mode);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+    ESP_LOGI(TAG, "AR mode set to: %s", mode == AR_MODE_DAILY ? "daily" : "interval");
+}
+
+ar_mode_t config_manager_get_ar_mode(void)
+{
+    return ar_mode;
+}
+
+void config_manager_set_ar_start_time(int minutes)
+{
+    ar_start_time = minutes;
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_i32(nvs_handle, NVS_AR_START_TIME_KEY, minutes);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+    ESP_LOGI(TAG, "AR start time set to: %d minutes (%02d:%02d)", minutes, minutes / 60,
+             minutes % 60);
+}
+
+int config_manager_get_ar_start_time(void)
+{
+    return ar_start_time;
+}
+
+void config_manager_set_ar_use_anchor(bool enabled)
+{
+    ar_use_anchor = enabled;
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_AR_ANCHOR_KEY, enabled ? 1 : 0);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+    ESP_LOGI(TAG, "AR use anchor set to: %s", enabled ? "yes" : "no");
+}
+
+bool config_manager_get_ar_use_anchor(void)
+{
+    return ar_use_anchor;
+}
+
+void config_manager_set_ar_sleep_policy(ar_policy_t policy)
+{
+    ar_policy = policy;
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_AR_POLICY_KEY, (uint8_t) policy);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+    ESP_LOGI(TAG, "AR sleep policy set to: %s",
+             policy == AR_POLICY_SEQUENTIAL ? "sequential" : "synchronized");
+}
+
+ar_policy_t config_manager_get_ar_sleep_policy(void)
+{
+    return ar_policy;
+}
+
+void config_manager_set_last_rotation_timestamp(int64_t timestamp)
+{
+    last_rotation_timestamp = timestamp;
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_i64(nvs_handle, NVS_AR_LAST_ROTATION_KEY, timestamp);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+}
+
+int64_t config_manager_get_last_rotation_timestamp(void)
+{
+    return last_rotation_timestamp;
 }
 // ============================================================================
 // Auto Rotate - SDCARD
