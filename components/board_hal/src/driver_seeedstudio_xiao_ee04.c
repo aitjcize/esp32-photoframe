@@ -24,6 +24,10 @@ esp_err_t board_hal_init(void)
 {
     ESP_LOGI(TAG, "Initializing XIAO EE04 Board HAL");
 
+    // Release any pad hold latched by the previous deep-sleep cycle so we
+    // can reconfigure the TPS22916 enable pin during init.
+    gpio_hold_dis(VBAT_ADC_ENABLE_PIN);
+
     // Initialize SPI bus
     ESP_LOGI(TAG, "Initializing SPI bus...");
     spi_bus_config_t bus_cfg = {
@@ -92,10 +96,14 @@ esp_err_t board_hal_prepare_for_sleep(void)
 
     epaper_enter_deepsleep();
 
-    // Set TPS22916 enable pin to input with pull-down to prevent current
-    // leakage during deep sleep. Pull-down keeps TPS22916 disabled (active-high).
-    gpio_set_direction(VBAT_ADC_ENABLE_PIN, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(VBAT_ADC_ENABLE_PIN, GPIO_PULLDOWN_ONLY);
+    // Drive TPS22916 enable LOW and latch the pad so the load switch stays
+    // disabled once the digital IO domain powers down. Without the hold the
+    // pin can float, re-enable the switch, and continuously drain the
+    // 100k+100k battery divider.
+    gpio_set_direction(VBAT_ADC_ENABLE_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);
+    gpio_hold_en(VBAT_ADC_ENABLE_PIN);
+    gpio_deep_sleep_hold_en();
 
     // Disable ADC to save power
     if (adc_handle) {
