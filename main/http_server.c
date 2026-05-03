@@ -2081,6 +2081,9 @@ static esp_err_t system_info_handler(httpd_req_t *req)
     cJSON_AddStringToObject(response, "compile_date", app_desc->date);
     cJSON_AddStringToObject(response, "idf_version", app_desc->idf_ver);
 
+    cJSON_AddStringToObject(response, "wifi_mode",
+                            config_manager_get_wifi_mode() == WIFI_MODE_SETTING_AP ? "ap" : "sta");
+
     char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);

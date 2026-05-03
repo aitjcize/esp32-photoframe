@@ -6,6 +6,15 @@
 // Uncomment to debug deep sleep wake
 // #define DEBUG_DEEP_SLEEP_WAKE
 
+// Persistent device-level WiFi setting. Names are prefixed to avoid
+// collision with esp_wifi_types.h's wifi_mode_t (WIFI_MODE_STA /
+// WIFI_MODE_AP), which is the radio mode rather than the user-visible
+// operating mode.
+typedef enum {
+    WIFI_MODE_SETTING_STA = 0,
+    WIFI_MODE_SETTING_AP = 1,
+} wifi_mode_setting_t;
+
 typedef enum { ROTATION_MODE_STORAGE = 0, ROTATION_MODE_URL = 1 } rotation_mode_t;
 
 typedef enum { SD_ROTATION_RANDOM = 0, SD_ROTATION_SEQUENTIAL = 1 } sd_rotation_mode_t;
@@ -65,6 +74,7 @@ typedef enum {
 // WiFi
 #define NVS_WIFI_SSID_KEY "wifi_ssid"
 #define NVS_WIFI_PASS_KEY "wifi_pass"
+#define NVS_WIFI_MODE_KEY "wifi_mode"
 
 // General
 #define NVS_NAMESPACE "photoframe"

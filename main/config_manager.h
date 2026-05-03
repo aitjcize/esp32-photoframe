@@ -35,6 +35,9 @@ const char *config_manager_get_wifi_ssid(void);
 void config_manager_set_wifi_password(const char *password);
 const char *config_manager_get_wifi_password(void);
 
+void config_manager_set_wifi_mode(wifi_mode_setting_t mode);
+wifi_mode_setting_t config_manager_get_wifi_mode(void);
+
 // ============================================================================
 // Auto Rotate
 // ============================================================================
