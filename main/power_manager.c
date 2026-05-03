@@ -338,7 +338,7 @@ void power_manager_enter_sleep(void)
         wakeup_mask |= (1ULL << BOARD_HAL_ROTATE_KEY);
     }
     if (BOARD_HAL_CLEAR_KEY != GPIO_NUM_NC) {
-        wakeup_mask |= (1ULL << (BOARD_HAL_CLEAR_KEY < 0 ? 0 : BOARD_HAL_CLEAR_KEY));
+        wakeup_mask |= (1ULL << BOARD_HAL_CLEAR_KEY);
     }
 
     if (wakeup_mask != 0) {
