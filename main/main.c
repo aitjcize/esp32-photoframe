@@ -507,6 +507,11 @@ void app_main(void)
         ESP_ERROR_CHECK(http_server_init());
         http_server_set_ready();
 
+        // Captive portal — phones auto-launch the webapp on connect, so a
+        // single WiFi-join QR on the splash is sufficient (no separate
+        // URL QR needed).
+        http_server_enable_captive_portal();
+
         // Show AP-mode splash if just provisioned. We reuse the
         // setup_complete flag so the existing flow keeps working.
         nvs_handle_t nvs_handle;
