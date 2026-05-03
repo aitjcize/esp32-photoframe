@@ -6,6 +6,7 @@
 #include <esp_pm.h>
 #include <esp_sleep.h>
 #include <esp_timer.h>
+#include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <nvs.h>
@@ -343,6 +344,12 @@ void power_manager_enter_sleep(void)
     if (wakeup_mask != 0) {
         esp_sleep_enable_ext1_wakeup(wakeup_mask, ESP_EXT1_WAKEUP_ANY_LOW);
     }
+
+    // Stop WiFi cleanly before deep sleep so the MAC/PHY drains pending
+    // state and the modem domain transitions through a normal teardown
+    // rather than being yanked by the deep-sleep entry. Ignored if WiFi
+    // was never started.
+    esp_wifi_stop();
 
     ESP_LOGI(TAG, "Configuring Board HAL for deep sleep");
     board_hal_prepare_for_sleep();
