@@ -192,7 +192,7 @@ esp_err_t splash_screen_display(void)
              SPLASH_WIFI_QR_SIZE);
 
     // Set up draw context for the callback
-    s_qr_draw_ctx = (qr_draw_ctx_t) {
+    s_qr_draw_ctx = (qr_draw_ctx_t){
         .buffer = epd_buffer,
         .buf_width = width,
         .pos_x = SPLASH_WIFI_QR_X,
@@ -255,7 +255,7 @@ esp_err_t splash_screen_display_setup_complete(const char *hostname)
 
     ESP_LOGI(TAG, "Generating web UI QR code for: %s", url);
 
-    s_qr_draw_ctx = (qr_draw_ctx_t) {
+    s_qr_draw_ctx = (qr_draw_ctx_t){
         .buffer = epd_buffer,
         .buf_width = width,
         .pos_x = SETUP_COMPLETE_QR_X,
@@ -286,12 +286,63 @@ esp_err_t splash_screen_display_setup_complete(const char *hostname)
 
 esp_err_t splash_screen_display_ap_mode(const char *ssid, const char *password)
 {
-    // TODO(ap-mode): real dual-QR layout once the AP splash EPDGZ template
-    // is in place. For now reuse the setup-complete screen so the device
-    // still shows *something* useful — a follow-up commit replaces this
-    // with a WiFi-join QR + URL QR composition.
-    (void) ssid;
-    (void) password;
-    ESP_LOGW(TAG, "AP-mode splash not yet implemented — using setup-complete screen");
-    return splash_screen_display_setup_complete("192.168.4.1");
+    // Interim implementation: reuse the OOBE splash background and place a
+    // WPA2-formatted WiFi-join QR in the same slot. The dedicated dual-QR
+    // template (with copy text and a separate URL-QR for 192.168.4.1) is
+    // a follow-up — needs new SVG assets in scripts/generate_splash.py.
+    if (!ssid || !password) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    int width = BOARD_HAL_DISPLAY_WIDTH;
+    int height = BOARD_HAL_DISPLAY_HEIGHT;
+    int buf_size = ((width + 1) / 2) * height;
+
+    ESP_LOGI(TAG, "Loading AP-mode splash (%dx%d) — SSID=%s", width, height, ssid);
+
+    uint8_t *epd_buffer = heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
+    if (!epd_buffer) {
+        ESP_LOGE(TAG, "Failed to allocate display buffer");
+        return ESP_ERR_NO_MEM;
+    }
+
+    memset(epd_buffer, 0x11, buf_size);
+
+    size_t epdgz_size = splash_epdgz_end - splash_epdgz_start;
+    esp_err_t ret = decompress_gzip(splash_epdgz_start, epdgz_size, epd_buffer, buf_size);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to decompress splash EPDGZ");
+        heap_caps_free(epd_buffer);
+        return ret;
+    }
+
+    char wifi_qr_data[160];
+    snprintf(wifi_qr_data, sizeof(wifi_qr_data), "WIFI:T:WPA;S:%s;P:%s;;", ssid, password);
+
+    s_qr_draw_ctx = (qr_draw_ctx_t){
+        .buffer = epd_buffer,
+        .buf_width = width,
+        .pos_x = SPLASH_WIFI_QR_X,
+        .pos_y = SPLASH_WIFI_QR_Y,
+        .target_size = SPLASH_WIFI_QR_SIZE,
+    };
+
+    esp_qrcode_config_t qr_cfg = {
+        .display_func = qr_draw_callback,
+        .max_qrcode_version = 10,
+        .qrcode_ecc_level = ESP_QRCODE_ECC_MED,
+    };
+
+    ret = esp_qrcode_generate(&qr_cfg, wifi_qr_data);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to generate WPA2 WiFi QR code");
+        heap_caps_free(epd_buffer);
+        return ret;
+    }
+
+    epaper_display(epd_buffer);
+
+    heap_caps_free(epd_buffer);
+    ESP_LOGI(TAG, "AP-mode splash displayed");
+    return ESP_OK;
 }
