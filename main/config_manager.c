@@ -20,6 +20,7 @@ static int display_rotation_deg = BOARD_HAL_DISPLAY_ROTATION_DEG;
 static char wifi_ssid[WIFI_SSID_MAX_LEN] = {0};
 static char wifi_password[WIFI_PASS_MAX_LEN] = {0};
 static wifi_mode_setting_t wifi_mode = WIFI_MODE_SETTING_STA;
+static char ap_password[AP_PASSWORD_MAX_LEN] = {0};
 
 // Auto Rotate
 static bool auto_rotate_enabled = false;
@@ -132,6 +133,11 @@ esp_err_t config_manager_init(void)
                                                                    : WIFI_MODE_SETTING_STA;
             ESP_LOGI(TAG, "Loaded WiFi mode from NVS: %s",
                      wifi_mode == WIFI_MODE_SETTING_AP ? "AP" : "STA");
+        }
+
+        size_t ap_password_len = AP_PASSWORD_MAX_LEN;
+        if (nvs_get_str(nvs_handle, NVS_AP_PASSWORD_KEY, ap_password, &ap_password_len) == ESP_OK) {
+            ESP_LOGI(TAG, "Loaded AP password from NVS (length: %zu)", ap_password_len);
         }
 
         // Auto Rotate
@@ -508,6 +514,30 @@ void config_manager_set_wifi_mode(wifi_mode_setting_t mode)
 wifi_mode_setting_t config_manager_get_wifi_mode(void)
 {
     return wifi_mode;
+}
+
+void config_manager_set_ap_password(const char *password)
+{
+    if (password == NULL) {
+        return;
+    }
+
+    strncpy(ap_password, password, AP_PASSWORD_MAX_LEN - 1);
+    ap_password[AP_PASSWORD_MAX_LEN - 1] = '\0';
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_str(nvs_handle, NVS_AP_PASSWORD_KEY, ap_password);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "AP password set (length: %zu)", strlen(ap_password));
+}
+
+const char *config_manager_get_ap_password(void)
+{
+    return ap_password;
 }
 // ============================================================================
 // Auto Rotate

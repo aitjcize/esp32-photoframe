@@ -38,6 +38,11 @@ const char *config_manager_get_wifi_password(void);
 void config_manager_set_wifi_mode(wifi_mode_setting_t mode);
 wifi_mode_setting_t config_manager_get_wifi_mode(void);
 
+// AP password used when wifi_mode == WIFI_MODE_SETTING_AP. Auto-generated
+// on first AP-mode setup if not previously stored.
+void config_manager_set_ap_password(const char *password);
+const char *config_manager_get_ap_password(void);
+
 // ============================================================================
 // Auto Rotate
 // ============================================================================
