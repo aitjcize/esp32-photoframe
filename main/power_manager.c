@@ -395,6 +395,41 @@ wakeup_source_t power_manager_get_wakeup_source(void)
     return wakeup_source;
 }
 
+bool power_manager_check_long_press_for_ap(void)
+{
+    if (wakeup_source != WAKEUP_SOURCE_BOOT_BUTTON || BOARD_HAL_WAKEUP_KEY == GPIO_NUM_NC) {
+        return false;
+    }
+
+    ESP_LOGI(TAG, "Checking for long-press emergency AP (hold wake key for 5s)");
+
+    const int hold_target_ms = 5000;
+    const int poll_interval_ms = 100;
+    int held_ms = 0;
+
+    while (held_ms < hold_target_ms) {
+        if (gpio_get_level(BOARD_HAL_WAKEUP_KEY) != 0) {
+            // Released early — normal wake.
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(poll_interval_ms));
+        held_ms += poll_interval_ms;
+    }
+
+    // Held the full 5s — pulse the activity LED to acknowledge so the user
+    // knows they can let go.
+    board_hal_led_set(BOARD_HAL_LED_ACTIVITY, true);
+    vTaskDelay(pdMS_TO_TICKS(300));
+    board_hal_led_set(BOARD_HAL_LED_ACTIVITY, false);
+    vTaskDelay(pdMS_TO_TICKS(150));
+    board_hal_led_set(BOARD_HAL_LED_ACTIVITY, true);
+    vTaskDelay(pdMS_TO_TICKS(300));
+    board_hal_led_set(BOARD_HAL_LED_ACTIVITY, false);
+
+    ESP_LOGW(TAG, "Long-press detected — booting into emergency AP mode for this session");
+    return true;
+}
+
 void power_manager_set_deep_sleep_enabled(bool enabled)
 {
     // Save to NVS via config_manager

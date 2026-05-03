@@ -22,4 +22,14 @@ void power_manager_reset_rotate_timer(void);
 wakeup_source_t power_manager_get_wakeup_source(void);
 void power_manager_set_deep_sleep_enabled(bool enabled);
 
+// Poll the wake key for up to ~5s after a BOOT_BUTTON wakeup. Returns
+// true if the user kept the button held the entire time, signalling
+// that this boot should run in emergency-AP mode (regardless of the
+// persistent wifi_mode NVS setting). Safe to call when the wakeup
+// source is anything else — returns false immediately.
+//
+// Activity LED is pulsed at the 5s mark so the user knows when to
+// release.
+bool power_manager_check_long_press_for_ap(void);
+
 #endif

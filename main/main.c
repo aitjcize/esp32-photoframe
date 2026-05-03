@@ -437,6 +437,11 @@ void app_main(void)
     wakeup_source_t wakeup_src = power_manager_get_wakeup_source();
     ESP_LOGI(TAG, "Wake-up source: %d", wakeup_src);
 
+    // Long-press of the wake key forces AP mode for this boot only,
+    // letting the user reach the webapp when their normal STA WiFi is
+    // unreachable. The persistent wifi_mode NVS is *not* changed.
+    bool emergency_ap = power_manager_check_long_press_for_ap();
+
     switch (wakeup_src) {
     case WAKEUP_SOURCE_CLEAR_BUTTON:
         ESP_LOGI(TAG, "CLEAR button wakeup detected - clearing display and sleeping");
@@ -467,11 +472,13 @@ void app_main(void)
     ESP_ERROR_CHECK(wifi_manager_init());
     ESP_ERROR_CHECK(wifi_provisioning_init());
 
-    // Persistent AP-only mode skips the STA-connect path entirely. The
-    // device simply brings up its own WPA2 hotspot and serves the main
-    // webapp on 192.168.4.1 — no internet, no NTP/HA/OTA.
-    if (config_manager_get_wifi_mode() == WIFI_MODE_SETTING_AP &&
-        wifi_provisioning_is_provisioned()) {
+    // Persistent AP-only mode (or this-boot-only emergency AP via the
+    // long-press wake) skips the STA-connect path entirely. The device
+    // simply brings up its own WPA2 hotspot and serves the main webapp
+    // on 192.168.4.1 — no internet, no NTP/HA/OTA.
+    bool ap_mode_active = emergency_ap || (config_manager_get_wifi_mode() == WIFI_MODE_SETTING_AP &&
+                                           wifi_provisioning_is_provisioned());
+    if (ap_mode_active) {
         // Auto-generate a password if one isn't stored yet (e.g. after a
         // manual mode flip via NVS without going through the provisioning
         // UI). The provisioning handler also generates one, so this is a
