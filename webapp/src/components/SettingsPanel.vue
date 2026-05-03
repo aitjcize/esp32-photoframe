@@ -303,6 +303,39 @@ async function saveSettings() {
   }
 }
 
+const showWifiModeDialog = ref(false);
+const switchingWifiMode = ref(false);
+
+async function switchWifiMode() {
+  const targetMode = appStore.isApMode ? "sta" : "ap";
+  switchingWifiMode.value = true;
+  try {
+    const response = await fetch("/api/wifi-mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: targetMode }),
+    });
+    if (response.ok) {
+      showWifiModeDialog.value = false;
+      saveSuccess.value = true;
+      saveMessage.value =
+        targetMode === "ap"
+          ? "Switching to standalone hotspot. Device is rebooting — reconnect to its WiFi when it comes back up."
+          : "Switching to STA mode. Device is rebooting — it will rejoin your home WiFi.";
+    } else {
+      saveError.value = true;
+      saveMessage.value = "Failed to switch WiFi mode";
+      setTimeout(() => (saveError.value = false), 5000);
+    }
+  } catch (e) {
+    saveError.value = true;
+    saveMessage.value = "Error: " + e.message;
+    setTimeout(() => (saveError.value = false), 5000);
+  } finally {
+    switchingWifiMode.value = false;
+  }
+}
+
 async function performFactoryReset() {
   resetting.value = true;
   const result = await settingsStore.factoryReset();
@@ -339,8 +372,8 @@ async function performFactoryReset() {
         class="mx-4 mt-2"
         icon="mdi-wifi"
       >
-        Device is running as a standalone hotspot. Internet-dependent features
-        (NTP, OTA, Home Assistant, URL-based rotation) are disabled.
+        Device is running as a standalone hotspot. Internet-dependent features (NTP, OTA, Home
+        Assistant, URL-based rotation) are disabled.
       </v-alert>
 
       <v-tabs v-model="tab" color="primary" show-arrows density="compact">
@@ -367,6 +400,17 @@ async function performFactoryReset() {
                   hint="Used for mDNS hostname (e.g., 'Living Room Frame' → living-room-frame.local)"
                   persistent-hint
                 />
+              </v-col>
+              <v-col cols="12" md="6" class="d-flex align-center">
+                <div class="text-body-2 mr-3">
+                  WiFi mode:
+                  <strong>{{
+                    appStore.isApMode ? "Standalone hotspot" : "Connected to WiFi"
+                  }}</strong>
+                </div>
+                <v-btn variant="outlined" size="small" @click="showWifiModeDialog = true">
+                  Switch to {{ appStore.isApMode ? "STA" : "hotspot" }}
+                </v-btn>
               </v-col>
             </v-row>
 
@@ -423,7 +467,11 @@ async function performFactoryReset() {
                   label="Device Time"
                   variant="outlined"
                   readonly
-                  :hint="appStore.isApMode ? 'NTP unavailable in AP mode' : 'Click sync to update from NTP server'"
+                  :hint="
+                    appStore.isApMode
+                      ? 'NTP unavailable in AP mode'
+                      : 'Click sync to update from NTP server'
+                  "
                   persistent-hint
                 >
                   <template #append-inner>
@@ -836,6 +884,39 @@ async function performFactoryReset() {
     </v-card>
 
     <!-- Factory Reset Confirmation Dialog -->
+    <v-dialog v-model="showWifiModeDialog" max-width="500">
+      <v-card>
+        <v-card-title>
+          <v-icon icon="mdi-wifi" class="mr-2" />
+          Switch WiFi mode?
+        </v-card-title>
+        <v-card-text>
+          <div v-if="appStore.isApMode" class="text-body-1">
+            Switch back to <strong>Connect to WiFi</strong>? The device will reboot and attempt to
+            rejoin the WiFi network it was previously connected to. If those credentials are no
+            longer valid, you may need to re-provision via the initial setup hotspot.
+          </div>
+          <div v-else class="text-body-1">
+            Switch to <strong>Standalone hotspot</strong>? The device will reboot and run its own
+            WiFi network. Internet-dependent features (NTP, OTA, Home Assistant, URL-based rotation)
+            will be disabled until you switch back.
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showWifiModeDialog = false">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="switchingWifiMode"
+            @click="switchWifiMode"
+          >
+            Switch and reboot
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-dialog v-model="showFactoryResetDialog" max-width="500">
       <v-card>
         <v-card-title class="text-h5 text-error">

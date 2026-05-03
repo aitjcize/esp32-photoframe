@@ -35,6 +35,7 @@
 #include "sdcard.h"
 #include "storage.h"
 #include "utils.h"
+#include "wifi_manager.h"
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -2227,6 +2228,58 @@ static void restart_task(void *arg)
     esp_restart();
 }
 
+static esp_err_t wifi_mode_handler(httpd_req_t *req)
+{
+    char buf[64];
+    int len = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (len <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
+        return ESP_FAIL;
+    }
+    buf[len] = '\0';
+
+    cJSON *body = cJSON_Parse(buf);
+    if (!body) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    const cJSON *mode_item = cJSON_GetObjectItemCaseSensitive(body, "mode");
+    if (!cJSON_IsString(mode_item) || mode_item->valuestring == NULL) {
+        cJSON_Delete(body);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing 'mode' field");
+        return ESP_FAIL;
+    }
+
+    if (strcmp(mode_item->valuestring, "ap") == 0) {
+        // Switching to AP requires a password — generate one if missing so
+        // the next boot can bring up the secured hotspot directly.
+        if (strlen(config_manager_get_ap_password()) < 8) {
+            char generated[9];
+            wifi_manager_generate_ap_password(generated, sizeof(generated));
+            config_manager_set_ap_password(generated);
+        }
+        config_manager_set_wifi_mode(WIFI_MODE_SETTING_AP);
+        ESP_LOGI(TAG, "Switched wifi_mode to AP");
+    } else if (strcmp(mode_item->valuestring, "sta") == 0) {
+        config_manager_set_wifi_mode(WIFI_MODE_SETTING_STA);
+        ESP_LOGI(TAG, "Switched wifi_mode to STA");
+    } else {
+        cJSON_Delete(body);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "mode must be 'sta' or 'ap'");
+        return ESP_FAIL;
+    }
+
+    cJSON_Delete(body);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
+
+    // Reboot in the background so the response can flush first.
+    xTaskCreate(restart_task, "restart_task", 2048, NULL, 5, NULL);
+    return ESP_OK;
+}
+
 static esp_err_t factory_reset_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "Factory reset requested");
@@ -2648,6 +2701,12 @@ esp_err_t http_server_init(void)
                                      .handler = time_sync_handler,
                                      .user_ctx = NULL};
         httpd_register_uri_handler(server, &time_sync_uri);
+
+        httpd_uri_t wifi_mode_uri = {.uri = "/api/wifi-mode",
+                                     .method = HTTP_POST,
+                                     .handler = wifi_mode_handler,
+                                     .user_ctx = NULL};
+        httpd_register_uri_handler(server, &wifi_mode_uri);
 
         httpd_uri_t ota_status_uri = {.uri = "/api/ota/status",
                                       .method = HTTP_GET,
