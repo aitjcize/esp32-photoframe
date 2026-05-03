@@ -55,7 +55,7 @@ onMounted(async () => {
 
         <SettingsPanel class="mt-6" />
 
-        <OtaUpdate class="mt-6" />
+        <OtaUpdate v-if="!appStore.isApMode" class="mt-6" />
       </v-container>
     </v-main>
 

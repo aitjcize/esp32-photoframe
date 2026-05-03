@@ -26,6 +26,7 @@ export const useAppStore = defineStore("app", () => {
     compile_date: "",
     idf_version: "",
     board_name: "waveshare_photopainter_73",
+    wifi_mode: "sta", // 'sta' | 'ap' — internet features disabled when 'ap'
   });
   const loading = ref({
     albums: false,
@@ -239,6 +240,10 @@ export const useAppStore = defineStore("app", () => {
     }
   }
 
+  // True when the device is running as a standalone hotspot — internet
+  // features (URL rotation, NTP, OTA, Home Assistant) are not reachable.
+  const isApMode = computed(() => systemInfo.value.wifi_mode === "ap");
+
   return {
     // State
     albums,
@@ -250,6 +255,7 @@ export const useAppStore = defineStore("app", () => {
     // Getters
     sortedAlbums,
     currentAlbumImages,
+    isApMode,
     // Actions
     loadBatteryStatus,
     loadAlbums,
