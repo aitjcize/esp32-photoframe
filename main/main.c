@@ -209,13 +209,18 @@ static void button_task(void *arg)
 void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 {
     bool is_button_wake = (wakeup_src == WAKEUP_SOURCE_ROTATE_BUTTON);
-    // Check rotation mode and HA configuration
+    // Check rotation mode and HA configuration. AP-only mode has no
+    // internet, so URL rotation and HA notifications are off regardless
+    // of their stored config — the deep-sleep wake path becomes a pure
+    // local refresh-and-sleep.
+    bool ap_only = (config_manager_get_wifi_mode() == WIFI_MODE_SETTING_AP);
     rotation_mode_t rotation_mode = config_manager_get_rotation_mode();
-    bool ha_configured = ha_is_configured();
+    bool ha_configured = !ap_only && ha_is_configured();
+    bool needs_internet = !ap_only && (rotation_mode == ROTATION_MODE_URL || ha_configured);
     bool wifi_connected = false;
 
     // Initialize WiFi if needed (URL mode always needs it, SD card mode only if HA configured)
-    if (rotation_mode == ROTATION_MODE_URL || ha_configured) {
+    if (needs_internet) {
         ESP_LOGI(TAG, "Initializing WiFi for %s",
                  rotation_mode == ROTATION_MODE_URL ? "URL rotation" : "HA battery post");
         ESP_ERROR_CHECK(wifi_manager_init());
@@ -461,6 +466,58 @@ void app_main(void)
 
     ESP_ERROR_CHECK(wifi_manager_init());
     ESP_ERROR_CHECK(wifi_provisioning_init());
+
+    // Persistent AP-only mode skips the STA-connect path entirely. The
+    // device simply brings up its own WPA2 hotspot and serves the main
+    // webapp on 192.168.4.1 — no internet, no NTP/HA/OTA.
+    if (config_manager_get_wifi_mode() == WIFI_MODE_SETTING_AP &&
+        wifi_provisioning_is_provisioned()) {
+        // Auto-generate a password if one isn't stored yet (e.g. after a
+        // manual mode flip via NVS without going through the provisioning
+        // UI). The provisioning handler also generates one, so this is a
+        // safety net.
+        if (strlen(config_manager_get_ap_password()) < 8) {
+            char generated[9];
+            wifi_manager_generate_ap_password(generated, sizeof(generated));
+            config_manager_set_ap_password(generated);
+            ESP_LOGI(TAG, "Generated new AP password");
+        }
+
+        const char *ap_ssid = get_setup_ap_ssid();
+        const char *ap_pass = config_manager_get_ap_password();
+
+        ESP_LOGI(TAG, "===========================================");
+        ESP_LOGI(TAG, "Booting in AP-only mode");
+        ESP_LOGI(TAG, "  SSID:     %s", ap_ssid);
+        ESP_LOGI(TAG, "  Password: %s", ap_pass);
+        ESP_LOGI(TAG, "  URL:      http://192.168.4.1");
+        ESP_LOGI(TAG, "===========================================");
+
+        ESP_ERROR_CHECK(wifi_manager_start_ap(ap_ssid, ap_pass));
+
+        xTaskCreate(button_task, "button_task", 8192, NULL, 5, NULL);
+
+        ESP_ERROR_CHECK(http_server_init());
+        http_server_set_ready();
+
+        // Show AP-mode splash if just provisioned. We reuse the
+        // setup_complete flag so the existing flow keeps working.
+        nvs_handle_t nvs_handle;
+        uint8_t setup_complete = 0;
+        if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+            if (nvs_get_u8(nvs_handle, NVS_SETUP_COMPLETE_KEY, &setup_complete) == ESP_OK &&
+                setup_complete == 1) {
+                nvs_erase_key(nvs_handle, NVS_SETUP_COMPLETE_KEY);
+                nvs_commit(nvs_handle);
+                ESP_LOGI(TAG, "First boot in AP mode — showing AP splash");
+                splash_screen_display_ap_mode(ap_ssid, ap_pass);
+            }
+            nvs_close(nvs_handle);
+        }
+
+        ESP_LOGI(TAG, "PhotoFrame started in AP-only mode");
+        return;
+    }
 
     if (!wifi_provisioning_is_provisioned()) {
         bool creds_loaded = false;
