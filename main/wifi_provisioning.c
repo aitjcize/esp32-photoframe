@@ -444,10 +444,73 @@ static esp_err_t provision_save_handler(httpd_req_t *req)
     config_manager_set_device_name(device_name);
     ESP_LOGI(TAG, "Device name saved: %s", device_name);
 
+    // STA path: persist wifi_mode=STA so a previous AP-mode setting
+    // doesn't bleed over.
+    config_manager_set_wifi_mode(WIFI_MODE_SETTING_STA);
+
     const char *response =
         "<html><body><h1>WiFi Configured!</h1>"
         "<p>Successfully connected to your WiFi network.</p>"
         "<p>Device will restart in 3 seconds...</p></body></html>";
+    httpd_resp_send(req, response, strlen(response));
+
+    return ESP_OK;
+}
+
+// AP-mode provisioning: skip the STA-test path entirely. The user has
+// chosen "Standalone hotspot", so we generate an AP password, persist
+// wifi_mode=AP plus the device name, and let the device reboot into the
+// AP-only flow handled by app_main.
+static esp_err_t provision_save_ap_handler(httpd_req_t *req)
+{
+    char buf[256];
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (ret < 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad request");
+        return ESP_FAIL;
+    }
+    buf[ret > 0 ? ret : 0] = '\0';
+
+    char device_name[DEVICE_NAME_MAX_LEN] = {0};
+    char *name_start = strstr(buf, "deviceName=");
+    if (name_start) {
+        name_start += 11;  // strlen("deviceName=")
+        char *name_end = strchr(name_start, '&');
+        int name_len = name_end ? (int) (name_end - name_start) : (int) strlen(name_start);
+        if (name_len > 0 && name_len < DEVICE_NAME_MAX_LEN) {
+            strncpy(device_name, name_start, name_len);
+            device_name[name_len] = '\0';
+
+            for (int i = 0; i < name_len; i++) {
+                if (device_name[i] == '+') {
+                    device_name[i] = ' ';
+                } else if (device_name[i] == '%' && i + 2 < name_len) {
+                    char hex[3] = {device_name[i + 1], device_name[i + 2], 0};
+                    device_name[i] = (char) strtol(hex, NULL, 16);
+                    memmove(&device_name[i + 1], &device_name[i + 3], name_len - i - 2);
+                    name_len -= 2;
+                }
+            }
+        }
+    }
+
+    if (strlen(device_name) == 0) {
+        strncpy(device_name, DEFAULT_DEVICE_NAME, DEVICE_NAME_MAX_LEN - 1);
+    }
+
+    char ap_password[9];
+    wifi_manager_generate_ap_password(ap_password, sizeof(ap_password));
+
+    config_manager_set_device_name(device_name);
+    config_manager_set_ap_password(ap_password);
+    config_manager_set_wifi_mode(WIFI_MODE_SETTING_AP);
+
+    ESP_LOGI(TAG, "AP-only mode configured (device: %s)", device_name);
+
+    const char *response =
+        "<html><body><h1>Standalone Hotspot Configured!</h1>"
+        "<p>The device will restart and run as its own WiFi hotspot.</p>"
+        "<p>Restarting in 3 seconds...</p></body></html>";
     httpd_resp_send(req, response, strlen(response));
 
     return ESP_OK;
@@ -572,6 +635,13 @@ esp_err_t wifi_provisioning_start_ap(void)
                                 .handler = provision_save_handler,
                                 .user_ctx = NULL};
         httpd_register_uri_handler(provisioning_server, &save_uri);
+
+        // AP-mode save handler (skips STA test, generates AP password)
+        httpd_uri_t save_ap_uri = {.uri = "/save-ap",
+                                   .method = HTTP_POST,
+                                   .handler = provision_save_ap_handler,
+                                   .user_ctx = NULL};
+        httpd_register_uri_handler(provisioning_server, &save_ap_uri);
 
         // WiFi scan handler
         httpd_uri_t scan_uri = {.uri = "/api/wifi/scan",
