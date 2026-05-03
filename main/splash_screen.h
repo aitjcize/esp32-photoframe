@@ -20,4 +20,11 @@ esp_err_t splash_screen_display(void);
  */
 esp_err_t splash_screen_display_setup_complete(const char *hostname);
 
+/**
+ * Display the AP-mode splash with a dual QR layout: a WiFi-join QR for the
+ * device's persistent hotspot on the left, and a URL QR for the main
+ * webapp (http://192.168.4.1) on the right.
+ */
+esp_err_t splash_screen_display_ap_mode(const char *ssid, const char *password);
+
 #endif

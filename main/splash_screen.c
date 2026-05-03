@@ -192,7 +192,7 @@ esp_err_t splash_screen_display(void)
              SPLASH_WIFI_QR_SIZE);
 
     // Set up draw context for the callback
-    s_qr_draw_ctx = (qr_draw_ctx_t){
+    s_qr_draw_ctx = (qr_draw_ctx_t) {
         .buffer = epd_buffer,
         .buf_width = width,
         .pos_x = SPLASH_WIFI_QR_X,
@@ -255,7 +255,7 @@ esp_err_t splash_screen_display_setup_complete(const char *hostname)
 
     ESP_LOGI(TAG, "Generating web UI QR code for: %s", url);
 
-    s_qr_draw_ctx = (qr_draw_ctx_t){
+    s_qr_draw_ctx = (qr_draw_ctx_t) {
         .buffer = epd_buffer,
         .buf_width = width,
         .pos_x = SETUP_COMPLETE_QR_X,
@@ -282,4 +282,16 @@ esp_err_t splash_screen_display_setup_complete(const char *hostname)
     heap_caps_free(epd_buffer);
     ESP_LOGI(TAG, "Setup complete screen displayed successfully");
     return ESP_OK;
+}
+
+esp_err_t splash_screen_display_ap_mode(const char *ssid, const char *password)
+{
+    // TODO(ap-mode): real dual-QR layout once the AP splash EPDGZ template
+    // is in place. For now reuse the setup-complete screen so the device
+    // still shows *something* useful — a follow-up commit replaces this
+    // with a WiFi-join QR + URL QR composition.
+    (void) ssid;
+    (void) password;
+    ESP_LOGW(TAG, "AP-mode splash not yet implemented — using setup-complete screen");
+    return splash_screen_display_setup_complete("192.168.4.1");
 }
