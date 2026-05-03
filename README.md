@@ -206,8 +206,10 @@ The device supports two methods for WiFi provisioning:
 
 1. Device creates a unique AP on first boot (e.g. `PhotoFrame - A1B2C3`, where `A1B2C3` is derived from the device's MAC address)
 2. Connect to the AP and open `http://192.168.4.1` (or use captive portal)
-3. Enter WiFi credentials (2.4GHz only)
-4. Device tests connection and saves if successful
+3. Choose between two operating modes:
+   - **Connect to existing WiFi** — Joins your home network. Enables NTP, OTA updates, Home Assistant integration, and URL-based image rotation.
+   - **Standalone hotspot** — Device runs its own WiFi for direct phone access (offices, trade shows, exhibitions). Internet-dependent features are disabled. The device auto-generates an 8-character WiFi password and shows it as a QR code on the splash screen — phones can join in one tap.
+4. For the WiFi path: enter credentials (2.4GHz only); device tests the connection and saves if successful.
 
 #### Option 3: Companion App ([available for testing](https://github.com/aitjcize/esp32-photoframe/discussions/86))
 
@@ -215,7 +217,9 @@ The device supports two methods for WiFi provisioning:
 2. Tap the "+" button on the home screen
 3. The app scans for PhotoFrame setup hotspots, connects automatically, and guides you through WiFi configuration
 
-**Re-provision:** Delete credentials with `idf.py erase-flash` or place new `wifi.txt` on SD card after clearing stored credentials
+**Re-provision:** Delete credentials with `idf.py erase-flash` or place new `wifi.txt` on SD card after clearing stored credentials. You can also switch between WiFi and standalone-hotspot modes anytime from the **General** settings tab.
+
+**Recovery (broken WiFi):** If your home WiFi is unreachable and you can't reach the device, hold the wake button for 5 seconds at boot. The activity LED blinks twice to confirm; the device will then run as a standalone hotspot for that session only (the persistent setting is unchanged), letting you connect to re-provision.
 
 ## Usage
 
