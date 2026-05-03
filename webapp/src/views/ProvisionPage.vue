@@ -18,6 +18,7 @@ const ICON_PATHS = {
     "M11.83 9L15 12.16V12a3 3 0 0 0-3-3zm-4.3.8l1.55 1.55c-.05.21-.08.42-.08.65a3 3 0 0 0 3 3c.22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53a5 5 0 0 1-5-5c0-.79.2-1.53.53-2.2M2 4.27l2.28 2.28l.45.45C3.08 8.3 1.78 10 1 12c1.73 4.39 6 7.5 11 7.5c1.55 0 3.03-.3 4.38-.84l.43.42L19.73 22L21 20.73L3.27 3M12 7a5 5 0 0 1 5 5c0 .64-.13 1.26-.36 1.82l2.93 2.93c1.5-1.25 2.7-2.89 3.43-4.75c-1.73-4.39-6-7.5-11-7.5c-1.4 0-2.74.25-4 .7l2.17 2.15C10.74 7.13 11.35 7 12 7",
 };
 
+const mode = ref("sta"); // 'sta' | 'ap'
 const ssid = ref("");
 const password = ref("");
 const deviceName = ref("PhotoFrame");
@@ -76,15 +77,23 @@ onUnmounted(() => {
 async function submitForm() {
   loading.value = true;
   status.value = "info";
-  statusMessage.value = "Testing WiFi connection...";
 
   const formData = new URLSearchParams();
-  formData.append("ssid", ssid.value);
-  formData.append("password", password.value);
   formData.append("deviceName", deviceName.value);
 
+  let endpoint;
+  if (mode.value === "ap") {
+    statusMessage.value = "Configuring standalone hotspot...";
+    endpoint = "/save-ap";
+  } else {
+    statusMessage.value = "Testing WiFi connection...";
+    formData.append("ssid", ssid.value);
+    formData.append("password", password.value);
+    endpoint = "/save";
+  }
+
   try {
-    const response = await fetch("/save", {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -94,13 +103,18 @@ async function submitForm() {
 
     if (response.ok) {
       status.value = "success";
-      // Generate mDNS hostname from device name (lowercase, spaces to hyphens)
-      const hostname = deviceName.value.toLowerCase().replace(/\s+/g, "-");
-      statusMessage.value = `Credentials saved! Device will restart in 3 seconds and attempt to connect to "${ssid.value}".`;
 
-      setTimeout(() => {
-        statusMessage.value += `\n\nRestarting now... Close this page and reconnect to your WiFi network, then visit http://${hostname}.local`;
-      }, 3000);
+      if (mode.value === "ap") {
+        statusMessage.value =
+          "Standalone hotspot configured! The device is restarting and will come up as its own WiFi network. Watch the device screen for the new SSID and password.";
+      } else {
+        const hostname = deviceName.value.toLowerCase().replace(/\s+/g, "-");
+        statusMessage.value = `Credentials saved! Device will restart in 3 seconds and attempt to connect to "${ssid.value}".`;
+
+        setTimeout(() => {
+          statusMessage.value += `\n\nRestarting now... Close this page and reconnect to your WiFi network, then visit http://${hostname}.local`;
+        }, 3000);
+      }
     } else {
       loading.value = false;
       status.value = "error";
@@ -127,10 +141,42 @@ async function submitForm() {
       <v-card class="provision-card" elevation="12">
         <v-card-title class="text-h6"> PhotoFrame Setup </v-card-title>
 
-        <v-card-subtitle class="mb-2"> Connect your PhotoFrame to WiFi </v-card-subtitle>
+        <v-card-subtitle class="mb-2"> Choose how the PhotoFrame connects </v-card-subtitle>
 
         <v-form @submit.prevent="submitForm">
+          <v-radio-group
+            v-model="mode"
+            :disabled="loading"
+            class="mb-2"
+            hide-details
+            density="comfortable"
+          >
+            <v-radio value="sta">
+              <template #label>
+                <div>
+                  <div class="text-body-2 font-weight-medium">Connect to existing WiFi</div>
+                  <div class="text-caption text-medium-emphasis">
+                    Joins your home network. Enables NTP, OTA, Home Assistant, and URL-based
+                    rotation.
+                  </div>
+                </div>
+              </template>
+            </v-radio>
+            <v-radio value="ap">
+              <template #label>
+                <div>
+                  <div class="text-body-2 font-weight-medium">Standalone hotspot</div>
+                  <div class="text-caption text-medium-emphasis">
+                    Device runs its own WiFi for direct phone access. No internet —
+                    internet-dependent features will be disabled.
+                  </div>
+                </div>
+              </template>
+            </v-radio>
+          </v-radio-group>
+
           <v-combobox
+            v-if="mode === 'sta'"
             v-model="ssid"
             :items="networks"
             item-title="title"
@@ -176,6 +222,7 @@ async function submitForm() {
           </v-combobox>
 
           <v-text-field
+            v-if="mode === 'sta'"
             v-model="password"
             label="WiFi Password"
             :type="showPassword ? 'text' : 'password'"
@@ -206,7 +253,7 @@ async function submitForm() {
           />
 
           <v-btn type="submit" color="primary" size="large" block :loading="loading">
-            Connect to WiFi
+            {{ mode === "ap" ? "Set up hotspot" : "Connect to WiFi" }}
           </v-btn>
         </v-form>
 
