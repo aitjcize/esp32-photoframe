@@ -17,6 +17,7 @@
 #include "config.h"
 #include "config_manager.h"
 #include "display_manager.h"
+#include "dns_server.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
@@ -2864,4 +2865,76 @@ void http_server_set_ready(void)
 {
     system_ready = true;
     ESP_LOGI(TAG, "System marked as ready for HTTP requests");
+}
+
+// Captive-portal redirect: any platform-specific probe URL returns a tiny
+// page that meta-refreshes to the webapp root, which signals the OS that
+// the network is "captive" and should auto-open the browser.
+static esp_err_t captive_portal_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Captive portal probe: %s", req->uri);
+    const char *redirect_html =
+        "<!DOCTYPE html><html><head>"
+        "<meta http-equiv='refresh' content='0;url=http://192.168.4.1/'>"
+        "</head><body>Redirecting...</body></html>";
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, redirect_html, strlen(redirect_html));
+    return ESP_OK;
+}
+
+// 404 catch-all: same redirect as the captive-portal handler. Together
+// these cover the common detection URLs (iOS /hotspot-detect.html,
+// Windows /connecttest.txt, Android /generate_204) plus any random
+// hostname the DNS server points at us.
+static esp_err_t captive_portal_404_handler(httpd_req_t *req, httpd_err_code_t err)
+{
+    (void) err;
+    ESP_LOGI(TAG, "404 catch-all: %s", req->uri);
+    const char *redirect_html =
+        "<!DOCTYPE html><html><head>"
+        "<meta http-equiv='refresh' content='0;url=http://192.168.4.1/'>"
+        "</head><body>Redirecting...</body></html>";
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_status(req, "200 OK");
+    httpd_resp_send(req, redirect_html, strlen(redirect_html));
+    return ESP_OK;
+}
+
+esp_err_t http_server_enable_captive_portal(void)
+{
+    if (!server) {
+        ESP_LOGE(TAG, "http_server not started — cannot enable captive portal");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    httpd_uri_t ios_uri = {.uri = "/hotspot-detect.html",
+                           .method = HTTP_GET,
+                           .handler = captive_portal_handler,
+                           .user_ctx = NULL};
+    httpd_register_uri_handler(server, &ios_uri);
+
+    httpd_uri_t android_uri = {.uri = "/generate_204",
+                               .method = HTTP_GET,
+                               .handler = captive_portal_handler,
+                               .user_ctx = NULL};
+    httpd_register_uri_handler(server, &android_uri);
+
+    httpd_uri_t windows_uri = {.uri = "/connecttest.txt",
+                               .method = HTTP_GET,
+                               .handler = captive_portal_handler,
+                               .user_ctx = NULL};
+    httpd_register_uri_handler(server, &windows_uri);
+
+    httpd_uri_t ncsi_uri = {.uri = "/ncsi.txt",
+                            .method = HTTP_GET,
+                            .handler = captive_portal_handler,
+                            .user_ctx = NULL};
+    httpd_register_uri_handler(server, &ncsi_uri);
+
+    httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, captive_portal_404_handler);
+
+    dns_server_start();
+
+    ESP_LOGI(TAG, "Captive portal enabled (DNS catch-all + platform probes)");
+    return ESP_OK;
 }
