@@ -100,6 +100,14 @@ static void wait_busy(const char *label)
 
 static void gpio_init(void)
 {
+    // Release any pad holds latched by a previous deep-sleep cycle
+    // (see epaper_enter_deepsleep) so gpio_config + gpio_set_level
+    // below can re-drive these pins.
+    gpio_hold_dis(g_cfg.pin_cs);
+    gpio_hold_dis(g_cfg.pin_cs1);
+    gpio_hold_dis(g_cfg.pin_dc);
+    gpio_hold_dis(g_cfg.pin_rst);
+
     // Set desired output levels BEFORE enabling output drivers to avoid glitches
     gpio_set_level(g_cfg.pin_cs, 1);   // CS HIGH = deselected
     gpio_set_level(g_cfg.pin_cs1, 1);  // CS1 HIGH = deselected
@@ -365,13 +373,30 @@ void epaper_enter_deepsleep(void)
     wait_busy("deepsleep");
 
     if (g_cfg.pin_enable >= 0) {
+        // Drive panel-facing GPIOs LOW before cutting VDD so they don't
+        // back-feed through the panel's ESD diodes once its rail drops to
+        // 0V. SPI peripheral pads (MOSI/SCLK) become Hi-Z in deep sleep
+        // and don't need handling.
+        gpio_set_level(g_cfg.pin_cs, 0);
+        gpio_set_level(g_cfg.pin_dc, 0);
+        gpio_set_level(g_cfg.pin_rst, 0);
+        if (g_cfg.pin_cs1 >= 0) {
+            gpio_set_level(g_cfg.pin_cs1, 0);
+        }
+
         vTaskDelay(pdMS_TO_TICKS(100));       // Ensure display enters sleep before cutting power
         gpio_set_level(g_cfg.pin_enable, 0);  // Cut power
-        // Latch the pad low so the rail stays cut once the digital IO
-        // domain powers down during deep sleep, and arm deep-sleep hold
-        // so the latch survives into deep sleep. Both calls are
-        // idempotent; other pins the board holds aren't affected.
+        // Latch the pads low so the rail stays cut and panel-facing
+        // signals stay grounded once the digital IO domain powers down
+        // during deep sleep, and arm deep-sleep hold so the latch
+        // survives into deep sleep. All calls are idempotent.
         gpio_hold_en(g_cfg.pin_enable);
+        gpio_hold_en(g_cfg.pin_cs);
+        gpio_hold_en(g_cfg.pin_dc);
+        gpio_hold_en(g_cfg.pin_rst);
+        if (g_cfg.pin_cs1 >= 0) {
+            gpio_hold_en(g_cfg.pin_cs1);
+        }
         gpio_deep_sleep_hold_en();
     }
 
