@@ -123,9 +123,13 @@ const rotationOptions = [
 ];
 
 const rotationModeOptions = computed(() => {
-  const options = [{ title: "URL - Fetch image from URL", value: "url" }];
+  // URL rotation requires internet — drop it in AP-only mode.
+  const options = [];
   if (appStore.systemInfo.sdcard_inserted || appStore.systemInfo.has_flash_storage) {
-    options.unshift({ title: "Storage - Rotate through images", value: "storage" });
+    options.push({ title: "Storage - Rotate through images", value: "storage" });
+  }
+  if (!appStore.isApMode) {
+    options.push({ title: "URL - Fetch image from URL", value: "url" });
   }
   return options;
 });
@@ -327,11 +331,23 @@ async function performFactoryReset() {
         Settings
       </v-card-title>
 
+      <v-alert
+        v-if="appStore.isApMode"
+        type="info"
+        variant="tonal"
+        density="compact"
+        class="mx-4 mt-2"
+        icon="mdi-wifi"
+      >
+        Device is running as a standalone hotspot. Internet-dependent features
+        (NTP, OTA, Home Assistant, URL-based rotation) are disabled.
+      </v-alert>
+
       <v-tabs v-model="tab" color="primary" show-arrows density="compact">
         <v-tab value="general"> General </v-tab>
         <v-tab value="autoRotate"> Auto Rotate </v-tab>
         <v-tab value="power"> Power </v-tab>
-        <v-tab value="homeAssistant"> Home Assistant </v-tab>
+        <v-tab value="homeAssistant" :disabled="appStore.isApMode"> Home Assistant </v-tab>
         <v-tab value="processing"> Processing </v-tab>
         <v-tab value="ai"> AI Generation </v-tab>
         <v-tab value="calibration"> Palette </v-tab>
@@ -354,7 +370,7 @@ async function performFactoryReset() {
               </v-col>
             </v-row>
 
-            <v-row>
+            <v-row v-if="!appStore.isApMode">
               <v-col cols="12" md="6">
                 <v-text-field
                   v-model="settingsStore.deviceSettings.wifiSsid"
@@ -407,7 +423,7 @@ async function performFactoryReset() {
                   label="Device Time"
                   variant="outlined"
                   readonly
-                  hint="Click sync to update from NTP server"
+                  :hint="appStore.isApMode ? 'NTP unavailable in AP mode' : 'Click sync to update from NTP server'"
                   persistent-hint
                 >
                   <template #append-inner>
@@ -416,6 +432,7 @@ async function performFactoryReset() {
                       variant="text"
                       size="small"
                       :loading="syncingTime"
+                      :disabled="appStore.isApMode"
                       @click="syncTime"
                     >
                       <v-icon>mdi-sync</v-icon>
@@ -444,6 +461,7 @@ async function performFactoryReset() {
                   v-model="settingsStore.deviceSettings.ntpServer"
                   label="NTP Server"
                   variant="outlined"
+                  :disabled="appStore.isApMode"
                   hint="e.g., pool.ntp.org, cn.pool.ntp.org"
                   persistent-hint
                 />
