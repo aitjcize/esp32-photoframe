@@ -12,6 +12,10 @@
 #include <nvs_flash.h>
 #include <time.h>
 
+#if CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED
+#include <hal/usb_serial_jtag_ll.h>
+#endif
+
 #include "board_hal.h"
 #include "config.h"
 #include "config_manager.h"
@@ -352,6 +356,15 @@ void power_manager_enter_sleep(void)
 
     ESP_LOGI(TAG, "Entering deep sleep now");
     vTaskDelay(pdMS_TO_TICKS(100));
+
+#if CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED
+    // Power down the USB-Serial-JTAG PHY pads. The console pipes through
+    // this peripheral on S3 (CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED),
+    // and leaving the PHY enabled draws ~250 µA in deep sleep. After this
+    // call the console is dead until the next cold boot, which is fine —
+    // we never return from esp_deep_sleep_start().
+    usb_serial_jtag_ll_phy_enable_pad(false);
+#endif
 
     esp_deep_sleep_start();
 }
