@@ -6,12 +6,15 @@
 #include "config_manager.h"
 #include "esp_event.h"
 #include "esp_log.h"
+#include "esp_netif.h"
+#include "esp_random.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "lwip/err.h"
+#include "lwip/ip4_addr.h"
 #include "lwip/sys.h"
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -279,4 +282,82 @@ int wifi_manager_scan(wifi_ap_record_t *results, int max_results)
 
     ESP_LOGI(TAG, "WiFi scan found %d APs (returning %d)", ap_count, fetch_count);
     return (int) fetch_count;
+}
+
+void wifi_manager_generate_ap_password(char *out, size_t out_len)
+{
+    // Curated alphabet: drop ambiguous chars (0/O, 1/l/I) so the user can
+    // read the password off the splash without second-guessing.
+    static const char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+    static const size_t alphabet_len = sizeof(alphabet) - 1;
+
+    if (!out || out_len == 0) {
+        return;
+    }
+
+    size_t want = out_len - 1;
+    if (want > 8) {
+        want = 8;
+    }
+    for (size_t i = 0; i < want; i++) {
+        out[i] = alphabet[esp_random() % alphabet_len];
+    }
+    out[want] = '\0';
+}
+
+esp_err_t wifi_manager_start_ap(const char *ssid, const char *password)
+{
+    if (!ssid || strlen(ssid) == 0) {
+        ESP_LOGE(TAG, "AP SSID is empty");
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!password || strlen(password) < 8) {
+        ESP_LOGE(TAG, "AP password must be at least 8 characters (WPA2 requirement)");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGI(TAG, "Starting WPA2 soft-AP: %s", ssid);
+
+    esp_wifi_stop();
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+
+    wifi_config_t wifi_config = {
+        .ap =
+            {
+                .channel = 1,
+                .max_connection = 4,
+                .authmode = WIFI_AUTH_WPA2_PSK,
+                .pmf_cfg.required = false,
+            },
+    };
+    strncpy((char *) wifi_config.ap.ssid, ssid, sizeof(wifi_config.ap.ssid));
+    wifi_config.ap.ssid_len = strlen(ssid);
+    strncpy((char *) wifi_config.ap.password, password, sizeof(wifi_config.ap.password) - 1);
+
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    // Wait for the AP netif to be created.
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    esp_netif_t *ap_netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    if (ap_netif == NULL) {
+        ESP_LOGE(TAG, "Failed to get AP netif handle");
+        return ESP_FAIL;
+    }
+
+    // Pin a static IP so the splash QR code (http://192.168.4.1) is stable.
+    esp_netif_dhcps_stop(ap_netif);
+
+    esp_netif_ip_info_t ip_info;
+    IP4_ADDR(&ip_info.ip, 192, 168, 4, 1);
+    IP4_ADDR(&ip_info.gw, 192, 168, 4, 1);
+    IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+    ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &ip_info));
+
+    ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
+
+    ESP_LOGI(TAG, "soft-AP up at 192.168.4.1");
+    return ESP_OK;
 }
