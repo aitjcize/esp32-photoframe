@@ -305,6 +305,9 @@ async function saveSettings() {
 
 const showWifiModeDialog = ref(false);
 const switchingWifiMode = ref(false);
+// Populated after a successful STA→AP switch so the dialog can show the
+// new SSID + password before the connection drops at reboot.
+const apSwitchCredentials = ref(null);
 
 async function switchWifiMode() {
   const targetMode = appStore.isApMode ? "sta" : "ap";
@@ -316,12 +319,18 @@ async function switchWifiMode() {
       body: JSON.stringify({ mode: targetMode }),
     });
     if (response.ok) {
-      showWifiModeDialog.value = false;
-      saveSuccess.value = true;
-      saveMessage.value =
-        targetMode === "ap"
-          ? "Switching to standalone hotspot. Device is rebooting — reconnect to its WiFi when it comes back up."
-          : "Switching to STA mode. Device is rebooting — it will rejoin your home WiFi.";
+      const data = await response.json().catch(() => ({}));
+      if (targetMode === "ap" && data.ssid && data.password) {
+        // Keep the dialog open and show the credentials prominently —
+        // the user has only the next few seconds before the device
+        // reboots and the webapp connection drops.
+        apSwitchCredentials.value = { ssid: data.ssid, password: data.password };
+      } else {
+        showWifiModeDialog.value = false;
+        saveSuccess.value = true;
+        saveMessage.value =
+          "Switching to STA mode. Device is rebooting — it will rejoin your home WiFi.";
+      }
     } else {
       saveError.value = true;
       saveMessage.value = "Failed to switch WiFi mode";
@@ -334,6 +343,11 @@ async function switchWifiMode() {
   } finally {
     switchingWifiMode.value = false;
   }
+}
+
+function dismissApSwitch() {
+  apSwitchCredentials.value = null;
+  showWifiModeDialog.value = false;
 }
 
 async function performFactoryReset() {
@@ -883,9 +897,35 @@ async function performFactoryReset() {
       </v-card-actions>
     </v-card>
 
-    <!-- Factory Reset Confirmation Dialog -->
-    <v-dialog v-model="showWifiModeDialog" max-width="500">
-      <v-card>
+    <v-dialog
+      v-model="showWifiModeDialog"
+      max-width="500"
+      :persistent="apSwitchCredentials !== null"
+    >
+      <v-card v-if="apSwitchCredentials">
+        <v-card-title>
+          <v-icon icon="mdi-wifi" class="mr-2" />
+          Hotspot starting — write this down
+        </v-card-title>
+        <v-card-text>
+          <v-alert type="warning" variant="tonal" density="compact" class="mb-4">
+            The device is rebooting. Once it comes back up your phone will need to join the
+            hotspot below — write the password down before this dialog closes.
+          </v-alert>
+          <div class="text-body-2 mb-1">SSID</div>
+          <div class="text-h6 mb-3 font-monospace">{{ apSwitchCredentials.ssid }}</div>
+          <div class="text-body-2 mb-1">Password</div>
+          <div class="text-h6 font-monospace">{{ apSwitchCredentials.password }}</div>
+          <div class="text-caption text-medium-emphasis mt-3">
+            Also shown as a QR code on the device's screen on first boot.
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn color="primary" variant="flat" @click="dismissApSwitch">Got it</v-btn>
+        </v-card-actions>
+      </v-card>
+      <v-card v-else>
         <v-card-title>
           <v-icon icon="mdi-wifi" class="mr-2" />
           Switch WiFi mode?

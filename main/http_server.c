@@ -2252,6 +2252,9 @@ static esp_err_t wifi_mode_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "status", "ok");
+
     if (strcmp(mode_item->valuestring, "ap") == 0) {
         // Switching to AP requires a password — generate one if missing so
         // the next boot can bring up the secured hotspot directly.
@@ -2261,20 +2264,40 @@ static esp_err_t wifi_mode_handler(httpd_req_t *req)
             config_manager_set_ap_password(generated);
         }
         config_manager_set_wifi_mode(WIFI_MODE_SETTING_AP);
+
+        // Mark this as a "first boot in this mode" so the AP splash fires
+        // on next boot — that's the only way the user can see the password
+        // after the webapp connection drops at reboot.
+        nvs_handle_t nvs_handle;
+        if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+            nvs_set_u8(nvs_handle, NVS_SETUP_COMPLETE_KEY, 1);
+            nvs_commit(nvs_handle);
+            nvs_close(nvs_handle);
+        }
+
+        // Return the credentials so the webapp can show them in the
+        // confirmation modal before the device reboots.
+        cJSON_AddStringToObject(response, "ssid", get_setup_ap_ssid());
+        cJSON_AddStringToObject(response, "password", config_manager_get_ap_password());
+
         ESP_LOGI(TAG, "Switched wifi_mode to AP");
     } else if (strcmp(mode_item->valuestring, "sta") == 0) {
         config_manager_set_wifi_mode(WIFI_MODE_SETTING_STA);
         ESP_LOGI(TAG, "Switched wifi_mode to STA");
     } else {
         cJSON_Delete(body);
+        cJSON_Delete(response);
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "mode must be 'sta' or 'ap'");
         return ESP_FAIL;
     }
 
     cJSON_Delete(body);
 
+    char *json_str = cJSON_PrintUnformatted(response);
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(response);
 
     // Reboot in the background so the response can flush first.
     xTaskCreate(restart_task, "restart_task", 2048, NULL, 5, NULL);
