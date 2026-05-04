@@ -309,14 +309,87 @@ const switchingWifiMode = ref(false);
 // new SSID + password before the connection drops at reboot.
 const apSwitchCredentials = ref(null);
 
+// AP→STA dialog state. credentialChoice is either "saved" (reuse stored
+// SSID/password as-is) or "new" (use the scan picker + password input).
+const credentialChoice = ref("saved");
+const newStaSsid = ref("");
+const newStaPassword = ref("");
+const showNewStaPassword = ref(false);
+const wifiNetworks = ref([]);
+const scanningWifi = ref(false);
+
+const savedStaSsid = computed(() => settingsStore.deviceSettings.wifiSsid || "");
+
+function signalIcon(rssi) {
+  if (rssi >= -50) return "$mdi-wifi-strength-4";
+  if (rssi >= -60) return "$mdi-wifi-strength-3";
+  if (rssi >= -70) return "$mdi-wifi-strength-2";
+  return "$mdi-wifi-strength-1";
+}
+
+async function scanForWifi() {
+  scanningWifi.value = true;
+  try {
+    const res = await fetch("/api/wifi/scan");
+    if (res.ok) {
+      const data = await res.json();
+      wifiNetworks.value = data.map((n) => ({
+        title: n.ssid,
+        subtitle: `${n.rssi} dBm · ${n.auth}`,
+        value: n.ssid,
+        rssi: n.rssi,
+        prependIcon: signalIcon(n.rssi),
+      }));
+    }
+  } catch (e) {
+    console.error("WiFi scan failed:", e);
+  } finally {
+    scanningWifi.value = false;
+  }
+}
+
+function resetWifiModeDialog() {
+  credentialChoice.value = "saved";
+  newStaSsid.value = "";
+  newStaPassword.value = "";
+  showNewStaPassword.value = false;
+  apSwitchCredentials.value = null;
+  wifiNetworks.value = [];
+  showWifiModeDialog.value = false;
+}
+
+function openWifiModeDialog() {
+  credentialChoice.value = savedStaSsid.value ? "saved" : "new";
+  showWifiModeDialog.value = true;
+  // Pre-fetch networks if the user is heading toward STA — they'll likely
+  // need them. Skip on STA→AP since the AP path doesn't need a scan.
+  if (appStore.isApMode) {
+    scanForWifi();
+  }
+}
+
 async function switchWifiMode() {
   const targetMode = appStore.isApMode ? "sta" : "ap";
+
+  // Build POST body. STA path optionally carries new credentials.
+  const payload = { mode: targetMode };
+  if (targetMode === "sta" && credentialChoice.value === "new") {
+    if (!newStaSsid.value) {
+      saveError.value = true;
+      saveMessage.value = "Enter a WiFi network name";
+      setTimeout(() => (saveError.value = false), 5000);
+      return;
+    }
+    payload.ssid = newStaSsid.value;
+    payload.password = newStaPassword.value;
+  }
+
   switchingWifiMode.value = true;
   try {
     const response = await fetch("/api/wifi-mode", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: targetMode }),
+      body: JSON.stringify(payload),
     });
     if (response.ok) {
       const data = await response.json().catch(() => ({}));
@@ -326,10 +399,12 @@ async function switchWifiMode() {
         // reboots and the webapp connection drops.
         apSwitchCredentials.value = { ssid: data.ssid, password: data.password };
       } else {
-        showWifiModeDialog.value = false;
+        resetWifiModeDialog();
         saveSuccess.value = true;
-        saveMessage.value =
-          "Switching to STA mode. Device is rebooting — it will rejoin your home WiFi.";
+        const ssid = payload.ssid || savedStaSsid.value;
+        saveMessage.value = ssid
+          ? `Switching to STA mode. Device is rebooting — it will connect to "${ssid}".`
+          : "Switching to STA mode. Device is rebooting.";
       }
     } else {
       saveError.value = true;
@@ -346,8 +421,7 @@ async function switchWifiMode() {
 }
 
 function dismissApSwitch() {
-  apSwitchCredentials.value = null;
-  showWifiModeDialog.value = false;
+  resetWifiModeDialog();
 }
 
 async function performFactoryReset() {
@@ -374,7 +448,7 @@ async function performFactoryReset() {
   <div>
     <v-card style="overflow: visible">
       <v-card-title class="d-flex align-center">
-        <v-icon icon="mdi-cog" class="mr-2" />
+        <v-icon icon="$mdi-cog" class="mr-2" />
         Settings
       </v-card-title>
 
@@ -384,7 +458,7 @@ async function performFactoryReset() {
         variant="tonal"
         density="compact"
         class="mx-4 mt-2"
-        icon="mdi-wifi"
+        icon="$mdi-wifi"
       >
         Device is running as a standalone hotspot. Internet-dependent features (NTP, OTA, Home
         Assistant, URL-based rotation) are disabled.
@@ -422,7 +496,7 @@ async function performFactoryReset() {
                     appStore.isApMode ? "Standalone hotspot" : "Connected to WiFi"
                   }}</strong>
                 </div>
-                <v-btn variant="outlined" size="small" @click="showWifiModeDialog = true">
+                <v-btn variant="outlined" size="small" @click="openWifiModeDialog">
                   Switch to {{ appStore.isApMode ? "STA" : "hotspot" }}
                 </v-btn>
               </v-col>
@@ -430,13 +504,44 @@ async function performFactoryReset() {
 
             <v-row v-if="!appStore.isApMode">
               <v-col cols="12" md="6">
-                <v-text-field
+                <v-combobox
                   v-model="settingsStore.deviceSettings.wifiSsid"
+                  :items="wifiNetworks"
+                  item-title="title"
+                  item-value="value"
                   label="WiFi SSID"
                   variant="outlined"
                   hint="Network name to connect to"
                   persistent-hint
-                />
+                  :loading="scanningWifi"
+                  @update:model-value="
+                    (val) => {
+                      if (val && typeof val === 'object')
+                        settingsStore.deviceSettings.wifiSsid = val.value;
+                    }
+                  "
+                >
+                  <template #item="{ item, props: itemProps }">
+                    <v-list-item v-bind="itemProps" :prepend-icon="item.raw.prependIcon">
+                      <template #append>
+                        <span class="text-caption text-medium-emphasis">{{
+                          item.raw.subtitle
+                        }}</span>
+                      </template>
+                    </v-list-item>
+                  </template>
+                  <template #append>
+                    <v-btn
+                      icon="$mdi-refresh"
+                      variant="text"
+                      size="small"
+                      :loading="scanningWifi"
+                      @click.stop="scanForWifi"
+                    >
+                      <v-tooltip activator="parent" location="top">Scan WiFi</v-tooltip>
+                    </v-btn>
+                  </template>
+                </v-combobox>
               </v-col>
               <v-col cols="12" md="6">
                 <v-text-field
@@ -497,7 +602,7 @@ async function performFactoryReset() {
                       :disabled="appStore.isApMode"
                       @click="syncTime"
                     >
-                      <v-icon>mdi-sync</v-icon>
+                      <v-icon icon="$mdi-sync" />
                       <v-tooltip activator="parent" location="top">Sync NTP</v-tooltip>
                     </v-btn>
                   </template>
@@ -647,7 +752,7 @@ async function performFactoryReset() {
                         variant="tonal"
                         style="align-self: flex-start"
                       >
-                        <v-icon start>mdi-check-circle</v-icon>
+                        <v-icon icon="$mdi-check-circle" start />
                         Certificate Pinned
                       </v-chip>
                       <div class="text-caption text-medium-emphasis">
@@ -846,11 +951,11 @@ async function performFactoryReset() {
             <v-row>
               <v-col cols="12">
                 <v-btn variant="outlined" class="mr-2" @click="exportConfig">
-                  <v-icon start>mdi-download</v-icon>
+                  <v-icon icon="$mdi-download" start />
                   Export Config
                 </v-btn>
                 <v-btn variant="outlined" @click="$refs.importInput.click()">
-                  <v-icon start>mdi-upload</v-icon>
+                  <v-icon icon="$mdi-upload" start />
                   Import Config
                 </v-btn>
                 <input
@@ -869,7 +974,7 @@ async function performFactoryReset() {
             <v-row>
               <v-col cols="12">
                 <v-btn color="error" variant="outlined" @click="showFactoryResetDialog = true">
-                  <v-icon start>mdi-restore-alert</v-icon>
+                  <v-icon icon="$mdi-restore-alert" start />
                   Factory Reset Device
                 </v-btn>
               </v-col>
@@ -882,16 +987,16 @@ async function performFactoryReset() {
         <v-spacer />
         <v-fade-transition>
           <v-chip v-if="saveSuccess" color="success" variant="tonal">
-            <v-icon icon="mdi-check" start />
+            <v-icon icon="$mdi-check" start />
             {{ saveMessage || "Settings saved!" }}
           </v-chip>
           <v-chip v-else-if="saveError" color="error" variant="tonal">
-            <v-icon icon="mdi-alert-circle" start />
+            <v-icon icon="$mdi-alert-circle" start />
             {{ saveMessage || "Failed to save settings" }}
           </v-chip>
         </v-fade-transition>
         <v-btn color="primary" :loading="saving" @click="saveSettings">
-          <v-icon icon="mdi-content-save" start />
+          <v-icon icon="$mdi-content-save" start />
           Save Settings
         </v-btn>
       </v-card-actions>
@@ -904,13 +1009,13 @@ async function performFactoryReset() {
     >
       <v-card v-if="apSwitchCredentials">
         <v-card-title>
-          <v-icon icon="mdi-wifi" class="mr-2" />
+          <v-icon icon="$mdi-wifi" class="mr-2" />
           Hotspot starting — write this down
         </v-card-title>
         <v-card-text>
           <v-alert type="warning" variant="tonal" density="compact" class="mb-4">
-            The device is rebooting. Once it comes back up your phone will need to join the
-            hotspot below — write the password down before this dialog closes.
+            The device is rebooting. Once it comes back up your phone will need to join the hotspot
+            below — write the password down before this dialog closes.
           </v-alert>
           <div class="text-body-2 mb-1">SSID</div>
           <div class="text-h6 mb-3 font-monospace">{{ apSwitchCredentials.ssid }}</div>
@@ -927,15 +1032,80 @@ async function performFactoryReset() {
       </v-card>
       <v-card v-else>
         <v-card-title>
-          <v-icon icon="mdi-wifi" class="mr-2" />
+          <v-icon icon="$mdi-wifi" class="mr-2" />
           Switch WiFi mode?
         </v-card-title>
         <v-card-text>
-          <div v-if="appStore.isApMode" class="text-body-1">
-            Switch back to <strong>Connect to WiFi</strong>? The device will reboot and attempt to
-            rejoin the WiFi network it was previously connected to. If those credentials are no
-            longer valid, you may need to re-provision via the initial setup hotspot.
-          </div>
+          <!-- AP→STA: choose between reusing saved creds or entering new ones -->
+          <template v-if="appStore.isApMode">
+            <div class="text-body-1 mb-3">
+              Switch back to <strong>Connect to WiFi</strong>? The device will reboot and join your
+              network.
+            </div>
+            <v-radio-group v-model="credentialChoice" hide-details density="compact" class="mb-2">
+              <v-radio v-if="savedStaSsid" value="saved">
+                <template #label>
+                  <div>
+                    <div class="text-body-2">Use saved credentials</div>
+                    <div class="text-caption text-medium-emphasis">{{ savedStaSsid }}</div>
+                  </div>
+                </template>
+              </v-radio>
+              <v-radio value="new">
+                <template #label>
+                  <div class="text-body-2">Enter different credentials</div>
+                </template>
+              </v-radio>
+            </v-radio-group>
+
+            <div v-if="credentialChoice === 'new'" class="mt-3">
+              <v-combobox
+                v-model="newStaSsid"
+                :items="wifiNetworks"
+                item-title="title"
+                item-value="value"
+                label="WiFi network name"
+                variant="outlined"
+                density="compact"
+                :loading="scanningWifi"
+                class="mb-2"
+                @update:model-value="
+                  (val) => {
+                    if (val && typeof val === 'object') newStaSsid = val.value;
+                  }
+                "
+              >
+                <template #item="{ item, props: itemProps }">
+                  <v-list-item v-bind="itemProps" :prepend-icon="item.raw.prependIcon">
+                    <template #append>
+                      <span class="text-caption text-medium-emphasis">{{ item.raw.subtitle }}</span>
+                    </template>
+                  </v-list-item>
+                </template>
+                <template #append>
+                  <v-btn
+                    icon="$mdi-refresh"
+                    variant="text"
+                    size="small"
+                    :loading="scanningWifi"
+                    @click.stop="scanForWifi"
+                  >
+                    <v-tooltip activator="parent" location="top">Scan WiFi</v-tooltip>
+                  </v-btn>
+                </template>
+              </v-combobox>
+              <v-text-field
+                v-model="newStaPassword"
+                :type="showNewStaPassword ? 'text' : 'password'"
+                label="WiFi password"
+                variant="outlined"
+                density="compact"
+                :append-inner-icon="showNewStaPassword ? '$mdi-eye-off' : '$mdi-eye'"
+                @click:append-inner="showNewStaPassword = !showNewStaPassword"
+              />
+            </div>
+          </template>
+
           <div v-else class="text-body-1">
             Switch to <strong>Standalone hotspot</strong>? The device will reboot and run its own
             WiFi network. Internet-dependent features (NTP, OTA, Home Assistant, URL-based rotation)
@@ -944,7 +1114,7 @@ async function performFactoryReset() {
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="showWifiModeDialog = false">Cancel</v-btn>
+          <v-btn variant="text" @click="resetWifiModeDialog">Cancel</v-btn>
           <v-btn
             color="primary"
             variant="flat"
@@ -960,7 +1130,7 @@ async function performFactoryReset() {
     <v-dialog v-model="showFactoryResetDialog" max-width="500">
       <v-card>
         <v-card-title class="text-h5 text-error">
-          <v-icon icon="mdi-alert" class="mr-2" />
+          <v-icon icon="$mdi-alert" class="mr-2" />
           Confirm Factory Reset
         </v-card-title>
         <v-card-text>
@@ -1001,7 +1171,7 @@ async function performFactoryReset() {
     <v-dialog v-model="showImportDialog" max-width="500">
       <v-card>
         <v-card-title>
-          <v-icon icon="mdi-upload" class="mr-2" />
+          <v-icon icon="$mdi-upload" class="mr-2" />
           Import Config
         </v-card-title>
         <v-card-text>
