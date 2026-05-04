@@ -27,6 +27,7 @@
 #include "esp_vfs_fat.h"
 #include "freertos/task.h"
 #include "ha_integration.h"
+#include "http_common.h"
 #include "image_processor.h"
 #include "nvs_flash.h"
 #include "ota_manager.h"
@@ -2282,6 +2283,26 @@ static esp_err_t wifi_mode_handler(httpd_req_t *req)
 
         ESP_LOGI(TAG, "Switched wifi_mode to AP");
     } else if (strcmp(mode_item->valuestring, "sta") == 0) {
+        // Optional ssid/password — let the user pick a different network
+        // than whatever's currently stored. If absent, the device just
+        // re-uses the saved credentials on next boot.
+        const cJSON *ssid_item = cJSON_GetObjectItemCaseSensitive(body, "ssid");
+        const cJSON *pass_item = cJSON_GetObjectItemCaseSensitive(body, "password");
+        if (cJSON_IsString(ssid_item) && ssid_item->valuestring &&
+            strlen(ssid_item->valuestring) > 0) {
+            const char *new_ssid = ssid_item->valuestring;
+            const char *new_password =
+                (cJSON_IsString(pass_item) && pass_item->valuestring) ? pass_item->valuestring : "";
+            esp_err_t save_err = wifi_manager_save_credentials(new_ssid, new_password);
+            if (save_err != ESP_OK) {
+                cJSON_Delete(body);
+                cJSON_Delete(response);
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                    "Failed to save WiFi credentials");
+                return ESP_FAIL;
+            }
+            ESP_LOGI(TAG, "Saved new STA credentials for SSID: %s", new_ssid);
+        }
         config_manager_set_wifi_mode(WIFI_MODE_SETTING_STA);
         ESP_LOGI(TAG, "Switched wifi_mode to STA");
     } else {
@@ -2731,6 +2752,15 @@ esp_err_t http_server_init(void)
                                      .handler = wifi_mode_handler,
                                      .user_ctx = NULL};
         httpd_register_uri_handler(server, &wifi_mode_uri);
+
+        // Same scan handler the provisioning portal exposes — used by the
+        // Settings panel when switching AP→STA so the user can pick a new
+        // network without re-provisioning.
+        httpd_uri_t wifi_scan_uri = {.uri = "/api/wifi/scan",
+                                     .method = HTTP_GET,
+                                     .handler = http_common_wifi_scan_handler,
+                                     .user_ctx = NULL};
+        httpd_register_uri_handler(server, &wifi_scan_uri);
 
         httpd_uri_t ota_status_uri = {.uri = "/api/ota/status",
                                       .method = HTTP_GET,
