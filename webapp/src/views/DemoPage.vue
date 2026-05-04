@@ -19,14 +19,14 @@ const selectedBoard = ref("waveshare_photopainter_73");
 const baseUrl = import.meta.env.BASE_URL;
 
 const appFeatures = [
-  { icon: "mdi-access-point-network", text: "Auto Discovery" },
-  { icon: "mdi-image-multiple", text: "Gallery Management" },
-  { icon: "mdi-auto-fix", text: "AI Image Generation" },
-  { icon: "mdi-wifi", text: "WiFi Provisioning" },
-  { icon: "mdi-cog", text: "Device Settings" },
-  { icon: "mdi-update", text: "OTA Updates" },
-  { icon: "mdi-camera", text: "Camera Upload" },
-  { icon: "mdi-palette", text: "Image Processing" },
+  { icon: "$mdi-access-point-network", text: "Auto Discovery" },
+  { icon: "$mdi-image-multiple", text: "Gallery Management" },
+  { icon: "$mdi-auto-fix", text: "AI Image Generation" },
+  { icon: "$mdi-wifi", text: "WiFi Provisioning" },
+  { icon: "$mdi-cog", text: "Device Settings" },
+  { icon: "$mdi-update", text: "OTA Updates" },
+  { icon: "$mdi-camera", text: "Camera Upload" },
+  { icon: "$mdi-palette", text: "Image Processing" },
 ];
 
 const supportedBoards = boardsData.map((b) => ({
@@ -203,7 +203,7 @@ function newImage() {
         target="_blank"
         title="View on GitHub"
       >
-        <v-icon icon="mdi-github" />
+        <v-icon icon="$mdi-github" />
       </v-btn>
     </v-app-bar>
 
@@ -245,7 +245,7 @@ function newImage() {
             <v-row>
               <v-col cols="6" md="3">
                 <v-card variant="tonal" class="text-center pa-4" height="100%">
-                  <v-icon icon="mdi-palette" size="32" color="primary" class="mb-2" />
+                  <v-icon icon="$mdi-palette" size="32" color="primary" class="mb-2" />
                   <div class="text-subtitle-2 font-weight-bold">Measured Palette</div>
                   <div class="text-caption">
                     Dither against real panel colors for accurate, non-washed-out output
@@ -254,7 +254,7 @@ function newImage() {
               </v-col>
               <v-col cols="6" md="3">
                 <v-card variant="tonal" class="text-center pa-4" height="100%">
-                  <v-icon icon="mdi-zip-box" size="32" color="primary" class="mb-2" />
+                  <v-icon icon="$mdi-zip-box" size="32" color="primary" class="mb-2" />
                   <div class="text-subtitle-2 font-weight-bold">EPDGZ Format</div>
                   <div class="text-caption">
                     4 bpp pre-processed format for small files and instant render
@@ -263,7 +263,7 @@ function newImage() {
               </v-col>
               <v-col cols="6" md="3">
                 <v-card variant="tonal" class="text-center pa-4" height="100%">
-                  <v-icon icon="mdi-battery-charging" size="32" color="primary" class="mb-2" />
+                  <v-icon icon="$mdi-battery-charging" size="32" color="primary" class="mb-2" />
                   <div class="text-subtitle-2 font-weight-bold">Deep Sleep</div>
                   <div class="text-caption">
                     Weeks of battery life, or always-on for Home Assistant
@@ -272,7 +272,7 @@ function newImage() {
               </v-col>
               <v-col cols="6" md="3">
                 <v-card variant="tonal" class="text-center pa-4" height="100%">
-                  <v-icon icon="mdi-api" size="32" color="primary" class="mb-2" />
+                  <v-icon icon="$mdi-api" size="32" color="primary" class="mb-2" />
                   <div class="text-subtitle-2 font-weight-bold">REST API + Web UI</div>
                   <div class="text-caption">
                     Full programmatic control, drag-and-drop uploads, live status
@@ -286,7 +286,7 @@ function newImage() {
                 size="small"
                 href="https://github.com/aitjcize/esp32-photoframe"
                 target="_blank"
-                prepend-icon="mdi-github"
+                prepend-icon="$mdi-github"
               >
                 Firmware
               </v-btn>
@@ -295,7 +295,7 @@ function newImage() {
                 size="small"
                 href="https://github.com/aitjcize/esp32-photoframe-server"
                 target="_blank"
-                prepend-icon="mdi-server"
+                prepend-icon="$mdi-server"
               >
                 Image Server
               </v-btn>
@@ -304,7 +304,7 @@ function newImage() {
                 size="small"
                 href="https://github.com/aitjcize/ha-esp32-photoframe"
                 target="_blank"
-                prepend-icon="mdi-home-assistant"
+                prepend-icon="$mdi-home-assistant"
               >
                 Home Assistant
               </v-btn>
@@ -313,7 +313,7 @@ function newImage() {
                 size="small"
                 href="https://github.com/aitjcize/esp32-photoframe-app"
                 target="_blank"
-                prepend-icon="mdi-cellphone"
+                prepend-icon="$mdi-cellphone"
               >
                 Mobile App
                 <v-chip size="x-small" class="ml-2" color="info" variant="flat"> Testing </v-chip>
@@ -325,7 +325,7 @@ function newImage() {
         <!-- Supported Hardware -->
         <v-card class="mb-6">
           <v-card-title>
-            <v-icon icon="mdi-chip" class="mr-2" />
+            <v-icon icon="$mdi-chip" class="mr-2" />
             Supported Hardware
           </v-card-title>
           <v-card-text>
@@ -343,7 +343,7 @@ function newImage() {
                   <td class="font-weight-medium">
                     <a :href="b.url" target="_blank" rel="noopener" class="board-link">
                       {{ b.label }}
-                      <v-icon icon="mdi-open-in-new" size="x-small" class="ml-1" />
+                      <v-icon icon="$mdi-open-in-new" size="x-small" class="ml-1" />
                     </a>
                   </td>
                   <td>{{ b.display }}</td>
@@ -358,15 +358,15 @@ function newImage() {
         <!-- Tabs -->
         <v-tabs v-model="tab" color="primary" class="mb-6">
           <v-tab value="demo">
-            <v-icon icon="mdi-image-edit" start />
+            <v-icon icon="$mdi-image-edit" start />
             Image Processing Demo
           </v-tab>
           <v-tab value="flash">
-            <v-icon icon="mdi-flash" start />
+            <v-icon icon="$mdi-flash" start />
             Flash Firmware
           </v-tab>
           <v-tab value="app">
-            <v-icon icon="mdi-cellphone-arrow-down" start />
+            <v-icon icon="$mdi-cellphone-arrow-down" start />
             Companion App
           </v-tab>
         </v-tabs>
@@ -377,7 +377,7 @@ function newImage() {
             <!-- Info Banner -->
             <v-alert type="info" variant="tonal" class="mb-4">
               <template #title>
-                <v-icon icon="mdi-auto-fix" class="mr-2" />
+                <v-icon icon="$mdi-auto-fix" class="mr-2" />
                 Interactive Comparison
               </template>
               Drag the slider to compare our enhanced algorithm with the original image. Our
@@ -388,11 +388,11 @@ function newImage() {
             <!-- Preview Card -->
             <v-card class="mb-4">
               <v-card-title>
-                <v-icon icon="mdi-compare" class="mr-2" />
+                <v-icon icon="$mdi-compare" class="mr-2" />
                 Original vs Processed Comparison
                 <v-spacer />
                 <v-btn v-if="selectedFile" variant="text" size="small" @click="newImage">
-                  <v-icon icon="mdi-refresh" start />
+                  <v-icon icon="$mdi-refresh" start />
                   New Image
                 </v-btn>
               </v-card-title>
@@ -410,7 +410,7 @@ function newImage() {
                   @dragover.prevent
                   @drop.prevent="onDrop"
                 >
-                  <v-icon icon="mdi-cloud-upload" size="64" color="grey" />
+                  <v-icon icon="$mdi-cloud-upload" size="64" color="grey" />
                   <p class="text-h6 mt-4">Click or drag image to upload</p>
                   <p class="text-body-2 text-grey">Supports: JPG, PNG, WebP</p>
                 </v-sheet>
@@ -423,7 +423,7 @@ function newImage() {
             <!-- Processing Controls Card -->
             <v-card>
               <v-card-title>
-                <v-icon icon="mdi-tune" class="mr-2" />
+                <v-icon icon="$mdi-tune" class="mr-2" />
                 Processing Parameters
               </v-card-title>
               <v-card-text>
@@ -444,7 +444,7 @@ function newImage() {
                 <!-- Requirements -->
                 <v-alert type="warning" variant="tonal" class="mb-4">
                   <template #title>
-                    <v-icon icon="mdi-alert" class="mr-2" />
+                    <v-icon icon="$mdi-alert" class="mr-2" />
                     Requirements
                   </template>
                   <ul class="pl-4 mt-2">
@@ -457,7 +457,7 @@ function newImage() {
                 <!-- Flash Card -->
                 <v-card class="mb-4">
                   <v-card-title>
-                    <v-icon icon="mdi-flash" class="mr-2" />
+                    <v-icon icon="$mdi-flash" class="mr-2" />
                     Flash Firmware
                   </v-card-title>
                   <v-card-text>
@@ -504,7 +504,7 @@ function newImage() {
                       >
                         <template #activate>
                           <button class="flash-button">
-                            <v-icon icon="mdi-flash" class="mr-2" />
+                            <v-icon icon="$mdi-flash" class="mr-2" />
                             Install Firmware
                           </button>
                         </template>
@@ -516,7 +516,7 @@ function newImage() {
                 <!-- Instructions -->
                 <v-card>
                   <v-card-title>
-                    <v-icon icon="mdi-format-list-numbered" class="mr-2" />
+                    <v-icon icon="$mdi-format-list-numbered" class="mr-2" />
                     Instructions
                   </v-card-title>
                   <v-card-text>
@@ -543,7 +543,7 @@ function newImage() {
             <v-row justify="center">
               <v-col cols="12" md="8">
                 <v-card class="text-center pa-8">
-                  <v-icon icon="mdi-cellphone-arrow-down" size="80" color="primary" class="mb-4" />
+                  <v-icon icon="$mdi-cellphone-arrow-down" size="80" color="primary" class="mb-4" />
                   <div class="text-h4 font-weight-bold mb-2">ESP Frame Companion App</div>
                   <div class="text-body-1 text-grey-darken-1 mb-6">
                     Manage your e-paper photo frame from your phone. Discover devices, upload
@@ -551,7 +551,7 @@ function newImage() {
                   </div>
 
                   <v-chip color="info" size="large" class="mb-4">
-                    <v-icon icon="mdi-flask-outline" start />
+                    <v-icon icon="$mdi-flask-outline" start />
                     Available for Public Testing
                   </v-chip>
 
@@ -577,7 +577,7 @@ function newImage() {
                         target="_blank"
                         rel="noopener"
                       >
-                        <v-icon icon="mdi-apple" size="40" class="mb-2" />
+                        <v-icon icon="$mdi-apple" size="40" class="mb-2" />
                         <div class="text-subtitle-2">App Store</div>
                         <div class="text-caption text-grey-darken-1">TestFlight</div>
                       </v-card>
@@ -591,7 +591,7 @@ function newImage() {
                         target="_blank"
                         rel="noopener"
                       >
-                        <v-icon icon="mdi-google-play" size="40" class="mb-2" />
+                        <v-icon icon="$mdi-google-play" size="40" class="mb-2" />
                         <div class="text-subtitle-2">Google Play</div>
                         <div class="text-caption text-grey-darken-1">Internal Testing</div>
                       </v-card>

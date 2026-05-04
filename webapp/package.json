@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@aitjcize/epaper-image-convert": "^0.1.15",
+    "@mdi/js": "^7.4.47",
     "pinia": "^2.1.7",
     "upng-js": "^2.1.0",
     "vue": "^3.5.24",

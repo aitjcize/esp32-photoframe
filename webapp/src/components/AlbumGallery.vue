@@ -71,7 +71,7 @@ function getThumbnailUrl(image) {
 <template>
   <v-card>
     <v-card-title class="d-flex align-center">
-      <v-icon icon="mdi-image-multiple" class="mr-2" />
+      <v-icon icon="$mdi-image-multiple" class="mr-2" />
       Albums & Gallery
     </v-card-title>
 
@@ -83,7 +83,7 @@ function getThumbnailUrl(image) {
         </span>
         <v-spacer />
         <v-btn color="primary" size="small" @click="newAlbumDialog = true">
-          <v-icon icon="mdi-plus" start />
+          <v-icon icon="$mdi-plus" start />
           New Album
         </v-btn>
       </div>
@@ -113,7 +113,7 @@ function getThumbnailUrl(image) {
             variant="text"
             @click.stop="confirmDeleteAlbum(album)"
           >
-            <v-icon size="small"> mdi-close </v-icon>
+            <v-icon icon="$mdi-close" size="small" />
           </v-btn>
         </div>
       </div>
@@ -161,7 +161,7 @@ function getThumbnailUrl(image) {
               </v-img>
               <div class="delete-hotspot">
                 <v-btn
-                  icon="mdi-delete"
+                  icon="$mdi-delete"
                   size="x-small"
                   color="error"
                   class="delete-overlay"
@@ -219,7 +219,7 @@ function getThumbnailUrl(image) {
   <v-dialog v-model="displayDialog" max-width="400">
     <v-card>
       <v-card-title>
-        <v-icon icon="mdi-monitor" class="mr-2" />
+        <v-icon icon="$mdi-monitor" class="mr-2" />
         Display Image?
       </v-card-title>
       <v-card-text>
@@ -245,7 +245,7 @@ function getThumbnailUrl(image) {
   <v-dialog v-model="deleteImageDialog" max-width="400">
     <v-card>
       <v-card-title>
-        <v-icon icon="mdi-delete" color="error" class="mr-2" />
+        <v-icon icon="$mdi-delete" color="error" class="mr-2" />
         Delete Image?
       </v-card-title>
       <v-card-text>
