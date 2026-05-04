@@ -454,12 +454,12 @@ async function generateAiImage() {
 <template>
   <v-card class="mt-4">
     <v-card-title class="d-flex align-center">
-      <v-icon icon="mdi-upload" class="mr-2" />
+      <v-icon icon="$mdi-upload" class="mr-2" />
       Upload Image
       <v-spacer />
       <template v-if="canSaveToAlbum && appStore.systemInfo.storage_total > 0">
         <v-icon
-          :icon="appStore.systemInfo.sdcard_inserted ? 'mdi-sd' : 'mdi-database'"
+          :icon="appStore.systemInfo.sdcard_inserted ? '$mdi-sd' : '$mdi-database'"
           size="small"
           class="mr-1"
         />
@@ -470,7 +470,7 @@ async function generateAiImage() {
           {{ storageUsedPercent }}%
         </v-chip>
         <v-btn
-          icon="mdi-delete-sweep"
+          icon="$mdi-delete-sweep"
           size="x-small"
           variant="text"
           class="ml-1"
@@ -500,7 +500,7 @@ async function generateAiImage() {
         @dragover.prevent
         @drop.prevent="onFileSelected({ target: { files: $event.dataTransfer.files } })"
       >
-        <v-icon icon="mdi-cloud-upload" size="64" color="grey" />
+        <v-icon icon="$mdi-cloud-upload" size="64" color="grey" />
         <p class="text-h6 mt-4">Click or drag image to upload</p>
         <p class="text-body-2 text-grey">Supports: JPG, PNG, HEIC, WebP, GIF, BMP</p>
         <div class="my-3 d-flex align-center" style="width: 100%">
@@ -509,7 +509,7 @@ async function generateAiImage() {
           <v-divider />
         </div>
         <v-btn color="primary" variant="tonal" @click.stop="openAiDialog">
-          <v-icon icon="mdi-magic-staff" start />
+          <v-icon icon="$mdi-magic-staff" start />
           Generate with AI
         </v-btn>
       </v-sheet>
@@ -547,11 +547,11 @@ async function generateAiImage() {
         :loading="uploading"
         @click="uploadImage('display')"
       >
-        <v-icon icon="mdi-monitor" start />
+        <v-icon icon="$mdi-monitor" start />
         Display
       </v-btn>
       <v-btn color="primary" :loading="uploading" @click="uploadImage('upload')">
-        <v-icon :icon="canSaveToAlbum ? 'mdi-upload' : 'mdi-monitor'" start />
+        <v-icon :icon="canSaveToAlbum ? '$mdi-upload' : '$mdi-monitor'" start />
         {{ canSaveToAlbum ? "Upload" : "Display" }}
       </v-btn>
     </v-card-actions>

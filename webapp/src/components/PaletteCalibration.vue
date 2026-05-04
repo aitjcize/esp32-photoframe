@@ -617,11 +617,11 @@ async function savePalette() {
 
       <div class="d-flex mt-4" style="gap: 8px">
         <v-btn color="primary" :loading="loading" @click="startCalibration">
-          <v-icon icon="mdi-camera" start />
+          <v-icon icon="$mdi-camera" start />
           Start Calibration
         </v-btn>
         <v-btn variant="outlined" :loading="loading" @click="savePalette">
-          <v-icon icon="mdi-content-save" start />
+          <v-icon icon="$mdi-content-save" start />
           Save Palette
         </v-btn>
         <v-btn variant="text" color="error" :loading="loading" @click="resetPalette">
@@ -704,7 +704,7 @@ async function savePalette() {
             accept="image/*"
             label="Select calibration photo"
             variant="outlined"
-            prepend-icon="mdi-camera"
+            prepend-icon="$mdi-camera"
             :loading="loading"
             @change="onPhotoSelected"
           />

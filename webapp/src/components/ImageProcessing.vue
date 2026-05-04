@@ -479,15 +479,15 @@ onUnmounted(() => {
           class="mb-3"
         >
           <v-btn value="cover" size="small">
-            <v-icon start size="small">mdi-crop-free</v-icon>
+            <v-icon icon="$mdi-crop-free" start size="small" />
             Cover
           </v-btn>
           <v-btn value="fit" size="small">
-            <v-icon start size="small">mdi-fit-to-screen</v-icon>
+            <v-icon icon="$mdi-fit-to-screen" start size="small" />
             Fit
           </v-btn>
           <v-btn value="custom" size="small">
-            <v-icon start size="small">mdi-cursor-move</v-icon>
+            <v-icon icon="$mdi-cursor-move" start size="small" />
             Custom
           </v-btn>
         </v-btn-toggle>
@@ -534,7 +534,7 @@ onUnmounted(() => {
                 :style="{ left: `${sliderPosition}%` }"
               >
                 <div class="slider-handle">
-                  <v-icon size="small"> mdi-arrow-left-right </v-icon>
+                  <v-icon icon="$mdi-arrow-left-right" size="small" />
                 </div>
               </div>
             </div>

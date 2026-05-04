@@ -54,12 +54,12 @@ function getBatteryColor(level) {
         title="Rotate to next image"
         @click="handleRotate"
       >
-        <v-icon>mdi-rotate-right</v-icon>
+        <v-icon icon="$mdi-rotate-right" />
       </v-btn>
 
       <!-- Sleep Button -->
       <v-btn icon class="mr-2" title="Enter Deep Sleep" @click="sleepDialog = true">
-        <v-icon>mdi-sleep</v-icon>
+        <v-icon icon="$mdi-sleep" />
       </v-btn>
 
       <!-- Battery Status -->
@@ -69,12 +69,15 @@ function getBatteryColor(level) {
         :color="getBatteryColor(appStore.battery.level)"
         class="text-white"
       >
-        <v-icon :icon="appStore.battery.charging ? 'mdi-battery-charging' : 'mdi-battery'" start />
+        <v-icon
+          :icon="appStore.battery.charging ? '$mdi-battery-charging' : '$mdi-battery'"
+          start
+        />
         {{ appStore.battery.level }}%
         <span v-if="appStore.battery.charging" class="ml-1">Charging</span>
       </v-chip>
       <v-chip v-else variant="flat" color="grey-darken-1" class="mr-2 text-white">
-        <v-icon icon="mdi-power-plug-off" start />
+        <v-icon icon="$mdi-power-plug-off" start />
         No Battery
       </v-chip>
     </template>

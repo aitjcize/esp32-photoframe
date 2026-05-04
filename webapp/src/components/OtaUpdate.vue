@@ -150,7 +150,7 @@ onUnmounted(() => {
 <template>
   <v-card style="overflow: visible">
     <v-card-title class="d-flex align-center">
-      <v-icon icon="mdi-cellphone-arrow-down" class="mr-2" />
+      <v-icon icon="$mdi-cellphone-arrow-down" class="mr-2" />
       Firmware Update (OTA)
     </v-card-title>
 
@@ -185,7 +185,7 @@ onUnmounted(() => {
 
         <v-col cols="12" md="4" class="d-flex flex-wrap justify-end gap-2">
           <v-btn variant="outlined" :loading="checking" class="mr-2" @click="checkForUpdate">
-            <v-icon icon="mdi-refresh" start />
+            <v-icon icon="$mdi-refresh" start />
             Check
           </v-btn>
 
@@ -195,7 +195,7 @@ onUnmounted(() => {
             :loading="installing"
             @click="installUpdate"
           >
-            <v-icon icon="mdi-download" start />
+            <v-icon icon="$mdi-download" start />
             Install
           </v-btn>
         </v-col>
