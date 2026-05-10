@@ -350,9 +350,11 @@ async function updatePreview() {
     processedCanvasRef.value.style.height = "";
   }
 
-  // Draw original (pre-dither result has same scaling but no dithering)
+  // Draw original — result.originalCanvas is the post-layout, pre-preprocessing
+  // snapshot the package already keeps around for thumbnail use, so we get the
+  // source resized/positioned to the frame with no color processing applied.
   const originalCtx = originalCanvasRef.value.getContext("2d");
-  originalCtx.drawImage(preDitherResult.canvas, 0, 0);
+  originalCtx.drawImage(result.originalCanvas, 0, 0);
 
   // Draw processed result (with dithering)
   const processedCtx = processedCanvasRef.value.getContext("2d");
