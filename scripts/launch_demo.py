@@ -209,15 +209,66 @@ def copy_required_files(demo_dir, project_root):
 
     print("\nCopying required files...")
 
-    # Copy sample image
-    src_img = project_root / ".img" / "sample.jpg"
-    dst_img = demo_dir / "sample.jpg"
+    # Static assets that the landing page references at the demo base URL.
+    # (image source path, output filename in demo/)
+    assets = [
+        (project_root / ".img" / "sample.jpg", "sample.jpg"),
+        (project_root / ".img" / "taipei101.jpg", "taipei101.jpg"),
+        (project_root / ".img" / "stock_algorithm.bmp", "stock_algorithm.bmp"),
+        (project_root / ".img" / "our_algorithm.png", "our_algorithm.png"),
+        (project_root / ".img" / "feature_graphic.png", "feature_graphic.png"),
+        (project_root / "webapp" / "public" / "icon.svg", "icon.svg"),
+    ]
 
-    if src_img.exists():
-        shutil.copy2(src_img, dst_img)
-        print(f"  ✓ Copied {src_img.name}")
+    for src, dst_name in assets:
+        dst = demo_dir / dst_name
+        if src.exists():
+            shutil.copy2(src, dst)
+            print(f"  ✓ Copied {src.name}")
+        else:
+            print(f"  ⚠ Warning: {src} not found")
+
+    # Generate the dithered hero image (preview-mode PNG) from taipei101.jpg.
+    src_hero = project_root / ".img" / "taipei101.jpg"
+    dst_hero = demo_dir / "taipei101_dithered.png"
+    cli = (
+        project_root
+        / "webapp"
+        / "node_modules"
+        / "@aitjcize"
+        / "epaper-image-convert"
+        / "src"
+        / "cli.js"
+    )
+    if src_hero.exists() and cli.exists():
+        try:
+            subprocess.run(
+                [
+                    "node",
+                    str(cli),
+                    "-d", "800x480",
+                    "-f", "png",
+                    "-p", "balanced",
+                    "--orientation", "landscape",
+                    "--scale-mode", "cover",
+                    "--use-perceived-output",
+                    "--dither-algorithm", "stucki",
+                    str(src_hero),
+                    str(dst_hero),
+                ],
+                cwd=project_root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            print(f"  ✓ Generated {dst_hero.name}")
+        except subprocess.CalledProcessError as e:
+            print(f"  ⚠ Warning: Could not generate {dst_hero.name}: {e}")
+            if e.stderr:
+                print(f"    {e.stderr.strip()}")
     else:
-        print(f"  ⚠ Warning: {src_img} not found")
+        if not cli.exists():
+            print(f"  ⚠ Warning: epaper-image-convert CLI not found at {cli}")
 
 
 def generate_manifests(project_root, boards=None):
