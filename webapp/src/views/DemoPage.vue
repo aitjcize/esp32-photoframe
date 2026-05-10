@@ -356,7 +356,7 @@ function newImage() {
         </v-card>
 
         <!-- Tabs -->
-        <v-tabs v-model="tab" color="primary" class="mb-6">
+        <v-tabs v-model="tab" color="primary" grow class="mb-6">
           <v-tab value="demo">
             <v-icon icon="mdi-image-edit" start />
             Image Processing Demo
@@ -439,183 +439,175 @@ function newImage() {
 
           <!-- Flash Tab -->
           <v-tabs-window-item value="flash">
-            <v-row justify="center">
-              <v-col cols="12" md="10">
-                <!-- Requirements -->
-                <v-alert type="warning" variant="tonal" class="mb-4">
-                  <template #title>
-                    <v-icon icon="mdi-alert" class="mr-2" />
-                    Requirements
-                  </template>
-                  <ul class="pl-4 mt-2">
-                    <li>Chrome, Edge, or Opera browser (Web Serial API required)</li>
-                    <li>USB-C cable connected to your ESP32-S3 PhotoFrame</li>
-                    <li>Compatible ESP32-S3 board (Waveshare, Seeed XIAO, or Seeed reTerminal)</li>
-                  </ul>
-                </v-alert>
+            <!-- Requirements -->
+            <v-alert type="warning" variant="tonal" class="mb-4">
+              <template #title>
+                <v-icon icon="mdi-alert" class="mr-2" />
+                Requirements
+              </template>
+              <ul class="pl-4 mt-2">
+                <li>Chrome, Edge, or Opera browser (Web Serial API required)</li>
+                <li>USB-C cable connected to your ESP32-S3 PhotoFrame</li>
+                <li>Compatible ESP32-S3 board (Waveshare, Seeed XIAO, or Seeed reTerminal)</li>
+              </ul>
+            </v-alert>
 
-                <!-- Flash Card -->
-                <v-card class="mb-4">
-                  <v-card-title>
-                    <v-icon icon="mdi-flash" class="mr-2" />
-                    Flash Firmware
-                  </v-card-title>
-                  <v-card-text>
-                    <div class="text-subtitle-1 mb-2">Select Version:</div>
-                    <v-radio-group v-model="selectedVersion" class="mb-4">
-                      <v-radio value="stable">
-                        <template #label>
-                          <span>Stable Release</span>
-                          <v-chip size="small" color="success" class="ml-2">{{
-                            stableVersion
-                          }}</v-chip>
-                        </template>
-                      </v-radio>
-                      <v-radio value="dev">
-                        <template #label>
-                          <span>Development Build</span>
-                          <v-chip size="small" color="warning" class="ml-2">{{
-                            devVersion
-                          }}</v-chip>
-                        </template>
-                      </v-radio>
-                    </v-radio-group>
+            <!-- Flash Card -->
+            <v-card class="mb-4">
+              <v-card-title>
+                <v-icon icon="mdi-flash" class="mr-2" />
+                Flash Firmware
+              </v-card-title>
+              <v-card-text>
+                <div class="text-subtitle-1 mb-2">Select Version:</div>
+                <v-radio-group v-model="selectedVersion" class="mb-4">
+                  <v-radio value="stable">
+                    <template #label>
+                      <span>Stable Release</span>
+                      <v-chip size="small" color="success" class="ml-2">{{
+                        stableVersion
+                      }}</v-chip>
+                    </template>
+                  </v-radio>
+                  <v-radio value="dev">
+                    <template #label>
+                      <span>Development Build</span>
+                      <v-chip size="small" color="warning" class="ml-2">{{
+                        devVersion
+                      }}</v-chip>
+                    </template>
+                  </v-radio>
+                </v-radio-group>
 
-                    <v-divider class="mb-4" />
+                <v-divider class="mb-4" />
 
-                    <v-select
-                      v-model="selectedBoard"
-                      :items="supportedBoards"
-                      item-title="label"
-                      item-value="value"
-                      label="Select Board"
-                      class="mb-4 mt-4"
-                    />
+                <v-select
+                  v-model="selectedBoard"
+                  :items="supportedBoards"
+                  item-title="label"
+                  item-value="value"
+                  label="Select Board"
+                  class="mb-4 mt-4"
+                />
 
-                    <div class="d-flex justify-center">
-                      <esp-web-install-button
-                        :key="selectedBoard + selectedVersion"
-                        :manifest="
-                          (baseUrl.endsWith('/') ? baseUrl : baseUrl + '/') +
-                          selectedBoard +
-                          '/' +
-                          (selectedVersion === 'stable' ? 'manifest.json' : 'manifest-dev.json')
-                        "
-                      >
-                        <template #activate>
-                          <button class="flash-button">
-                            <v-icon icon="mdi-flash" class="mr-2" />
-                            Install Firmware
-                          </button>
-                        </template>
-                      </esp-web-install-button>
-                    </div>
-                  </v-card-text>
-                </v-card>
+                <div class="d-flex justify-center">
+                  <esp-web-install-button
+                    :key="selectedBoard + selectedVersion"
+                    :manifest="
+                      (baseUrl.endsWith('/') ? baseUrl : baseUrl + '/') +
+                      selectedBoard +
+                      '/' +
+                      (selectedVersion === 'stable' ? 'manifest.json' : 'manifest-dev.json')
+                    "
+                  >
+                    <template #activate>
+                      <button class="flash-button">
+                        <v-icon icon="mdi-flash" class="mr-2" />
+                        Install Firmware
+                      </button>
+                    </template>
+                  </esp-web-install-button>
+                </div>
+              </v-card-text>
+            </v-card>
 
-                <!-- Instructions -->
-                <v-card>
-                  <v-card-title>
-                    <v-icon icon="mdi-format-list-numbered" class="mr-2" />
-                    Instructions
-                  </v-card-title>
-                  <v-card-text>
-                    <ol class="pl-4">
-                      <li class="mb-2">Connect your ESP32-S3 board to your computer via USB</li>
-                      <li class="mb-2">
-                        Click "Install Firmware" and select the correct serial port
-                      </li>
-                      <li class="mb-2">Wait for the flashing process to complete</li>
-                      <li class="mb-2">
-                        The device will restart and create a WiFi access point named
-                        "PhotoFrame-XXXX"
-                      </li>
-                      <li>Connect to the access point and configure your WiFi settings</li>
-                    </ol>
-                  </v-card-text>
-                </v-card>
-              </v-col>
-            </v-row>
+            <!-- Instructions -->
+            <v-card>
+              <v-card-title>
+                <v-icon icon="mdi-format-list-numbered" class="mr-2" />
+                Instructions
+              </v-card-title>
+              <v-card-text>
+                <ol class="pl-4">
+                  <li class="mb-2">Connect your ESP32-S3 board to your computer via USB</li>
+                  <li class="mb-2">
+                    Click "Install Firmware" and select the correct serial port
+                  </li>
+                  <li class="mb-2">Wait for the flashing process to complete</li>
+                  <li class="mb-2">
+                    The device will restart and create a WiFi access point named
+                    "PhotoFrame-XXXX"
+                  </li>
+                  <li>Connect to the access point and configure your WiFi settings</li>
+                </ol>
+              </v-card-text>
+            </v-card>
           </v-tabs-window-item>
 
           <!-- App Tab -->
           <v-tabs-window-item value="app">
-            <v-row justify="center">
-              <v-col cols="12" md="8">
-                <v-card class="text-center pa-8">
-                  <v-icon icon="mdi-cellphone-arrow-down" size="80" color="primary" class="mb-4" />
-                  <div class="text-h4 font-weight-bold mb-2">ESP Frame Companion App</div>
-                  <div class="text-body-1 text-grey-darken-1 mb-6">
-                    Manage your e-paper photo frame from your phone. Discover devices, upload
-                    photos, generate AI images, and configure settings — all from one app.
-                  </div>
+            <v-card class="text-center pa-8">
+              <v-icon icon="mdi-cellphone-arrow-down" size="80" color="primary" class="mb-4" />
+              <div class="text-h4 font-weight-bold mb-2">ESP Frame Companion App</div>
+              <div class="text-body-1 text-grey-darken-1 mb-6">
+                Manage your e-paper photo frame from your phone. Discover devices, upload
+                photos, generate AI images, and configure settings — all from one app.
+              </div>
 
-                  <v-chip color="info" size="large" class="mb-4">
-                    <v-icon icon="mdi-flask-outline" start />
-                    Available for Public Testing
-                  </v-chip>
+              <v-chip color="info" size="large" class="mb-4">
+                <v-icon icon="mdi-flask-outline" start />
+                Available for Public Testing
+              </v-chip>
 
-                  <v-alert type="info" variant="tonal" density="comfortable" class="text-left mb-8">
-                    The app is in public beta via TestFlight (iOS) and Google Play internal testing
-                    (Android). Tap a store below for install instructions, or open the
-                    <a
-                      href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
-                      target="_blank"
-                      rel="noopener"
-                      >testing discussion</a
-                    >
-                    to report feedback and bugs.
-                  </v-alert>
+              <v-alert type="info" variant="tonal" density="comfortable" class="text-left mb-8">
+                The app is in public beta via TestFlight (iOS) and Google Play internal testing
+                (Android). Tap a store below for install instructions, or open the
+                <a
+                  href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
+                  target="_blank"
+                  rel="noopener"
+                  >testing discussion</a
+                >
+                to report feedback and bugs.
+              </v-alert>
 
-                  <v-row justify="center" class="mb-6">
-                    <v-col cols="auto">
-                      <v-card
-                        variant="outlined"
-                        class="pa-4"
-                        style="min-width: 180px; cursor: pointer"
-                        href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
-                        target="_blank"
-                        rel="noopener"
-                      >
-                        <v-icon icon="mdi-apple" size="40" class="mb-2" />
-                        <div class="text-subtitle-2">App Store</div>
-                        <div class="text-caption text-grey-darken-1">TestFlight</div>
-                      </v-card>
-                    </v-col>
-                    <v-col cols="auto">
-                      <v-card
-                        variant="outlined"
-                        class="pa-4"
-                        style="min-width: 180px; cursor: pointer"
-                        href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
-                        target="_blank"
-                        rel="noopener"
-                      >
-                        <v-icon icon="mdi-google-play" size="40" class="mb-2" />
-                        <div class="text-subtitle-2">Google Play</div>
-                        <div class="text-caption text-grey-darken-1">Internal Testing</div>
-                      </v-card>
-                    </v-col>
-                  </v-row>
+              <v-row justify="center" class="mb-6">
+                <v-col cols="auto">
+                  <v-card
+                    variant="outlined"
+                    class="pa-4"
+                    style="min-width: 180px; cursor: pointer"
+                    href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    <v-icon icon="mdi-apple" size="40" class="mb-2" />
+                    <div class="text-subtitle-2">App Store</div>
+                    <div class="text-caption text-grey-darken-1">TestFlight</div>
+                  </v-card>
+                </v-col>
+                <v-col cols="auto">
+                  <v-card
+                    variant="outlined"
+                    class="pa-4"
+                    style="min-width: 180px; cursor: pointer"
+                    href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    <v-icon icon="mdi-google-play" size="40" class="mb-2" />
+                    <div class="text-subtitle-2">Google Play</div>
+                    <div class="text-caption text-grey-darken-1">Internal Testing</div>
+                  </v-card>
+                </v-col>
+              </v-row>
 
-                  <v-divider class="mb-6" />
+              <v-divider class="mb-6" />
 
-                  <div class="text-h6 mb-4">Features</div>
-                  <v-row justify="center">
-                    <v-col
-                      cols="6"
-                      sm="4"
-                      md="3"
-                      v-for="feature in appFeatures"
-                      :key="feature.icon"
-                    >
-                      <v-icon :icon="feature.icon" size="32" color="primary" class="mb-2" />
-                      <div class="text-caption">{{ feature.text }}</div>
-                    </v-col>
-                  </v-row>
-                </v-card>
-              </v-col>
-            </v-row>
+              <div class="text-h6 mb-4">Features</div>
+              <v-row justify="center">
+                <v-col
+                  cols="6"
+                  sm="4"
+                  md="3"
+                  v-for="feature in appFeatures"
+                  :key="feature.icon"
+                >
+                  <v-icon :icon="feature.icon" size="32" color="primary" class="mb-2" />
+                  <div class="text-caption">{{ feature.text }}</div>
+                </v-col>
+              </v-row>
+            </v-card>
           </v-tabs-window-item>
         </v-tabs-window>
       </v-container>
