@@ -130,7 +130,13 @@ function derivePresetFromParams() {
   return "custom";
 }
 
-watch(params, () => { currentPreset.value = derivePresetFromParams(); }, { deep: true, immediate: true });
+watch(
+  params,
+  () => {
+    currentPreset.value = derivePresetFromParams();
+  },
+  { deep: true, immediate: true }
+);
 
 onMounted(async () => {
   loadVersionInfo();
@@ -178,7 +184,9 @@ async function loadSampleImage() {
   }
 }
 
-function triggerFileSelect() { fileInput.value?.click(); }
+function triggerFileSelect() {
+  fileInput.value?.click();
+}
 async function onFileSelected(event) {
   const file = event.target.files?.[0];
   if (file) selectedFile.value = file;
@@ -197,7 +205,9 @@ function onPresetChange(presetName) {
     currentPreset.value = presetName;
   }
 }
-function onParamsUpdate(newParams) { Object.assign(params.value, newParams); }
+function onParamsUpdate(newParams) {
+  Object.assign(params.value, newParams);
+}
 function newImage() {
   selectedFile.value = null;
   if (fileInput.value) fileInput.value.value = "";
@@ -238,7 +248,9 @@ function scrollTo(id) {
             aria-label="View on GitHub"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.36-3.88-1.36-.52-1.34-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.18-1.18 3.18-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.84 1.18 3.1 0 4.43-2.69 5.4-5.26 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5Z" />
+              <path
+                d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.36-3.88-1.36-.52-1.34-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.18-1.18 3.18-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.84 1.18 3.1 0 4.43-2.69 5.4-5.26 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5Z"
+              />
             </svg>
           </a>
         </div>
@@ -250,7 +262,9 @@ function scrollTo(id) {
       <section class="hero">
         <div class="hero-grid">
           <div class="hero-text">
-            <div class="eyebrow">Open firmware for ESP32 e-paper photo frames · {{ stableVersion }}</div>
+            <div class="eyebrow">
+              Open firmware for ESP32 e-paper photo frames · {{ stableVersion }}
+            </div>
             <h1 class="display">
               Picture-book<br />
               <em class="wonk">quality</em> on<br />
@@ -259,19 +273,17 @@ function scrollTo(id) {
             <p class="dek">
               <strong>esp32-photoframe</strong> is an open-source replacement firmware for
               off-the-shelf ESP32 e-paper photo frames (<em>Waveshare PhotoPainter</em>,
-              <em>Seeed Studio XIAO</em> and <em>reTerminal</em>). It ships with
-              measured-palette dithering, a proper REST API,
-              AI image generation, Home Assistant integration, and weeks of battery on deep
-              sleep — for an always-on ambient display you'd actually want to look at.
+              <em>Seeed Studio XIAO</em> and <em>reTerminal</em>). It ships with measured-palette
+              dithering, a proper REST API, AI image generation, Home Assistant integration, and
+              weeks of battery on deep sleep — for an always-on ambient display you'd actually want
+              to look at.
             </p>
             <div class="cta-row">
               <button class="btn btn-primary" @click="scrollTo('demo')">
                 Try the demo
                 <span class="btn-arrow" aria-hidden="true">→</span>
               </button>
-              <button class="btn btn-ghost" @click="scrollTo('flash')">
-                Flash my frame
-              </button>
+              <button class="btn btn-ghost" @click="scrollTo('flash')">Flash my frame</button>
             </div>
             <div class="hero-meta">
               <span><strong>4</strong> boards</span>
@@ -285,7 +297,10 @@ function scrollTo(id) {
             <div class="frame-card">
               <span class="frame-pp">the frame</span>
               <div class="frame-image">
-                <img :src="`${baseUrl}taipei101_dithered.png`" alt="Taipei 101 dithered for e-paper" />
+                <img
+                  :src="`${baseUrl}taipei101_dithered.png`"
+                  alt="Taipei 101 dithered for e-paper"
+                />
               </div>
               <div class="frame-caption">
                 <span>Taipei 101 at dusk</span>
@@ -301,13 +316,11 @@ function scrollTo(id) {
         <div class="section-head">
           <span class="section-kicker">Image quality</span>
         </div>
-        <h2 class="section-title">
-          Stock dithering, then <em class="wonk">measured</em> palette.
-        </h2>
+        <h2 class="section-title">Stock dithering, then <em class="wonk">measured</em> palette.</h2>
         <p class="section-lede">
-          Most e-paper firmware dithers against the manufacturer's idealized palette. We measure
-          the actual colors the panel renders, then dither against those — so reds stay red and
-          midtones don't go muddy. All three captures are shot off the same panel.
+          Most e-paper firmware dithers against the manufacturer's idealized palette. We measure the
+          actual colors the panel renders, then dither against those — so reds stay red and midtones
+          don't go muddy. All three captures are shot off the same panel.
         </p>
 
         <div class="compare">
@@ -346,9 +359,7 @@ function scrollTo(id) {
         <div class="section-head">
           <span class="section-kicker">Interactive demo</span>
         </div>
-        <h2 class="section-title">
-          Drop in <em class="wonk">your</em> own photo.
-        </h2>
+        <h2 class="section-title">Drop in <em class="wonk">your</em> own photo.</h2>
         <p class="section-lede">
           Drag the slider to compare the original against our pipeline. Adjust exposure, contrast,
           dithering, palette — every setting that ships in the firmware.
@@ -365,9 +376,7 @@ function scrollTo(id) {
         <div class="demo-card">
           <div class="demo-card-head">
             <span class="demo-card-label">Original vs processed</span>
-            <button v-if="selectedFile" class="link-btn" @click="newImage">
-              ↻ New image
-            </button>
+            <button v-if="selectedFile" class="link-btn" @click="newImage">↻ New image</button>
           </div>
           <div class="demo-card-body">
             <div
@@ -377,8 +386,20 @@ function scrollTo(id) {
               @dragover.prevent
               @drop.prevent="onDrop"
             >
-              <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              <svg
+                width="42"
+                height="42"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                aria-hidden="true"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+                />
               </svg>
               <p class="upload-title">Click or drag an image</p>
               <p class="upload-meta">JPG · PNG · WebP</p>
@@ -408,9 +429,7 @@ function scrollTo(id) {
         <div class="section-head">
           <span class="section-kicker">Why it's different</span>
         </div>
-        <h2 class="section-title">
-          Built for photographs, <em class="wonk">not</em> spec sheets.
-        </h2>
+        <h2 class="section-title">Built for photographs, <em class="wonk">not</em> spec sheets.</h2>
 
         <div class="feature-grid">
           <article v-for="f in features" :key="f.figure" class="feature">
@@ -426,12 +445,10 @@ function scrollTo(id) {
         <div class="section-head">
           <span class="section-kicker">Supported hardware</span>
         </div>
-        <h2 class="section-title">
-          Off-the-shelf boards, <em class="wonk">opened</em> up.
-        </h2>
+        <h2 class="section-title">Off-the-shelf boards, <em class="wonk">opened</em> up.</h2>
         <p class="section-lede">
-          Bring your own hardware. Four ESP32-S3 photoframes are supported today, with shared
-          image pipeline and configuration.
+          Bring your own hardware. Four ESP32-S3 photoframes are supported today, with shared image
+          pipeline and configuration.
         </p>
 
         <div class="board-grid">
@@ -460,12 +477,10 @@ function scrollTo(id) {
         <div class="section-head">
           <span class="section-kicker">Flash your frame</span>
         </div>
-        <h2 class="section-title">
-          One USB-C cable. <em class="wonk">No</em> toolchain.
-        </h2>
+        <h2 class="section-title">One USB-C cable. <em class="wonk">No</em> toolchain.</h2>
         <p class="section-lede">
-          The web flasher uses Web Serial. Plug in a supported board, pick a release, install.
-          Stock firmware is replaced; your photos and settings survive on storage.
+          The web flasher uses Web Serial. Plug in a supported board, pick a release, install. Stock
+          firmware is replaced; your photos and settings survive on storage.
         </p>
 
         <div class="flash-grid">
@@ -601,12 +616,10 @@ function scrollTo(id) {
         <div class="section-head">
           <span class="section-kicker">The whole stack</span>
         </div>
-        <h2 class="section-title">
-          Four repos, <em class="wonk">one</em> photoframe.
-        </h2>
+        <h2 class="section-title">Four repos, <em class="wonk">one</em> photoframe.</h2>
         <p class="section-lede">
-          Use just the firmware, or add the server, the Home Assistant integration, and the app
-          for the full experience. All MIT, all open.
+          Use just the firmware, or add the server, the Home Assistant integration, and the app for
+          the full experience. All MIT, all open.
         </p>
 
         <div class="eco-grid">
@@ -637,11 +650,30 @@ function scrollTo(id) {
             </div>
           </div>
           <div class="footer-links">
-            <a href="https://github.com/aitjcize/esp32-photoframe" target="_blank" rel="noopener">Firmware</a>
-            <a href="https://github.com/aitjcize/esp32-photoframe-server" target="_blank" rel="noopener">Server</a>
-            <a href="https://github.com/aitjcize/ha-esp32-photoframe" target="_blank" rel="noopener">Home Assistant</a>
-            <a href="https://github.com/aitjcize/esp32-photoframe-app" target="_blank" rel="noopener">App</a>
-            <a href="https://github.com/aitjcize/esp32-photoframe/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+            <a href="https://github.com/aitjcize/esp32-photoframe" target="_blank" rel="noopener"
+              >Firmware</a
+            >
+            <a
+              href="https://github.com/aitjcize/esp32-photoframe-server"
+              target="_blank"
+              rel="noopener"
+              >Server</a
+            >
+            <a href="https://github.com/aitjcize/ha-esp32-photoframe" target="_blank" rel="noopener"
+              >Home Assistant</a
+            >
+            <a
+              href="https://github.com/aitjcize/esp32-photoframe-app"
+              target="_blank"
+              rel="noopener"
+              >App</a
+            >
+            <a
+              href="https://github.com/aitjcize/esp32-photoframe/blob/main/LICENSE"
+              target="_blank"
+              rel="noopener"
+              >License</a
+            >
           </div>
         </div>
         <div class="footer-rule"></div>
@@ -698,7 +730,11 @@ function scrollTo(id) {
 }
 
 /* Anchor offset for sticky nav */
-.anchor { display: block; height: 0; visibility: hidden; }
+.anchor {
+  display: block;
+  height: 0;
+  visibility: hidden;
+}
 
 /* ───────────────────────────────────  NAV  ─────────────────────────────────── */
 .nav {
@@ -722,15 +758,24 @@ function scrollTo(id) {
   text-decoration: none;
   color: var(--ink);
 }
-.nav-mark { width: 28px; height: 28px; border-radius: 6px; }
+.nav-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
 .nav-wordmark {
   font-family: var(--serif);
   font-weight: 600;
   font-size: 1.05rem;
   letter-spacing: -0.01em;
-  font-variation-settings: "opsz" 14, "SOFT" 30;
+  font-variation-settings:
+    "opsz" 14,
+    "SOFT" 30;
 }
-.nav-hyphen { color: var(--accent); margin: 0 0.04em; }
+.nav-hyphen {
+  color: var(--accent);
+  margin: 0 0.04em;
+}
 .nav-links {
   display: flex;
   justify-content: center;
@@ -745,8 +790,14 @@ function scrollTo(id) {
   cursor: pointer;
   transition: color 0.2s;
 }
-.nav-links a:hover { color: var(--ink); }
-.nav-meta { display: inline-flex; align-items: center; gap: 1rem; }
+.nav-links a:hover {
+  color: var(--ink);
+}
+.nav-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+}
 .version-chip {
   font-size: 0.72rem;
   letter-spacing: 0.1em;
@@ -762,11 +813,20 @@ function scrollTo(id) {
   align-items: center;
   transition: color 0.2s;
 }
-.nav-github:hover { color: var(--ink); }
+.nav-github:hover {
+  color: var(--ink);
+}
 @media (max-width: 880px) {
-  .nav-links { display: none; }
-  .nav { grid-template-columns: auto auto; gap: 1rem; }
-  .nav-meta { justify-self: end; }
+  .nav-links {
+    display: none;
+  }
+  .nav {
+    grid-template-columns: auto auto;
+    gap: 1rem;
+  }
+  .nav-meta {
+    justify-self: end;
+  }
 }
 
 /* ───────────────────────────────────  TYPE  ─────────────────────────────────── */
@@ -788,7 +848,10 @@ function scrollTo(id) {
   letter-spacing: -0.025em;
   color: var(--ink);
   margin: 1.5rem 0 1.75rem;
-  font-variation-settings: "opsz" 144, "SOFT" 40, "WONK" 0;
+  font-variation-settings:
+    "opsz" 144,
+    "SOFT" 40,
+    "WONK" 0;
   text-wrap: balance;
 }
 
@@ -800,7 +863,10 @@ function scrollTo(id) {
   letter-spacing: -0.02em;
   color: var(--ink);
   margin: 0.6rem 0 1.4rem;
-  font-variation-settings: "opsz" 96, "SOFT" 30, "WONK" 0;
+  font-variation-settings:
+    "opsz" 96,
+    "SOFT" 30,
+    "WONK" 0;
   max-width: 22ch;
   text-wrap: balance;
 }
@@ -808,7 +874,10 @@ function scrollTo(id) {
 em.wonk {
   font-style: italic;
   color: var(--accent-deep);
-  font-variation-settings: "opsz" 144, "SOFT" 50, "WONK" 1;
+  font-variation-settings:
+    "opsz" 144,
+    "SOFT" 50,
+    "WONK" 1;
   font-weight: 380;
 }
 
@@ -825,9 +894,13 @@ em.wonk {
   font-family: var(--serif);
   font-style: italic;
   color: var(--ink);
-  font-variation-settings: "opsz" 14, "SOFT" 50;
+  font-variation-settings:
+    "opsz" 14,
+    "SOFT" 50;
 }
-.section-lede { margin-bottom: 3.5rem; }
+.section-lede {
+  margin-bottom: 3.5rem;
+}
 
 /* ───────────────────────────────────  HERO  ─────────────────────────────────── */
 .hero {
@@ -844,7 +917,9 @@ em.wonk {
   align-items: center;
 }
 @media (max-width: 960px) {
-  .hero-grid { grid-template-columns: 1fr; }
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .hero-meta {
@@ -855,8 +930,14 @@ em.wonk {
   color: var(--ink-3);
   letter-spacing: 0.02em;
 }
-.hero-meta strong { color: var(--ink); font-weight: 600; font-feature-settings: "tnum"; }
-.dot { color: var(--ink-4); }
+.hero-meta strong {
+  color: var(--ink);
+  font-weight: 600;
+  font-feature-settings: "tnum";
+}
+.dot {
+  color: var(--ink-4);
+}
 
 .cta-row {
   display: flex;
@@ -877,7 +958,11 @@ em.wonk {
   border-radius: 999px;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: transform 0.2s ease, background 0.25s, color 0.25s, border-color 0.25s;
+  transition:
+    transform 0.2s ease,
+    background 0.25s,
+    color 0.25s,
+    border-color 0.25s;
 }
 .btn-primary {
   background: var(--ink);
@@ -896,9 +981,16 @@ em.wonk {
   background: var(--ink);
   color: var(--paper);
 }
-.btn-large { padding: 1.1rem 1.85rem; font-size: 1.02rem; }
-.btn-arrow { transition: transform 0.2s; }
-.btn:hover .btn-arrow { transform: translateX(3px); }
+.btn-large {
+  padding: 1.1rem 1.85rem;
+  font-size: 1.02rem;
+}
+.btn-arrow {
+  transition: transform 0.2s;
+}
+.btn:hover .btn-arrow {
+  transform: translateX(3px);
+}
 
 .hero-visual {
   position: relative;
@@ -948,10 +1040,18 @@ em.wonk {
   color: var(--ink-2);
   font-family: var(--serif);
   font-style: italic;
-  font-variation-settings: "opsz" 14, "SOFT" 50;
+  font-variation-settings:
+    "opsz" 14,
+    "SOFT" 50;
 }
-.frame-meta { color: var(--ink-3); font-style: normal; font-family: var(--sans); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; }
-
+.frame-meta {
+  color: var(--ink-3);
+  font-style: normal;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
 
 /* ───────────────────────────────────  SECTIONS  ─────────────────────────────────── */
 .section {
@@ -988,10 +1088,14 @@ em.wonk {
   margin: 0 auto;
 }
 @media (max-width: 880px) {
-  .compare { grid-template-columns: 1fr 1fr; }
+  .compare {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 @media (max-width: 560px) {
-  .compare { grid-template-columns: 1fr; }
+  .compare {
+    grid-template-columns: 1fr;
+  }
 }
 .compare-side {
   margin: 0;
@@ -1002,7 +1106,9 @@ em.wonk {
   transform: translateY(1.4rem);
 }
 @media (max-width: 880px) {
-  .compare-side.compare-ours { transform: none; }
+  .compare-side.compare-ours {
+    transform: none;
+  }
 }
 .compare-img {
   background: var(--paper-deep);
@@ -1028,12 +1134,16 @@ em.wonk {
   font-family: var(--serif);
   font-size: 1.4rem;
   font-weight: 400;
-  font-variation-settings: "opsz" 30, "SOFT" 30;
+  font-variation-settings:
+    "opsz" 30,
+    "SOFT" 30;
 }
 .compare-side.compare-ours .compare-label {
   font-style: italic;
   color: var(--accent-deep);
-  font-variation-settings: "opsz" 30, "WONK" 1;
+  font-variation-settings:
+    "opsz" 30,
+    "WONK" 1;
 }
 .compare-meta {
   font-size: 0.75rem;
@@ -1070,9 +1180,13 @@ em.wonk {
   font-style: italic;
   color: var(--accent-deep);
   font-size: 0.95rem;
-  font-variation-settings: "opsz" 14, "WONK" 1;
+  font-variation-settings:
+    "opsz" 14,
+    "WONK" 1;
 }
-.demo-card-body { padding: clamp(1rem, 2.5vw, 2rem); }
+.demo-card-body {
+  padding: clamp(1rem, 2.5vw, 2rem);
+}
 .link-btn {
   background: none;
   border: none;
@@ -1082,7 +1196,9 @@ em.wonk {
   color: var(--accent-deep);
   font-weight: 500;
 }
-.link-btn:hover { color: var(--accent); }
+.link-btn:hover {
+  color: var(--accent);
+}
 
 .upload {
   border: 1.5px dashed var(--ink-4);
@@ -1091,18 +1207,29 @@ em.wonk {
   text-align: center;
   cursor: pointer;
   background: var(--paper);
-  transition: border-color 0.2s, background 0.2s;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
   color: var(--ink-3);
 }
-.upload:hover { border-color: var(--accent); background: var(--paper-soft); }
+.upload:hover {
+  border-color: var(--accent);
+  background: var(--paper-soft);
+}
 .upload-title {
   font-family: var(--serif);
   font-size: 1.4rem;
   margin: 1rem 0 0.3rem;
   color: var(--ink);
-  font-variation-settings: "opsz" 30, "SOFT" 30;
+  font-variation-settings:
+    "opsz" 30,
+    "SOFT" 30;
 }
-.upload-meta { font-size: 0.78rem; letter-spacing: 0.18em; text-transform: uppercase; }
+.upload-meta {
+  font-size: 0.78rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
 
 /* ───────────────────────────────  FEATURES  ─────────────────────────────── */
 .feature-grid {
@@ -1120,13 +1247,17 @@ em.wonk {
   position: relative;
   transition: background 0.3s;
 }
-.feature:hover { background: var(--paper); }
+.feature:hover {
+  background: var(--paper);
+}
 .feature-num {
   font-family: var(--serif);
   font-style: italic;
   font-size: 0.9rem;
   color: var(--accent);
-  font-variation-settings: "opsz" 14, "WONK" 1;
+  font-variation-settings:
+    "opsz" 14,
+    "WONK" 1;
   font-feature-settings: "tnum";
 }
 .feature-label {
@@ -1136,7 +1267,9 @@ em.wonk {
   margin: 0.4rem 0 0.7rem;
   letter-spacing: -0.015em;
   color: var(--ink);
-  font-variation-settings: "opsz" 36, "SOFT" 40;
+  font-variation-settings:
+    "opsz" 36,
+    "SOFT" 40;
 }
 .feature-body {
   font-size: 0.97rem;
@@ -1159,7 +1292,10 @@ em.wonk {
   border: 1px solid var(--rule);
   border-radius: 6px;
   padding: 1.6rem 1.6rem 1.4rem;
-  transition: transform 0.25s, box-shadow 0.25s, border-color 0.25s;
+  transition:
+    transform 0.25s,
+    box-shadow 0.25s,
+    border-color 0.25s;
   display: block;
 }
 .board:hover {
@@ -1173,7 +1309,10 @@ em.wonk {
   font-weight: 360;
   letter-spacing: -0.02em;
   color: var(--accent-deep);
-  font-variation-settings: "opsz" 60, "SOFT" 30, "WONK" 1;
+  font-variation-settings:
+    "opsz" 60,
+    "SOFT" 30,
+    "WONK" 1;
   font-style: italic;
 }
 .board-name {
@@ -1181,7 +1320,9 @@ em.wonk {
   font-size: 1.15rem;
   font-weight: 500;
   margin: 0.4rem 0 0.5rem;
-  font-variation-settings: "opsz" 24, "SOFT" 30;
+  font-variation-settings:
+    "opsz" 24,
+    "SOFT" 30;
   color: var(--ink);
 }
 .board-meta {
@@ -1197,9 +1338,14 @@ em.wonk {
   right: 1.4rem;
   color: var(--ink-3);
   font-size: 1.05rem;
-  transition: color 0.25s, transform 0.25s;
+  transition:
+    color 0.25s,
+    transform 0.25s;
 }
-.board:hover .board-arrow { color: var(--accent); transform: translate(2px, -2px); }
+.board:hover .board-arrow {
+  color: var(--accent);
+  transform: translate(2px, -2px);
+}
 
 /* ───────────────────────────────  FLASH  ─────────────────────────────── */
 .flash-grid {
@@ -1209,7 +1355,9 @@ em.wonk {
   align-items: stretch;
 }
 @media (max-width: 880px) {
-  .flash-grid { grid-template-columns: 1fr; }
+  .flash-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .flash-controls {
   background: var(--paper-soft);
@@ -1220,7 +1368,10 @@ em.wonk {
   gap: 1.6rem;
   align-content: start;
 }
-.flash-row { display: grid; gap: 0.85rem; }
+.flash-row {
+  display: grid;
+  gap: 0.85rem;
+}
 .flash-label {
   font-size: 0.72rem;
   letter-spacing: 0.2em;
@@ -1228,7 +1379,11 @@ em.wonk {
   color: var(--ink-3);
   font-weight: 500;
 }
-.radio-row { display: flex; flex-wrap: wrap; gap: 0.7rem; }
+.radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
 .radio {
   display: inline-flex;
   align-items: center;
@@ -1238,10 +1393,16 @@ em.wonk {
   border: 1px solid var(--rule);
   border-radius: 999px;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
 }
-.radio:hover { border-color: var(--ink-3); }
-.radio input { display: none; }
+.radio:hover {
+  border-color: var(--ink-3);
+}
+.radio input {
+  display: none;
+}
 .radio-dot {
   width: 14px;
   height: 14px;
@@ -1261,9 +1422,18 @@ em.wonk {
   background: var(--accent);
   border-radius: 50%;
 }
-.radio input:checked ~ .radio-text strong { color: var(--ink); }
-.radio:has(input:checked) { border-color: var(--accent); background: var(--paper-soft); }
-.radio-text { display: inline-flex; align-items: baseline; gap: 0.55rem; }
+.radio input:checked ~ .radio-text strong {
+  color: var(--ink);
+}
+.radio:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--paper-soft);
+}
+.radio-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
 .radio-text strong {
   font-weight: 500;
   font-size: 0.95rem;
@@ -1274,7 +1444,9 @@ em.wonk {
   font-style: italic;
   color: var(--accent-deep);
   font-size: 0.82rem;
-  font-variation-settings: "opsz" 14, "WONK" 1;
+  font-variation-settings:
+    "opsz" 14,
+    "WONK" 1;
   font-feature-settings: "tnum";
 }
 
@@ -1294,16 +1466,23 @@ em.wonk {
   padding-right: 2.5rem;
   cursor: pointer;
 }
-.select:focus { outline: none; border-color: var(--accent); }
+.select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 
-.flash-action { gap: 0.9rem; }
+.flash-action {
+  gap: 0.9rem;
+}
 .flash-note {
   font-size: 0.82rem;
   color: var(--ink-3);
   font-style: italic;
   margin: 0;
   font-family: var(--serif);
-  font-variation-settings: "opsz" 14, "SOFT" 50;
+  font-variation-settings:
+    "opsz" 14,
+    "SOFT" 50;
 }
 
 .flash-aside {
@@ -1321,7 +1500,9 @@ em.wonk {
   font-weight: 380;
   margin: 0;
   color: var(--cream);
-  font-variation-settings: "opsz" 30, "SOFT" 40;
+  font-variation-settings:
+    "opsz" 30,
+    "SOFT" 40;
 }
 .flash-steps {
   list-style: none;
@@ -1347,7 +1528,9 @@ em.wonk {
   font-family: var(--serif);
   font-style: italic;
   color: var(--accent-soft);
-  font-variation-settings: "opsz" 14, "WONK" 1;
+  font-variation-settings:
+    "opsz" 14,
+    "WONK" 1;
   font-feature-settings: "tnum";
   font-size: 0.85rem;
 }
@@ -1363,7 +1546,9 @@ em.wonk {
   font-family: var(--serif);
   font-style: italic;
   color: var(--cream);
-  font-variation-settings: "opsz" 14, "SOFT" 50;
+  font-variation-settings:
+    "opsz" 14,
+    "SOFT" 50;
 }
 .flash-board-meta {
   margin-top: auto;
@@ -1376,7 +1561,9 @@ em.wonk {
   font-family: var(--serif);
   font-size: 1.05rem;
   color: var(--cream);
-  font-variation-settings: "opsz" 24, "SOFT" 30;
+  font-variation-settings:
+    "opsz" 24,
+    "SOFT" 30;
 }
 .flash-board-spec {
   font-size: 0.78rem;
@@ -1418,7 +1605,10 @@ em.wonk {
   pointer-events: none;
 }
 @media (max-width: 880px) {
-  .app-canvas { grid-template-columns: 1fr; padding: 2.4rem 1.5rem; }
+  .app-canvas {
+    grid-template-columns: 1fr;
+    padding: 2.4rem 1.5rem;
+  }
 }
 .app-graphic {
   width: 100%;
@@ -1428,13 +1618,28 @@ em.wonk {
   position: relative;
   z-index: 1;
 }
-.app-text { position: relative; z-index: 1; }
-.section-head-light { color: var(--accent-soft); }
-.section-head-light .section-kicker { color: var(--accent-soft); }
-.section-head-light::before { background: rgba(232, 200, 154, 0.4); }
-.section-title-light { color: var(--cream); }
-.section-title-light em.wonk { color: var(--accent-soft); }
-.section-lede-light { color: rgba(244, 234, 214, 0.78); }
+.app-text {
+  position: relative;
+  z-index: 1;
+}
+.section-head-light {
+  color: var(--accent-soft);
+}
+.section-head-light .section-kicker {
+  color: var(--accent-soft);
+}
+.section-head-light::before {
+  background: rgba(232, 200, 154, 0.4);
+}
+.section-title-light {
+  color: var(--cream);
+}
+.section-title-light em.wonk {
+  color: var(--accent-soft);
+}
+.section-lede-light {
+  color: rgba(244, 234, 214, 0.78);
+}
 
 .app-stores {
   display: flex;
@@ -1452,14 +1657,24 @@ em.wonk {
   border-radius: 4px;
   text-decoration: none;
   color: var(--cream);
-  transition: background 0.25s, border-color 0.25s;
+  transition:
+    background 0.25s,
+    border-color 0.25s;
 }
-.store:hover { background: rgba(244, 234, 214, 0.12); border-color: var(--accent-soft); }
-.store > div { display: grid; gap: 0.1rem; }
+.store:hover {
+  background: rgba(244, 234, 214, 0.12);
+  border-color: var(--accent-soft);
+}
+.store > div {
+  display: grid;
+  gap: 0.1rem;
+}
 .store-os {
   font-family: var(--serif);
   font-size: 1.05rem;
-  font-variation-settings: "opsz" 24, "SOFT" 30;
+  font-variation-settings:
+    "opsz" 24,
+    "SOFT" 30;
 }
 .store-track {
   font-size: 0.7rem;
@@ -1496,7 +1711,10 @@ em.wonk {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-  transition: border-color 0.25s, transform 0.25s, box-shadow 0.25s;
+  transition:
+    border-color 0.25s,
+    transform 0.25s,
+    box-shadow 0.25s;
   position: relative;
 }
 .eco:hover {
@@ -1521,7 +1739,9 @@ em.wonk {
   letter-spacing: -0.015em;
   margin: 0.2rem 0 0;
   color: var(--ink);
-  font-variation-settings: "opsz" 36, "SOFT" 30;
+  font-variation-settings:
+    "opsz" 36,
+    "SOFT" 30;
 }
 .eco-blurb {
   font-size: 0.93rem;
@@ -1536,7 +1756,9 @@ em.wonk {
   color: var(--accent-deep);
   font-size: 0.92rem;
   margin-top: 0.5rem;
-  font-variation-settings: "opsz" 14, "WONK" 1;
+  font-variation-settings:
+    "opsz" 14,
+    "WONK" 1;
 }
 
 /* ───────────────────────────────  FOOTER  ─────────────────────────────── */
@@ -1557,27 +1779,37 @@ em.wonk {
   align-items: start;
 }
 @media (max-width: 720px) {
-  .footer-grid { grid-template-columns: 1fr; }
+  .footer-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .footer-brand {
   display: inline-flex;
   align-items: center;
   gap: 1rem;
 }
-.footer-mark { width: 44px; height: 44px; border-radius: 8px; }
+.footer-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
 .footer-wordmark {
   font-family: var(--serif);
   font-size: 1.4rem;
   font-weight: 500;
   color: var(--cream);
-  font-variation-settings: "opsz" 24, "SOFT" 30;
+  font-variation-settings:
+    "opsz" 24,
+    "SOFT" 30;
 }
 .footer-tag {
   font-style: italic;
   font-family: var(--serif);
   color: var(--accent-soft);
   font-size: 0.92rem;
-  font-variation-settings: "opsz" 14, "SOFT" 50;
+  font-variation-settings:
+    "opsz" 14,
+    "SOFT" 50;
 }
 .footer-links {
   display: flex;
@@ -1592,7 +1824,9 @@ em.wonk {
   letter-spacing: 0.04em;
   transition: color 0.25s;
 }
-.footer-links a:hover { color: var(--accent-soft); }
+.footer-links a:hover {
+  color: var(--accent-soft);
+}
 .footer-rule {
   height: 1px;
   background: rgba(244, 234, 214, 0.12);
@@ -1614,9 +1848,16 @@ em.wonk {
 
 <style>
 /* Global resets so embedded Vuetify/web components inherit the warm palette */
-html, body { background: #f5efe2; }
-body { margin: 0; }
-.v-application { background: transparent !important; }
+html,
+body {
+  background: #f5efe2;
+}
+body {
+  margin: 0;
+}
+.v-application {
+  background: transparent !important;
+}
 
 esp-web-install-button button[slot="activate"] {
   font: inherit;
