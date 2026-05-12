@@ -49,8 +49,7 @@ static void set_ota_state(ota_state_t state, const char *error_msg)
     if (ota_status_mutex && xSemaphoreTake(ota_status_mutex, portMAX_DELAY) == pdTRUE) {
         ota_status.state = state;
         if (error_msg) {
-            strncpy(ota_status.error_message, error_msg, sizeof(ota_status.error_message) - 1);
-            ota_status.error_message[sizeof(ota_status.error_message) - 1] = '\0';
+            snprintf(ota_status.error_message, sizeof(ota_status.error_message), "%s", error_msg);
         } else {
             ota_status.error_message[0] = '\0';
         }
@@ -175,6 +174,11 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
         goto cleanup;
     }
 
+    if (content_length >= INT_MAX) {
+        ESP_LOGE(TAG, "Content length overflow: %d", content_length);
+        err = ESP_FAIL;
+        goto cleanup;
+    }
     response_buffer = heap_caps_malloc(content_length + 1, MALLOC_CAP_SPIRAM);
     if (response_buffer == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for response");
@@ -208,8 +212,7 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
         goto cleanup;
     }
 
-    strncpy(latest_version, tag_name->valuestring, version_len - 1);
-    latest_version[version_len - 1] = '\0';
+    snprintf(latest_version, version_len, "%s", tag_name->valuestring);
 
     // Get assets array and find .bin file
     cJSON *assets = cJSON_GetObjectItem(json, "assets");
@@ -238,8 +241,7 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
             if (strcmp(asset_name, target_binary) == 0) {
                 cJSON *browser_download_url = cJSON_GetObjectItem(asset, "browser_download_url");
                 if (browser_download_url && cJSON_IsString(browser_download_url)) {
-                    strncpy(download_url, browser_download_url->valuestring, url_len - 1);
-                    download_url[url_len - 1] = '\0';
+                    snprintf(download_url, url_len, "%s", browser_download_url->valuestring);
                     found_binary = true;
                     ESP_LOGI(TAG, "Found firmware binary: %s", asset_name);
                     break;
@@ -294,12 +296,10 @@ static void ota_check_task(void *pvParameter)
 
     // Store latest version and URL
     if (ota_status_mutex && xSemaphoreTake(ota_status_mutex, portMAX_DELAY) == pdTRUE) {
-        strncpy(ota_status.latest_version, latest_version, sizeof(ota_status.latest_version) - 1);
-        ota_status.latest_version[sizeof(ota_status.latest_version) - 1] = '\0';
+        snprintf(ota_status.latest_version, sizeof(ota_status.latest_version), "%s", latest_version);
         xSemaphoreGive(ota_status_mutex);
     }
-    strncpy(firmware_url, download_url, sizeof(firmware_url) - 1);
-    firmware_url[sizeof(firmware_url) - 1] = '\0';
+    snprintf(firmware_url, sizeof(firmware_url), "%s", download_url);
 
     // Compare versions
     int cmp = version_compare(ota_status.current_version, latest_version);
@@ -442,8 +442,7 @@ esp_err_t ota_manager_init(void)
 
     // Get current firmware version
     const esp_app_desc_t *app_desc = esp_app_get_description();
-    strncpy(ota_status.current_version, app_desc->version, sizeof(ota_status.current_version) - 1);
-    ota_status.current_version[sizeof(ota_status.current_version) - 1] = '\0';
+    snprintf(ota_status.current_version, sizeof(ota_status.current_version), "%s", app_desc->version);
 
     ESP_LOGI(TAG, "Current firmware version: %s", ota_status.current_version);
 
