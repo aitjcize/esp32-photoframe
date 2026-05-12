@@ -941,10 +941,10 @@ program
       setIfNotDefined("saturation", presetParams.saturation);
       setIfNotDefined("toneMode", presetParams.toneMode);
       setIfNotDefined("contrast", presetParams.contrast);
-      setIfNotDefined("scurveStrength", presetParams.strength);
-      setIfNotDefined("scurveShadow", presetParams.shadowBoost);
-      setIfNotDefined("scurveHighlight", presetParams.highlightCompress);
-      setIfNotDefined("scurveMidpoint", presetParams.midpoint);
+      setIfNotDefined("strength", presetParams.strength);
+      setIfNotDefined("shadowBoost", presetParams.shadowBoost);
+      setIfNotDefined("highlightCompress", presetParams.highlightCompress);
+      setIfNotDefined("midpoint", presetParams.midpoint);
       setIfNotDefined("colorMethod", presetParams.colorMethod);
       setIfNotDefined("ditherAlgorithm", presetParams.ditherAlgorithm);
       setIfNotDefined(
@@ -958,10 +958,10 @@ program
       setIfNotDefined("saturation", libraryDefaults.saturation);
       setIfNotDefined("toneMode", libraryDefaults.toneMode);
       setIfNotDefined("contrast", libraryDefaults.contrast);
-      setIfNotDefined("scurveStrength", libraryDefaults.strength);
-      setIfNotDefined("scurveShadow", libraryDefaults.shadowBoost);
-      setIfNotDefined("scurveHighlight", libraryDefaults.highlightCompress);
-      setIfNotDefined("scurveMidpoint", libraryDefaults.midpoint);
+      setIfNotDefined("strength", libraryDefaults.strength);
+      setIfNotDefined("shadowBoost", libraryDefaults.shadowBoost);
+      setIfNotDefined("highlightCompress", libraryDefaults.highlightCompress);
+      setIfNotDefined("midpoint", libraryDefaults.midpoint);
       setIfNotDefined("colorMethod", libraryDefaults.colorMethod);
       setIfNotDefined("ditherAlgorithm", libraryDefaults.ditherAlgorithm);
       setIfNotDefined(
@@ -983,10 +983,10 @@ program
             saturation: deviceSettings.saturation,
             toneMode: deviceSettings.toneMode,
             contrast: deviceSettings.contrast,
-            scurveStrength: deviceSettings.strength,
-            scurveShadow: deviceSettings.shadowBoost,
-            scurveHighlight: deviceSettings.highlightCompress,
-            scurveMidpoint: deviceSettings.midpoint,
+            strength: deviceSettings.strength,
+            shadowBoost: deviceSettings.shadowBoost,
+            highlightCompress: deviceSettings.highlightCompress,
+            midpoint: deviceSettings.midpoint,
             colorMethod: deviceSettings.colorMethod,
             usePerceivedOutput: options.usePerceivedOutput || false,
             ditherAlgorithm:
@@ -1019,20 +1019,20 @@ program
               options.contrast ??
               presetParams?.contrast ??
               DEFAULT_PARAMS.contrast,
-            scurveStrength:
-              options.scurveStrength ??
+            strength:
+              options.strength ??
               presetParams?.strength ??
               DEFAULT_PARAMS.strength,
-            scurveShadow:
-              options.scurveShadow ??
+            shadowBoost:
+              options.shadowBoost ??
               presetParams?.shadowBoost ??
               DEFAULT_PARAMS.shadowBoost,
-            scurveHighlight:
-              options.scurveHighlight ??
+            highlightCompress:
+              options.highlightCompress ??
               presetParams?.highlightCompress ??
               DEFAULT_PARAMS.highlightCompress,
-            scurveMidpoint:
-              options.scurveMidpoint ??
+            midpoint:
+              options.midpoint ??
               presetParams?.midpoint ??
               DEFAULT_PARAMS.midpoint,
             colorMethod:
