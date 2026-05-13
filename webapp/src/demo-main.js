@@ -1,9 +1,9 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import vuetify from "./plugins/vuetify";
-import DemoPage from "./views/DemoPage.vue";
+import LandingPage from "./views/LandingPage.vue";
 
-const app = createApp(DemoPage);
+const app = createApp(LandingPage);
 
 app.use(createPinia());
 app.use(vuetify);

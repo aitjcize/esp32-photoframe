@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import MainApp from "../views/MainApp.vue";
 import ProvisionPage from "../views/ProvisionPage.vue";
-import DemoPage from "../views/DemoPage.vue";
+import LandingPage from "../views/LandingPage.vue";
 
 const routes = [
   {
@@ -17,7 +17,7 @@ const routes = [
   {
     path: "/demo",
     name: "demo",
-    component: DemoPage,
+    component: LandingPage,
   },
 ];
 
