@@ -296,7 +296,8 @@ static void ota_check_task(void *pvParameter)
 
     // Store latest version and URL
     if (ota_status_mutex && xSemaphoreTake(ota_status_mutex, portMAX_DELAY) == pdTRUE) {
-        snprintf(ota_status.latest_version, sizeof(ota_status.latest_version), "%s", latest_version);
+        snprintf(ota_status.latest_version, sizeof(ota_status.latest_version), "%s",
+                 latest_version);
         xSemaphoreGive(ota_status_mutex);
     }
     snprintf(firmware_url, sizeof(firmware_url), "%s", download_url);
@@ -442,7 +443,8 @@ esp_err_t ota_manager_init(void)
 
     // Get current firmware version
     const esp_app_desc_t *app_desc = esp_app_get_description();
-    snprintf(ota_status.current_version, sizeof(ota_status.current_version), "%s", app_desc->version);
+    snprintf(ota_status.current_version, sizeof(ota_status.current_version), "%s",
+             app_desc->version);
 
     ESP_LOGI(TAG, "Current firmware version: %s", ota_status.current_version);
 
