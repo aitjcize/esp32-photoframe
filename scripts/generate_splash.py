@@ -28,7 +28,7 @@ except ImportError:
     sys.exit(1)
 
 # App download URL
-APP_URL = "https://aitjcize.github.io/esp32-photoframe/#app"
+APP_URL = "https://aitjcize.github.io/esp32-photoframe/#companion-app"
 
 # QR code module size in SVG units
 QR_MODULE_SIZE = 4
