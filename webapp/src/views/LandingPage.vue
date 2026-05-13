@@ -144,8 +144,20 @@ onMounted(async () => {
 
   const hash = window.location.hash.slice(1);
   if (hash) {
-    const el = document.getElementById(hash);
-    if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    const scrollToHash = () => {
+      const el = document.getElementById(hash);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    // Scroll once after Vue renders (images may not have loaded yet — element is
+    // present but layout below it will shift as the hero/quality/app images
+    // arrive, leaving the user above the target).
+    setTimeout(scrollToHash, 50);
+    // Re-scroll once everything loads so we land at the final position.
+    if (document.readyState === "complete") {
+      setTimeout(scrollToHash, 200);
+    } else {
+      window.addEventListener("load", () => setTimeout(scrollToHash, 100), { once: true });
+    }
   }
 });
 
