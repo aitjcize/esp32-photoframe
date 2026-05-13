@@ -248,7 +248,7 @@ function scrollTo(id) {
           <a @click.prevent="scrollTo('demo')">Demo</a>
           <a @click.prevent="scrollTo('hardware')">Hardware</a>
           <a @click.prevent="scrollTo('flash')">Flash</a>
-          <a @click.prevent="scrollTo('app')">App</a>
+          <a @click.prevent="scrollTo('companion-app')">App</a>
         </nav>
         <div class="nav-meta">
           <span class="version-chip">{{ stableVersion }}</span>
@@ -569,7 +569,7 @@ function scrollTo(id) {
       </section>
 
       <!-- ────────────────────────────────────────  COMPANION  ──────────────────────────────────── -->
-      <section id="app" class="section section-app">
+      <section id="companion-app" class="section section-app">
         <div class="app-canvas">
           <img
             class="app-graphic"
