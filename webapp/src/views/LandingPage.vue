@@ -577,7 +577,7 @@ function scrollTo(id) {
             </p>
             <div class="app-stores">
               <a
-                href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
+                href="https://apps.apple.com/tw/app/esp-frame/id6762510995?l=en-GB"
                 target="_blank"
                 rel="noopener"
                 class="store"
@@ -585,7 +585,7 @@ function scrollTo(id) {
                 <v-icon icon="mdi-apple" size="28" />
                 <div>
                   <span class="store-os">App Store</span>
-                  <span class="store-track">TestFlight</span>
+                  <span class="store-track">USD 2.99</span>
                 </div>
               </a>
               <a
