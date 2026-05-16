@@ -1,100 +1,243 @@
 #include "testable_utils.h"
 
-int calculate_next_wakeup_interval(const struct tm *timeinfo, int rotate_interval, bool aligned,
-                                   const sleep_schedule_config_t *sleep_schedule)
+int is_rotation_due(time_t now, const rotation_config_t *config)
 {
-    int current_seconds_of_day =
-        timeinfo->tm_hour * 3600 + timeinfo->tm_min * 60 + timeinfo->tm_sec;
-    int seconds_until_next;
+    if (config->last_rotation == 0) {
+        return 1;  // Never rotated before
+    }
 
-    if (aligned) {
-        int next_aligned_seconds =
-            ((current_seconds_of_day / rotate_interval) + 1) * rotate_interval;
-        seconds_until_next = next_aligned_seconds - current_seconds_of_day;
-
-        // If next wakeup is too soon (less than 60s), skip to the following interval.
-        // This prevents immediate re-wakeup due to time drift.
-        if (seconds_until_next < 60) {
-            next_aligned_seconds += rotate_interval;
-            seconds_until_next = next_aligned_seconds - current_seconds_of_day;
+    if (config->mode == AR_MODE_DAILY) {
+        // Daily Mode: Always Anchored Synchronized by definition (86400s interval)
+        struct tm tm_anchor;
+        localtime_r(&now, &tm_anchor);
+        tm_anchor.tm_hour = config->start_time_min / 60;
+        tm_anchor.tm_min = config->start_time_min % 60;
+        tm_anchor.tm_sec = 0;
+        time_t current_slot_start = mktime(&tm_anchor);
+        if (current_slot_start > now) {
+            current_slot_start -= 86400;
         }
+
+        struct tm tm_last;
+        localtime_r(&config->last_rotation, &tm_last);
+        tm_last.tm_hour = config->start_time_min / 60;
+        tm_last.tm_min = config->start_time_min % 60;
+        tm_last.tm_sec = 0;
+        time_t last_slot_start = mktime(&tm_last);
+        if (last_slot_start > config->last_rotation) {
+            last_slot_start -= 86400;
+        }
+
+        if (current_slot_start <= last_slot_start) {
+            return 0;  // Already rotated in current or future slot
+        }
+
+        return (int) ((current_slot_start - last_slot_start) / 86400);
     } else {
-        seconds_until_next = rotate_interval;
-    }
+        // Interval Mode
+        if (config->policy == AR_POLICY_SEQUENTIAL) {
+            // Sequential: NEVER skip images.
+            if (config->use_anchor) {
+                // Anchored Sequential: rotate if we crossed a slot boundary since last
+                struct tm tm_anchor;
+                localtime_r(&now, &tm_anchor);
+                tm_anchor.tm_hour = config->start_time_min / 60;
+                tm_anchor.tm_min = config->start_time_min % 60;
+                tm_anchor.tm_sec = 0;
+                time_t day_anchor = mktime(&tm_anchor);
+                if (day_anchor > now) {
+                    day_anchor -= 86400;
+                }
 
-    // Check if sleep schedule is enabled
-    if (sleep_schedule == NULL || !sleep_schedule->enabled) {
-        return seconds_until_next;
-    }
+                long seconds_since_anchor = (long) (now - day_anchor);
+                time_t current_slot_start =
+                    day_anchor +
+                    (seconds_since_anchor / config->interval_sec) * config->interval_sec;
 
-    // Calculate the wake-up time in seconds since midnight
-    int wake_seconds_of_day = current_seconds_of_day + seconds_until_next;
-
-    // Normalize wake_seconds_of_day to handle day overflow
-    while (wake_seconds_of_day >= 86400) {
-        wake_seconds_of_day -= 86400;
-    }
-
-    int sleep_start_seconds = sleep_schedule->start_minutes * 60;
-    int sleep_end_seconds = sleep_schedule->end_minutes * 60;
-
-    // Check if wake-up time falls within or at the start of sleep schedule
-    bool wake_in_schedule = false;
-    if (sleep_start_seconds > sleep_end_seconds) {
-        // Schedule crosses midnight (e.g., 23:00 - 07:00)
-        // Wake is in schedule if >= start OR < end
-        wake_in_schedule =
-            (wake_seconds_of_day >= sleep_start_seconds || wake_seconds_of_day < sleep_end_seconds);
-    } else {
-        // Schedule within same day (e.g., 12:00 - 14:00)
-        // Wake is in schedule if >= start AND < end
-        wake_in_schedule =
-            (wake_seconds_of_day >= sleep_start_seconds && wake_seconds_of_day < sleep_end_seconds);
-    }
-
-    if (!wake_in_schedule) {
-        // Wake-up is outside sleep schedule, use normal interval
-        return seconds_until_next;
-    }
-
-    // Wake-up would be in sleep schedule, calculate next wake-up time at or after schedule ends.
-    long long next_wake_seconds_of_day;
-    if (aligned) {
-        // Find the first aligned time >= sleep_end (sleep_end is exclusive).
-        next_wake_seconds_of_day = ((long long) sleep_end_seconds + rotate_interval - 1) /
-                                   rotate_interval * rotate_interval;
-    } else {
-        // For non-aligned rotation, just wake up exactly when the sleep schedule ends
-        next_wake_seconds_of_day = sleep_end_seconds;
-    }
-
-    // Calculate seconds from current time to next wake-up
-    int seconds_until_wake;
-    if (sleep_start_seconds > sleep_end_seconds) {
-        // Overnight schedule (e.g., 23:00 - 07:00)
-        if (current_seconds_of_day >= sleep_start_seconds ||
-            current_seconds_of_day < sleep_end_seconds) {
-            // Currently in the schedule
-            if (current_seconds_of_day >= sleep_start_seconds) {
-                // Before midnight - wake after schedule ends next day
-                seconds_until_wake =
-                    (86400 - current_seconds_of_day) + (int) next_wake_seconds_of_day;
+                return (config->last_rotation < current_slot_start) ? 1 : 0;
             } else {
-                // After midnight - wake at next aligned time today
-                seconds_until_wake = (int) next_wake_seconds_of_day - current_seconds_of_day;
+                // Relative Sequential: strictly interval based timer
+                return (now - config->last_rotation) >= config->interval_sec ? 1 : 0;
             }
         } else {
-            // Currently between schedule end and start
-            // But wake time is in schedule, so skip to next day
-            seconds_until_wake = (86400 - current_seconds_of_day) + (int) next_wake_seconds_of_day;
+            // Synchronized: catch up to fixed time slots (allowing skips)
+            if (config->use_anchor) {
+                // Anchored Synchronized: use fixed wall-clock slots
+                struct tm tm_anchor;
+                localtime_r(&now, &tm_anchor);
+                tm_anchor.tm_hour = config->start_time_min / 60;
+                tm_anchor.tm_min = config->start_time_min % 60;
+                tm_anchor.tm_sec = 0;
+                time_t day_anchor = mktime(&tm_anchor);
+                if (day_anchor > now) {
+                    day_anchor -= 86400;
+                }
+
+                long seconds_since_anchor = (long) (now - day_anchor);
+                time_t current_slot_start =
+                    day_anchor +
+                    (seconds_since_anchor / config->interval_sec) * config->interval_sec;
+
+                // Find last slot start similarly
+                struct tm tm_last_anchor;
+                localtime_r(&config->last_rotation, &tm_last_anchor);
+                tm_last_anchor.tm_hour = config->start_time_min / 60;
+                tm_last_anchor.tm_min = config->start_time_min % 60;
+                tm_last_anchor.tm_sec = 0;
+                time_t last_day_anchor = mktime(&tm_last_anchor);
+                if (last_day_anchor > config->last_rotation) {
+                    last_day_anchor -= 86400;
+                }
+
+                long last_seconds_since_anchor = (long) (config->last_rotation - last_day_anchor);
+                time_t last_slot_start =
+                    last_day_anchor +
+                    (last_seconds_since_anchor / config->interval_sec) * config->interval_sec;
+
+                if (current_slot_start <= last_slot_start) {
+                    return 0;
+                }
+
+                return (int) ((current_slot_start - last_slot_start) / config->interval_sec);
+            } else {
+                // Relative Synchronized: stay in sync relative to last rotation time
+                // skip = floor(time passed / interval)
+                long passed = (long) (now - config->last_rotation);
+                return (int) (passed / config->interval_sec);
+            }
         }
+    }
+}
+
+static bool is_in_sleep_schedule(int current_minutes, const sleep_schedule_config_t *sleep_schedule)
+{
+    if (!sleep_schedule || !sleep_schedule->enabled) {
+        return false;
+    }
+
+    if (sleep_schedule->start_minutes > sleep_schedule->end_minutes) {
+        // Overnight schedule
+        return current_minutes >= sleep_schedule->start_minutes ||
+               current_minutes < sleep_schedule->end_minutes;
     } else {
         // Same-day schedule
-        seconds_until_wake = (int) next_wake_seconds_of_day - current_seconds_of_day;
-        if (seconds_until_wake < 0) {
-            seconds_until_wake += 86400;  // Wrap to next day
+        return current_minutes >= sleep_schedule->start_minutes &&
+               current_minutes < sleep_schedule->end_minutes;
+    }
+}
+
+int calculate_next_wakeup_interval(time_t now, const rotation_config_t *rot_config,
+                                   const sleep_schedule_config_t *sleep_schedule)
+{
+    struct tm tm_now;
+    localtime_r(&now, &tm_now);
+    int current_min = tm_now.tm_hour * 60 + tm_now.tm_min;
+
+    // Helper variables to gracefully handle Daily mode as a 24h anchored interval
+    bool is_anchored = rot_config->use_anchor || rot_config->mode == AR_MODE_DAILY;
+    int interval_sec = rot_config->mode == AR_MODE_DAILY ? 86400 : rot_config->interval_sec;
+
+    // Prevent division by zero if config is invalid
+    if (interval_sec <= 0) {
+        interval_sec = 86400;
+    }
+
+    // 1. If we are currently in sleep schedule, we must wake up at or after sleep_end
+    if (is_in_sleep_schedule(current_min, sleep_schedule)) {
+        int minutes_until_end;
+        if (current_min < sleep_schedule->end_minutes) {
+            minutes_until_end = sleep_schedule->end_minutes - current_min;
+        } else {
+            minutes_until_end = (1440 - current_min) + sleep_schedule->end_minutes;
+        }
+        time_t end_of_sleep = now + (minutes_until_end * 60 - tm_now.tm_sec);
+
+        if (!is_anchored) {
+            return (int) (end_of_sleep - now);
+        }
+
+        // For anchored modes, find the first slot >= end_of_sleep
+        struct tm tm_end;
+        localtime_r(&end_of_sleep, &tm_end);
+        tm_end.tm_hour = rot_config->start_time_min / 60;
+        tm_end.tm_min = rot_config->start_time_min % 60;
+        tm_end.tm_sec = 0;
+        time_t anchor_ts = mktime(&tm_end);
+        if (anchor_ts > end_of_sleep) {
+            anchor_ts -=
+                86400;  // Step back to the most recent anchor before or exactly at end_of_sleep
+        }
+
+        long seconds_since_anchor = (long) (end_of_sleep - anchor_ts);
+        long intervals = (seconds_since_anchor + interval_sec - 1) / interval_sec;
+        time_t first_slot = anchor_ts + (intervals * interval_sec);
+        return (int) (first_slot - now);
+    }
+
+    // 2. Calculate raw seconds until next rotation slot
+    int seconds_until_rotation = 0;
+    if (!is_anchored) {
+        // Relative mode: always a full interval
+        seconds_until_rotation = interval_sec;
+    } else {
+        // Anchored mode: align to wall clock slots
+        struct tm tm_anchor = tm_now;
+        tm_anchor.tm_hour = rot_config->start_time_min / 60;
+        tm_anchor.tm_min = rot_config->start_time_min % 60;
+        tm_anchor.tm_sec = 0;
+        time_t anchor_ts = mktime(&tm_anchor);
+        if (anchor_ts > now) {
+            anchor_ts -= 86400;
+        }
+
+        long seconds_since_anchor = (long) (now - anchor_ts);
+        long next_slot_ts = anchor_ts + (seconds_since_anchor / interval_sec + 1) * interval_sec;
+
+        seconds_until_rotation = (int) (next_slot_ts - now);
+
+        // Drift Protection: If we are too close to the current slot (e.g. woke up 10s early),
+        // skip to the next one to avoid a tight wake loop.
+        if (seconds_until_rotation < 60) {
+            seconds_until_rotation += interval_sec;
         }
     }
 
-    return seconds_until_wake;
+    // 3. Final check: Does our next rotation fall into the sleep schedule?
+    time_t next_wakeup_ts = now + seconds_until_rotation;
+    struct tm tm_next;
+    localtime_r(&next_wakeup_ts, &tm_next);
+    int next_wakeup_min = tm_next.tm_hour * 60 + tm_next.tm_min;
+
+    if (is_in_sleep_schedule(next_wakeup_min, sleep_schedule)) {
+        // Waking up at next_wakeup_ts would land us in sleep.
+        // Calculate the end of that sleep schedule.
+        int minutes_until_end;
+        if (next_wakeup_min < sleep_schedule->end_minutes) {
+            minutes_until_end = sleep_schedule->end_minutes - next_wakeup_min;
+        } else {
+            minutes_until_end = (1440 - next_wakeup_min) + sleep_schedule->end_minutes;
+        }
+        time_t end_of_sleep = next_wakeup_ts + (minutes_until_end * 60 - tm_next.tm_sec);
+
+        if (!is_anchored) {
+            return (int) (end_of_sleep - now);
+        }
+
+        // Re-align to first slot >= end_of_sleep
+        struct tm tm_end;
+        localtime_r(&end_of_sleep, &tm_end);
+        tm_end.tm_hour = rot_config->start_time_min / 60;
+        tm_end.tm_min = rot_config->start_time_min % 60;
+        tm_end.tm_sec = 0;
+        time_t anchor_ts = mktime(&tm_end);
+        if (anchor_ts > end_of_sleep) {
+            anchor_ts -= 86400;
+        }
+        long seconds_since_anchor = (long) (end_of_sleep - anchor_ts);
+        long intervals = (seconds_since_anchor + interval_sec - 1) / interval_sec;
+        time_t first_slot = anchor_ts + (intervals * interval_sec);
+        return (int) (first_slot - now);
+    }
+
+    return seconds_until_rotation;
 }

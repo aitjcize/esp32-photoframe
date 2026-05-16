@@ -1464,7 +1464,7 @@ static esp_err_t rotate_handler(httpd_req_t *req)
     power_manager_reset_sleep_timer();
 
     // Synchronous rotation as requested by maintainer
-    trigger_image_rotation();
+    trigger_image_rotation(1);
     ha_notify_update();
 
     cJSON *response = cJSON_CreateObject();
@@ -1603,6 +1603,17 @@ static esp_err_t config_handler(httpd_req_t *req)
         cJSON_AddNumberToObject(root, "rotate_interval", config_manager_get_rotate_interval());
         cJSON_AddBoolToObject(root, "auto_rotate_aligned",
                               config_manager_get_auto_rotate_aligned());
+
+        // Advanced Auto Rotate
+        cJSON_AddStringToObject(
+            root, "ar_mode", config_manager_get_ar_mode() == AR_MODE_DAILY ? "daily" : "interval");
+        cJSON_AddNumberToObject(root, "ar_start_time", config_manager_get_ar_start_time());
+        cJSON_AddStringToObject(root, "ar_policy",
+                                config_manager_get_ar_sleep_policy() == AR_POLICY_SEQUENTIAL
+                                    ? "sequential"
+                                    : "synchronized");
+        cJSON_AddBoolToObject(root, "ar_anchor", config_manager_get_ar_use_anchor());
+
         cJSON_AddBoolToObject(root, "sleep_schedule_enabled",
                               config_manager_get_sleep_schedule_enabled());
         cJSON_AddNumberToObject(root, "sleep_schedule_start",
