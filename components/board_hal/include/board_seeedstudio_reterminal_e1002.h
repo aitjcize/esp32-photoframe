@@ -9,6 +9,7 @@
 
 // Button Definitions
 #define BOARD_HAL_WAKEUP_KEY GPIO_NUM_3  // Green Button (Wake/Select)
+#define BOARD_HAL_WAKEUP_KEY_NAME "Green Refresh Button"
 #define BOARD_HAL_ROTATE_KEY GPIO_NUM_5  // Left Button (Rotate)
 #define BOARD_HAL_CLEAR_KEY GPIO_NUM_4   // Right Button (Clear)
 

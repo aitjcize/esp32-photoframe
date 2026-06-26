@@ -9,6 +9,7 @@
 
 // Button Definitions
 #define BOARD_HAL_WAKEUP_KEY GPIO_NUM_0  // BOOT button
+#define BOARD_HAL_WAKEUP_KEY_NAME "BOOT button"
 #define BOARD_HAL_ROTATE_KEY GPIO_NUM_4  // Usage: Wakeup + Rotate
 #define BOARD_HAL_CLEAR_KEY GPIO_NUM_NC  // Not supported
 

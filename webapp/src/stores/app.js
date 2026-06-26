@@ -22,6 +22,7 @@ export const useAppStore = defineStore("app", () => {
     storage_used: 0,
     version: "v1.0",
     project_name: "PhotoFrame",
+    wakeup_key_name: "wake button",
     compile_time: "",
     compile_date: "",
     idf_version: "",
@@ -225,6 +226,16 @@ export const useAppStore = defineStore("app", () => {
     }
   }
 
+  async function keepAlive() {
+    try {
+      const response = await fetch(`${API_BASE}/api/keep_alive`, { method: "POST" });
+      return response.ok;
+    } catch (error) {
+      console.error("Failed to send keep-alive:", error);
+      return false;
+    }
+  }
+
   async function loadSystemInfo() {
     loading.value.systemInfo = true;
     try {
@@ -262,6 +273,7 @@ export const useAppStore = defineStore("app", () => {
     displayImage,
     enterSleep,
     rotateNow,
+    keepAlive,
     loadSystemInfo,
   };
 });

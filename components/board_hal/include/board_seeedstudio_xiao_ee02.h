@@ -9,6 +9,7 @@
 
 // Button Definitions
 #define BOARD_HAL_WAKEUP_KEY GPIO_NUM_5  // Button 3
+#define BOARD_HAL_WAKEUP_KEY_NAME "Button 3"
 #define BOARD_HAL_ROTATE_KEY GPIO_NUM_2  // Button 1
 #define BOARD_HAL_CLEAR_KEY GPIO_NUM_3   // Button 2
 
