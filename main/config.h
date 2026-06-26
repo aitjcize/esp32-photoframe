@@ -60,6 +60,11 @@ typedef enum {
 #define AUTO_SLEEP_TIMEOUT_SEC 120
 #endif
 
+// Longer auto-sleep window during out-of-box setup (captive-portal
+// provisioning), so the user has time to scan the QR code and configure WiFi
+// via the app before the device sleeps.
+#define OOBE_AUTO_SLEEP_TIMEOUT_SEC 600
+
 #define IMAGE_ROTATE_INTERVAL_SEC 3600
 
 // WiFi

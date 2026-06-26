@@ -18,6 +18,14 @@ esp_err_t power_manager_init(void);
 void power_manager_enter_sleep(void);
 void power_manager_enter_sleep_with_timer(uint32_t sleep_time_sec);
 void power_manager_reset_sleep_timer(void);
+
+/**
+ * @brief Override the auto-sleep timeout at runtime (seconds).
+ *
+ * Resets the running countdown so the new value takes effect immediately.
+ * Used to extend the window during out-of-box provisioning.
+ */
+void power_manager_set_auto_sleep_timeout(uint32_t seconds);
 void power_manager_reset_rotate_timer(void);
 wakeup_source_t power_manager_get_wakeup_source(void);
 void power_manager_set_deep_sleep_enabled(bool enabled);

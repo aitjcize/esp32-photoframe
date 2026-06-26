@@ -493,6 +493,10 @@ void app_main(void)
             ESP_LOGI(TAG, "No WiFi credentials found - Starting AP mode");
             ESP_LOGI(TAG, "===========================================");
 
+            // Out-of-box setup: give the user more time to scan the QR code
+            // and provision via the app before the device auto-sleeps.
+            power_manager_set_auto_sleep_timeout(OOBE_AUTO_SLEEP_TIMEOUT_SEC);
+
             // Show OOBE splash screen with WiFi QR code
             splash_screen_display();
 

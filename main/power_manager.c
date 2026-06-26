@@ -33,6 +33,7 @@ static const char *TAG = "power_manager";
 static TaskHandle_t sleep_timer_task_handle = NULL;
 static TaskHandle_t rotation_timer_task_handle = NULL;
 static int64_t next_sleep_time = 0;  // Use absolute time for sleep timer
+static uint32_t auto_sleep_timeout_sec = AUTO_SLEEP_TIMEOUT_SEC;
 static wakeup_source_t wakeup_source = WAKEUP_SOURCE_NONE;
 static int64_t next_rotation_time = 0;  // Use absolute time for rotation
 static uint64_t ext1_wakeup_pin_mask = 0;
@@ -120,11 +121,11 @@ static void sleep_timer_task(void *arg)
 
             if (next_sleep_time == 0) {
                 // Initialize sleep timer
-                next_sleep_time = now + (AUTO_SLEEP_TIMEOUT_SEC * 1000000LL);
+                next_sleep_time = now + ((int64_t) auto_sleep_timeout_sec * 1000000LL);
                 last_blink_time = now;
                 last_log_time = now;
-                ESP_LOGI(TAG, "Auto-sleep timer started, will sleep in %d seconds",
-                         AUTO_SLEEP_TIMEOUT_SEC);
+                ESP_LOGI(TAG, "Auto-sleep timer started, will sleep in %lu seconds",
+                         (unsigned long) auto_sleep_timeout_sec);
             }
 
             int64_t remaining_us = next_sleep_time - now;
@@ -386,7 +387,14 @@ void power_manager_enter_sleep(void)
 
 void power_manager_reset_sleep_timer(void)
 {
-    next_sleep_time = esp_timer_get_time() + (AUTO_SLEEP_TIMEOUT_SEC * 1000000LL);
+    next_sleep_time = esp_timer_get_time() + ((int64_t) auto_sleep_timeout_sec * 1000000LL);
+}
+
+void power_manager_set_auto_sleep_timeout(uint32_t seconds)
+{
+    auto_sleep_timeout_sec = seconds;
+    next_sleep_time = 0;  // re-init on next tick so the new timeout takes effect
+    ESP_LOGI(TAG, "Auto-sleep timeout set to %lu seconds", (unsigned long) seconds);
 }
 
 void power_manager_reset_rotate_timer(void)
