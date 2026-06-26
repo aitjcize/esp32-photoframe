@@ -51,11 +51,24 @@ menu "Board Configuration"
                 Includes battery monitoring and deep sleep support.
                 SD card: SPI interface.
 
+        config BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1004
+            bool "Seeed reTerminal E1004 (13.3\" Spectra 6)"
+            select SDCARD_DRIVER_SPI
+            select SENSOR_DRIVER_SHT40
+            select RTC_DRIVER_PCF8563
+            select EP_DRIVER_ED2208_NCA
+            help
+                Driver for Seeed reTerminal E1004 with 13.3" Spectra 6 display
+                (1200x1600, dual-CS ED2208-NCA panel).
+                Includes battery monitoring and deep sleep support.
+                The panel rail is gated by a software-controlled load switch.
+                SD card: SPI interface.
+
     endchoice
 
     config USE_INTERNAL_FLASH_STORAGE
         bool "Use internal flash as storage (LittleFS)"
-        default y if BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02 || BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE04 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002
+        default y if BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02 || BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE04 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1004
         default n
         help
             Mounts a LittleFS partition from internal flash to use as storage.

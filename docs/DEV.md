@@ -40,6 +40,12 @@ cd ..
 # Build for Seeed Studio XIAO EE04 (7.3" 6-color e-paper)
 ./build.py --board seeedstudio_xiao_ee04
 
+# Build for Seeed Studio reTerminal E1002 (7.3" 6-color e-paper)
+./build.py --board seeedstudio_reterminal_e1002
+
+# Build for Seeed Studio reTerminal E1004 (13.3" 6-color e-paper)
+./build.py --board seeedstudio_reterminal_e1004
+
 # Clean build (optional)
 ./build.py --board waveshare_photopainter_73 --fullclean
 ```

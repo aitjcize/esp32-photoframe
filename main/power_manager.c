@@ -162,14 +162,22 @@ static void power_manager_enable_auto_light_sleep(void)
     // This allows the ESP32 to automatically enter light sleep when idle
     // and scale CPU frequency down to save power while maintaining WiFi connectivity
     esp_pm_config_t pm_config = {
-        .max_freq_mhz = 160,         // Maximum CPU frequency (160MHz for ESP32-S3)
-        .min_freq_mhz = 40,          // Minimum CPU frequency (40MHz when idle)
+        .max_freq_mhz = 160,  // Maximum CPU frequency (160MHz for ESP32-S3)
+        .min_freq_mhz = 40,   // Minimum CPU frequency (40MHz when idle)
+#ifdef BOARD_HAL_DISABLE_AUTO_LIGHT_SLEEP
+        // This board shares the SPI bus between the e-paper panel and the SD
+        // card; automatic light sleep disturbs the bus mid-transaction and
+        // corrupts SD reads. Keep CPU frequency scaling, but no light sleep.
+        .light_sleep_enable = false,
+#else
         .light_sleep_enable = true,  // Enable automatic light sleep
+#endif
     };
 
     esp_err_t pm_ret = esp_pm_configure(&pm_config);
     if (pm_ret == ESP_OK) {
-        ESP_LOGI(TAG, "Automatic light sleep enabled (CPU: 160MHz -> 40MHz)");
+        ESP_LOGI(TAG, "Power management configured (CPU: 160MHz -> 40MHz, light sleep %s)",
+                 pm_config.light_sleep_enable ? "enabled" : "disabled");
     } else {
         ESP_LOGW(TAG, "Failed to configure power management: %s", esp_err_to_name(pm_ret));
     }

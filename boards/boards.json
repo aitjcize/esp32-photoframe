@@ -30,5 +30,13 @@
     "resolution": [800, 480],
     "storage": "SD (SPI) + Internal flash",
     "url": "https://www.seeedstudio.com/reTerminal-E1002-p-6533.html"
+  },
+  {
+    "id": "seeedstudio_reterminal_e1004",
+    "label": "Seeed Studio reTerminal E1004",
+    "display": "13.3\" 6-color",
+    "resolution": [1200, 1600],
+    "storage": "SD (SPI) + Internal flash",
+    "url": "https://www.seeedstudio.com/reTerminal-E1004-p-6692.html"
   }
 ]

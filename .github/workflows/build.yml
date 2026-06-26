@@ -20,7 +20,7 @@ jobs:
       contents: write
     strategy:
       matrix:
-        board: [waveshare_photopainter_73, seeedstudio_xiao_ee02, seeedstudio_reterminal_e1002, seeedstudio_xiao_ee04]
+        board: [waveshare_photopainter_73, seeedstudio_xiao_ee02, seeedstudio_reterminal_e1002, seeedstudio_xiao_ee04, seeedstudio_reterminal_e1004]
         include:
           - board: waveshare_photopainter_73
             flash_size: 16MB
@@ -30,6 +30,8 @@ jobs:
             flash_size: 32MB
           - board: seeedstudio_xiao_ee04
             flash_size: 16MB
+          - board: seeedstudio_reterminal_e1004
+            flash_size: 32MB
       fail-fast: false
 
     steps:
@@ -125,6 +127,8 @@ jobs:
           firmware-artifacts/esp32-photoframe-seeedstudio_reterminal_e1002.bin
           firmware-artifacts/photoframe-firmware-seeedstudio_xiao_ee04-merged.bin
           firmware-artifacts/esp32-photoframe-seeedstudio_xiao_ee04.bin
+          firmware-artifacts/photoframe-firmware-seeedstudio_reterminal_e1004-merged.bin
+          firmware-artifacts/esp32-photoframe-seeedstudio_reterminal_e1004.bin
         body: |
           ## What's New
 
@@ -142,6 +146,7 @@ jobs:
           - `photoframe-firmware-seeedstudio_xiao_ee02-merged.bin`: For Seeed XIAO EE02
           - `photoframe-firmware-seeedstudio_reterminal_e1002-merged.bin`: For Seeed reTerminal E1002
           - `photoframe-firmware-seeedstudio_xiao_ee04-merged.bin`: For Seeed XIAO EE04
+          - `photoframe-firmware-seeedstudio_reterminal_e1004-merged.bin`: For Seeed reTerminal E1004
 
           ```bash
           esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 photoframe-firmware-[board]-merged.bin
@@ -221,7 +226,7 @@ jobs:
         fi
         echo "Stable version: ${STABLE_TAG:-none}"
 
-        BOARDS="waveshare_photopainter_73 seeedstudio_xiao_ee02 seeedstudio_reterminal_e1002 seeedstudio_xiao_ee04"
+        BOARDS="waveshare_photopainter_73 seeedstudio_xiao_ee02 seeedstudio_reterminal_e1002 seeedstudio_xiao_ee04 seeedstudio_reterminal_e1004"
 
         for board in $BOARDS; do
           mkdir -p "demo/$board"

@@ -6,7 +6,7 @@ to PNG via rsvg-convert, then uses process-cli to dither and produce EPDGZ.
 
 Currently generates two variants:
   - 800x480   (landscape: Waveshare PhotoPainter 7.3", reTerminal E1002, XIAO EE04)
-  - 1200x1600 (portrait: XIAO EE02)
+  - 1200x1600 (portrait: XIAO EE02, reTerminal E1004)
 
 Dependencies:
   pip install qrcode
