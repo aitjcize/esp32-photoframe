@@ -1,5 +1,6 @@
 #include "config_manager.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
@@ -22,8 +23,8 @@ static char wifi_password[WIFI_PASS_MAX_LEN] = {0};
 
 // Auto Rotate
 static bool auto_rotate_enabled = false;
-static int rotate_interval = IMAGE_ROTATE_INTERVAL_SEC;
-static bool auto_rotate_aligned = true;
+static char cron_rules_store[MAX_CRON_RULES][CRON_RULE_MAX_LEN] = {{0}};
+static int cron_rule_count = 0;
 static bool sleep_schedule_enabled = false;
 static int sleep_schedule_start = 1380;  // Minutes since midnight (23:00 = 23*60)
 static int sleep_schedule_end = 420;     // Minutes since midnight (07:00 = 7*60)
@@ -58,9 +59,92 @@ static bool deep_sleep_enabled = true;  // Enabled by default
 // Config sync
 static int64_t config_last_updated = 0;
 
+// ----------------------------------------------------------------------------
+// Cron schedule helpers
+// ----------------------------------------------------------------------------
+
+// Fill cron_rules_store from a '\n'-separated joined string (skips empty and
+// over-long entries, caps at MAX_CRON_RULES).
+static void cron_load_from_joined(const char *joined)
+{
+    cron_rule_count = 0;
+    if (!joined) {
+        return;
+    }
+    const char *p = joined;
+    while (*p && cron_rule_count < MAX_CRON_RULES) {
+        const char *nl = strchr(p, '\n');
+        size_t len = nl ? (size_t) (nl - p) : strlen(p);
+        if (len > 0 && len < CRON_RULE_MAX_LEN) {
+            memcpy(cron_rules_store[cron_rule_count], p, len);
+            cron_rules_store[cron_rule_count][len] = '\0';
+            cron_rule_count++;
+        }
+        if (!nl) {
+            break;
+        }
+        p = nl + 1;
+    }
+}
+
+// Persist the current cron_rules_store to NVS as a '\n'-joined string.
+static void cron_persist(void)
+{
+    char joined[MAX_CRON_RULES * CRON_RULE_MAX_LEN];
+    joined[0] = '\0';
+    size_t off = 0;
+    for (int i = 0; i < cron_rule_count; i++) {
+        int n = snprintf(joined + off, sizeof(joined) - off, "%s%s", i ? "\n" : "",
+                         cron_rules_store[i]);
+        if (n < 0 || (size_t) n >= sizeof(joined) - off) {
+            break;
+        }
+        off += n;
+    }
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        if (cron_rule_count > 0) {
+            nvs_set_str(nvs_handle, NVS_ROTATE_CRON_KEY, joined);
+        } else {
+            nvs_erase_key(nvs_handle, NVS_ROTATE_CRON_KEY);
+        }
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+}
+
+// Convert a legacy rotation interval (seconds) into a single cron expression.
+// Mirrors the documented best-effort mapping; falls back to hourly.
+static void cron_from_legacy_interval(int seconds, char *out, size_t out_len)
+{
+    if (seconds >= 3600 && seconds % 3600 == 0) {
+        int hours = seconds / 3600;
+        if (hours <= 1) {
+            snprintf(out, out_len, "0 * *");
+        } else if (hours >= 24) {
+            snprintf(out, out_len, "0 0 *");
+        } else {
+            snprintf(out, out_len, "0 */%d *", hours);
+        }
+    } else if (seconds >= 60 && 3600 % seconds == 0) {
+        snprintf(out, out_len, "*/%d * *", seconds / 60);
+    } else {
+        // Not cleanly expressible as cron (e.g. 90 min) — approximate to hourly.
+        snprintf(out, out_len, "0 * *");
+    }
+}
+
 esp_err_t config_manager_init(void)
 {
     ESP_LOGI(TAG, "Initializing config manager");
+
+    // Rotation-schedule load is resolved after the read-only NVS handle closes
+    // (migration / default seeding may need a read-write handle).
+    char cron_buf[MAX_CRON_RULES * CRON_RULE_MAX_LEN] = {0};
+    int32_t legacy_interval = 0;
+    bool migrate_legacy_interval = false;
+    bool seed_default_cron = true;
 
     nvs_handle_t nvs_handle;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {
@@ -133,17 +217,16 @@ esp_err_t config_manager_init(void)
                      auto_rotate_enabled ? "yes" : "no");
         }
 
-        int32_t stored_interval = IMAGE_ROTATE_INTERVAL_SEC;
-        if (nvs_get_i32(nvs_handle, NVS_ROTATE_INTERVAL_KEY, &stored_interval) == ESP_OK) {
-            rotate_interval = stored_interval;
-            ESP_LOGI(TAG, "Loaded rotate interval from NVS: %d seconds", rotate_interval);
-        }
-
-        uint8_t stored_aligned = 1;
-        if (nvs_get_u8(nvs_handle, NVS_AUTO_ROTATE_ALIGNED_KEY, &stored_aligned) == ESP_OK) {
-            auto_rotate_aligned = (stored_aligned != 0);
-            ESP_LOGI(TAG, "Loaded auto-rotate aligned from NVS: %s",
-                     auto_rotate_aligned ? "yes" : "no");
+        // Rotation schedule (cron). If absent, fall back to migrating a legacy
+        // interval, else seed the default — both handled after this handle closes.
+        size_t cron_len = sizeof(cron_buf);
+        if (nvs_get_str(nvs_handle, NVS_ROTATE_CRON_KEY, cron_buf, &cron_len) == ESP_OK) {
+            cron_load_from_joined(cron_buf);
+            seed_default_cron = false;
+            ESP_LOGI(TAG, "Loaded %d cron rule(s) from NVS", cron_rule_count);
+        } else if (nvs_get_i32(nvs_handle, NVS_ROTATE_INTERVAL_KEY, &legacy_interval) == ESP_OK) {
+            migrate_legacy_interval = true;
+            seed_default_cron = false;
         }
 
         uint8_t stored_sleep_sched_enabled = 0;
@@ -286,6 +369,19 @@ esp_err_t config_manager_init(void)
         }
 
         nvs_close(nvs_handle);
+    }
+
+    // Resolve the rotation schedule now that the read-only handle is closed.
+    if (migrate_legacy_interval) {
+        char rule[CRON_RULE_MAX_LEN];
+        cron_from_legacy_interval((int) legacy_interval, rule, sizeof(rule));
+        const char *one[1] = {rule};
+        config_manager_set_cron_rules(one, 1);  // persists to NVS
+        ESP_LOGI(TAG, "Migrated legacy interval %d s -> cron \"%s\"", (int) legacy_interval, rule);
+    } else if (seed_default_cron) {
+        // Fresh device: seed default in memory; persists on the first user save.
+        cron_load_from_joined(DEFAULT_ROTATE_CRON);
+        ESP_LOGI(TAG, "No rotation schedule in NVS, using default: %s", DEFAULT_ROTATE_CRON);
     }
 
     // Apply timezone setting
@@ -504,42 +600,55 @@ bool config_manager_get_auto_rotate(void)
     return auto_rotate_enabled;
 }
 
-void config_manager_set_rotate_interval(int seconds)
+int config_manager_get_cron_rule_count(void)
 {
-    rotate_interval = seconds;
+    return cron_rule_count;
+}
 
-    nvs_handle_t nvs_handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-        nvs_set_i32(nvs_handle, NVS_ROTATE_INTERVAL_KEY, seconds);
-        nvs_commit(nvs_handle);
-        nvs_close(nvs_handle);
+const char *config_manager_get_cron_rule(int index)
+{
+    if (index < 0 || index >= cron_rule_count) {
+        return NULL;
+    }
+    return cron_rules_store[index];
+}
+
+void config_manager_set_cron_rules(const char *const *rules, int count)
+{
+    if (count < 0) {
+        count = 0;
+    }
+    cron_rule_count = 0;
+    for (int i = 0; i < count && cron_rule_count < MAX_CRON_RULES; i++) {
+        if (!rules[i] || rules[i][0] == '\0' || strlen(rules[i]) >= CRON_RULE_MAX_LEN) {
+            continue;
+        }
+        strncpy(cron_rules_store[cron_rule_count], rules[i], CRON_RULE_MAX_LEN - 1);
+        cron_rules_store[cron_rule_count][CRON_RULE_MAX_LEN - 1] = '\0';
+        cron_rule_count++;
     }
 
-    ESP_LOGI(TAG, "Rotate interval set to %d seconds", seconds);
+    cron_persist();
+    ESP_LOGI(TAG, "Rotation schedule set to %d cron rule(s)", cron_rule_count);
 }
 
-int config_manager_get_rotate_interval(void)
+void config_manager_set_cron_rules_from_interval(int seconds)
 {
-    return rotate_interval;
+    char rule[CRON_RULE_MAX_LEN];
+    cron_from_legacy_interval(seconds, rule, sizeof(rule));
+    const char *one[1] = {rule};
+    config_manager_set_cron_rules(one, 1);
 }
 
-void config_manager_set_auto_rotate_aligned(bool enabled)
+int config_manager_get_compiled_cron_rules(cron_rule_t *out, int max)
 {
-    auto_rotate_aligned = enabled;
-
-    nvs_handle_t nvs_handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-        nvs_set_u8(nvs_handle, NVS_AUTO_ROTATE_ALIGNED_KEY, enabled ? 1 : 0);
-        nvs_commit(nvs_handle);
-        nvs_close(nvs_handle);
+    int n = 0;
+    for (int i = 0; i < cron_rule_count && n < max; i++) {
+        if (cron_parse(cron_rules_store[i], &out[n])) {
+            n++;
+        }
     }
-
-    ESP_LOGI(TAG, "Auto-rotate aligned %s", enabled ? "enabled" : "disabled");
-}
-
-bool config_manager_get_auto_rotate_aligned(void)
-{
-    return auto_rotate_aligned;
+    return n;
 }
 
 void config_manager_set_sleep_schedule_enabled(bool enabled)

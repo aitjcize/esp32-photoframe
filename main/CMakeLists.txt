@@ -17,7 +17,7 @@ set(SOURCES
     "processing_settings.c"
     "splash_screen.c"
     "storage.c"
-    "testable_utils.c"
+    "cron.c"
     "utils.c"
     "wifi_manager.c"
     "wifi_provisioning.c"

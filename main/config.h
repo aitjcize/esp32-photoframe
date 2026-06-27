@@ -69,12 +69,16 @@ typedef enum {
 // restore or NTP sync), rotate anyway when the scheduled time is at most this
 // close; otherwise go back to sleep until the scheduled time. Must stay
 // shorter than the time a rotation takes end-to-end: a rotation that starts
-// within tolerance then finishes past its boundary, so the next wake-up
-// computation lands on the following interval instead of re-firing the
-// boundary that was just serviced.
+// within tolerance then finishes past its scheduled minute, so the next
+// wake-up computation lands on the following scheduled time instead of
+// re-firing the one that was just serviced.
 #define EARLY_WAKE_TOLERANCE_SEC 5
 
-#define IMAGE_ROTATE_INTERVAL_SEC 3600
+// Default rotation schedule for fresh / factory-reset devices: every 12 hours.
+// Simplified 3-field cron: "minute hour day-of-week".
+#define DEFAULT_ROTATE_CRON "0 */12 *"
+#define MAX_CRON_RULES 7
+#define CRON_RULE_MAX_LEN 64
 
 // WiFi
 #define NVS_WIFI_SSID_KEY "wifi_ssid"
@@ -91,8 +95,8 @@ typedef enum {
 
 // Auto Rotate
 #define NVS_AUTO_ROTATE_KEY "auto_rotate"
-#define NVS_ROTATE_INTERVAL_KEY "rotate_int"
-#define NVS_AUTO_ROTATE_ALIGNED_KEY "ar_align"
+#define NVS_ROTATE_CRON_KEY "rotate_cron"
+#define NVS_ROTATE_INTERVAL_KEY "rotate_int"  // legacy: read once to migrate to cron
 #define NVS_ROTATION_MODE_KEY "rotation_mode"
 #define NVS_SLEEP_SCHEDULE_ENABLED_KEY "sleep_sched_en"
 #define NVS_SLEEP_SCHEDULE_START_KEY "sleep_start"

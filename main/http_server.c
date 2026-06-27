@@ -1600,9 +1600,15 @@ static esp_err_t config_handler(httpd_req_t *req)
 
         // Auto Rotate
         cJSON_AddBoolToObject(root, "auto_rotate", config_manager_get_auto_rotate());
-        cJSON_AddNumberToObject(root, "rotate_interval", config_manager_get_rotate_interval());
-        cJSON_AddBoolToObject(root, "auto_rotate_aligned",
-                              config_manager_get_auto_rotate_aligned());
+        cJSON *cron_arr = cJSON_CreateArray();
+        int cron_count = config_manager_get_cron_rule_count();
+        for (int i = 0; i < cron_count; i++) {
+            const char *rule = config_manager_get_cron_rule(i);
+            if (rule) {
+                cJSON_AddItemToArray(cron_arr, cJSON_CreateString(rule));
+            }
+        }
+        cJSON_AddItemToObject(root, "rotate_cron", cron_arr);
         cJSON_AddBoolToObject(root, "sleep_schedule_enabled",
                               config_manager_get_sleep_schedule_enabled());
         cJSON_AddNumberToObject(root, "sleep_schedule_start",
@@ -1706,8 +1712,11 @@ static esp_err_t config_handler(httpd_req_t *req)
             cJSON *error_response = cJSON_CreateObject();
             cJSON_AddStringToObject(error_response, "status", "error");
 
+            const char *config_err = utils_consume_config_error();
             const char *cert_err = utils_consume_cert_pin_error();
-            if (cert_err && cert_err[0] != '\0') {
+            if (config_err && config_err[0] != '\0') {
+                cJSON_AddStringToObject(error_response, "message", config_err);
+            } else if (cert_err && cert_err[0] != '\0') {
                 char msg[384];
                 snprintf(msg, sizeof(msg), "Failed to pin TLS certificate for image URL: %s",
                          cert_err);
