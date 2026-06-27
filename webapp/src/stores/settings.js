@@ -28,9 +28,7 @@ export const useSettingsStore = defineStore("settings", () => {
     wifiPassword: "",
     // Auto Rotate
     autoRotate: true,
-    rotateHours: 1,
-    rotateMinutes: 0,
-    autoRotateAligned: true,
+    rotateCron: ["0 */12 *"],
     sleepScheduleEnabled: false,
     sleepScheduleStart: "23:00",
     sleepScheduleEnd: "07:00",
@@ -176,12 +174,12 @@ export const useSettingsStore = defineStore("settings", () => {
 
       // Parse config into UI-friendly format
       deviceSettings.value.autoRotate = data.auto_rotate || false;
-      deviceSettings.value.autoRotateAligned = data.auto_rotate_aligned !== false;
 
-      // Convert seconds to hours and minutes
-      const rotateIntervalSeconds = data.rotate_interval || 3600;
-      deviceSettings.value.rotateHours = Math.floor(rotateIntervalSeconds / 3600);
-      deviceSettings.value.rotateMinutes = Math.floor((rotateIntervalSeconds % 3600) / 60);
+      // Rotation schedule: array of cron rules (fall back to the default).
+      deviceSettings.value.rotateCron =
+        Array.isArray(data.rotate_cron) && data.rotate_cron.length
+          ? data.rotate_cron
+          : ["0 */12 *"];
 
       deviceSettings.value.displayRotationDeg = data.display_rotation_deg ?? 180;
       deviceSettings.value.imageUrl = data.image_url || "https://loremflickr.com/800/480";
@@ -238,10 +236,6 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   async function saveDeviceSettings() {
-    // Build current config object with snake_case keys for API
-    const rotateInterval =
-      deviceSettings.value.rotateHours * 3600 + deviceSettings.value.rotateMinutes * 60;
-
     // Convert HH:MM to minutes since midnight
     const [startHours, startMins] = deviceSettings.value.sleepScheduleStart.split(":").map(Number);
     const sleepScheduleStart = startHours * 60 + startMins;
@@ -267,8 +261,7 @@ export const useSettingsStore = defineStore("settings", () => {
 
     const currentConfig = {
       auto_rotate: deviceSettings.value.autoRotate,
-      auto_rotate_aligned: deviceSettings.value.autoRotateAligned,
-      rotate_interval: rotateInterval,
+      rotate_cron: deviceSettings.value.rotateCron,
       display_rotation_deg: deviceSettings.value.displayRotationDeg,
       rotation_mode: deviceSettings.value.rotationMode,
       sd_rotation_mode: deviceSettings.value.sdRotationMode,
@@ -296,11 +289,18 @@ export const useSettingsStore = defineStore("settings", () => {
       currentConfig.wifi_password = deviceSettings.value.wifiPassword;
     }
 
-    // Compare with original config and only send changed fields
+    // Compare with original config and only send changed fields.
+    // Arrays (rotate_cron) need a value comparison, not reference equality.
     const changedFields = {};
     for (const key in currentConfig) {
-      if (currentConfig[key] !== originalConfig[key]) {
-        changedFields[key] = currentConfig[key];
+      const cur = currentConfig[key];
+      const orig = originalConfig[key];
+      const differs =
+        Array.isArray(cur) || Array.isArray(orig)
+          ? JSON.stringify(cur) !== JSON.stringify(orig)
+          : cur !== orig;
+      if (differs) {
+        changedFields[key] = cur;
       }
     }
 

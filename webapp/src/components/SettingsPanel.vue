@@ -4,9 +4,25 @@ import { useSettingsStore, useAppStore } from "../stores";
 import PaletteCalibration from "./PaletteCalibration.vue";
 import GrayscaleCalibration from "./GrayscaleCalibration.vue";
 import ProcessingControls from "./ProcessingControls.vue";
+import RotationSchedule from "./RotationSchedule.vue";
 
 const settingsStore = useSettingsStore();
 const appStore = useAppStore();
+
+// Quiet-hours window (minutes since midnight) passed to the schedule preview so
+// it skips rotations during sleep hours.
+const sleepPreviewWindow = computed(() => {
+  const ds = settingsStore.deviceSettings;
+  const toMin = (hhmm) => {
+    const [h, m] = (hhmm || "0:0").split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  return {
+    enabled: ds.sleepScheduleEnabled,
+    start: toMin(ds.sleepScheduleStart),
+    end: toMin(ds.sleepScheduleEnd),
+  };
+});
 
 // Device time state
 const deviceTime = ref("");
@@ -465,48 +481,11 @@ async function performFactoryReset() {
             />
 
             <div class="ml-10">
-              <v-row class="mb-0">
-                <v-col cols="6" md="3">
-                  <v-text-field
-                    v-model.number="settingsStore.deviceSettings.rotateHours"
-                    label="Hours"
-                    type="number"
-                    :min="0"
-                    :max="23"
-                    variant="outlined"
-                    :disabled="!settingsStore.deviceSettings.autoRotate"
-                    hide-details
-                  />
-                </v-col>
-                <v-col cols="6" md="3">
-                  <v-text-field
-                    v-model.number="settingsStore.deviceSettings.rotateMinutes"
-                    label="Minutes"
-                    type="number"
-                    :min="0"
-                    :max="59"
-                    variant="outlined"
-                    :disabled="!settingsStore.deviceSettings.autoRotate"
-                    hide-details
-                  />
-                </v-col>
-              </v-row>
-
-              <v-checkbox
-                v-model="settingsStore.deviceSettings.autoRotateAligned"
-                label="Align rotation to clock boundaries"
-                hide-details
-                class="mb-0 ml-2"
+              <RotationSchedule
+                v-model="settingsStore.deviceSettings.rotateCron"
+                :sleep="sleepPreviewWindow"
                 :disabled="!settingsStore.deviceSettings.autoRotate"
               />
-              <v-alert
-                v-if="settingsStore.deviceSettings.autoRotateAligned"
-                type="info"
-                variant="tonal"
-                density="compact"
-              >
-                Rotation aligns to clock boundaries. 1 hour rotates at 1:00, 2:00, etc.
-              </v-alert>
 
               <v-select
                 v-model="settingsStore.deviceSettings.rotationMode"
