@@ -77,16 +77,16 @@ idf.py -p PORT flash monitor
 Edit `main/config.h` to customize firmware behavior:
 
 ```c
-#define AUTO_SLEEP_TIMEOUT_SEC      120    // Auto-sleep timeout (2 minutes)
-#define IMAGE_ROTATE_INTERVAL_SEC   3600   // Default rotation interval (1 hour)
-#define DISPLAY_WIDTH               800    // E-paper width
+#define AUTO_SLEEP_TIMEOUT_SEC      120          // Auto-sleep timeout (2 minutes)
+#define DEFAULT_ROTATE_CRON         "0 */12 *"       // Default rotation schedule (every 12h)
+#define DISPLAY_WIDTH               800           // E-paper width
 #define DISPLAY_HEIGHT              480    // E-paper height
 ```
 
 ### Key Configuration Parameters
 
 - **AUTO_SLEEP_TIMEOUT_SEC**: Time in seconds before the device enters deep sleep when idle
-- **IMAGE_ROTATE_INTERVAL_SEC**: Default interval for automatic image rotation (configurable via web interface)
+- **DEFAULT_ROTATE_CRON**: Default rotation schedule (cron) for fresh devices, configurable via the web interface
 - **DISPLAY_WIDTH/HEIGHT**: E-paper display dimensions (800×480 for landscape)
 
 ## Development Workflow

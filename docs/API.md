@@ -115,8 +115,7 @@ Get current device configuration.
   "display_orientation": "landscape",
   "display_rotation_deg": 180,
   "auto_rotate": true,
-  "rotate_interval": 3600,
-  "auto_rotate_aligned": true,
+  "rotate_cron": ["0 */12 *"],
   "sleep_schedule_enabled": false,
   "sleep_schedule_start": 1380,
   "sleep_schedule_end": 420,
@@ -143,11 +142,17 @@ Get current device configuration.
 - `display_orientation`: `"landscape"` or `"portrait"`
 - `display_rotation_deg`: Display rotation in degrees (0, 90, 180, 270)
 - `auto_rotate`: Enable automatic image rotation
-- `rotate_interval`: Rotation interval in seconds
-- `auto_rotate_aligned`: Align rotation to clock boundaries
-- `sleep_schedule_enabled`: Enable sleep schedule
-- `sleep_schedule_start`: Sleep start time in minutes since midnight
-- `sleep_schedule_end`: Sleep end time in minutes since midnight
+- `rotate_cron`: Array of up to 7 simplified 3-field cron expressions
+  (`minute hour day-of-week`). The next rotation is the earliest time matching
+  any rule. Supports `*`, `a`, `a-b`, `*/n`, `a-b/n` and comma lists; day-of-week
+  `0`/`7` = Sunday. (Day-of-month and month are intentionally omitted.) Invalid
+  expressions are rejected with `400`. For backward compatibility, `POST`/`PATCH`
+  also accept a legacy `rotate_interval` (seconds) and convert it to a single
+  cron rule.
+- `sleep_schedule_enabled`: Enable the quiet-hours window (rotations are
+  suppressed inside it; applied as a mask on top of `rotate_cron`)
+- `sleep_schedule_start`: Quiet-hours start time in minutes since midnight
+- `sleep_schedule_end`: Quiet-hours end time in minutes since midnight
 - `rotation_mode`: `"storage"` (local SD/flash) or `"url"` (fetch from URL)
 - `sd_rotation_mode`: `"random"` or `"sequential"`
 - `image_url`: URL to fetch images from (max 256 chars)
@@ -168,7 +173,7 @@ Update configuration. Only include fields to change.
 ```json
 {
   "auto_rotate": true,
-  "rotate_interval": 1800,
+  "rotate_cron": ["*/30 8-22 1-5", "0 10 0,6"],
   "rotation_mode": "url",
   "image_url": "https://example.com/image"
 }
@@ -506,7 +511,7 @@ The `X-Config-Payload` response header carries a JSON object matching the schema
 
 ```json
 {
-  "config": { "auto_rotate": true, "rotate_interval": 3600, ... },
+  "config": { "auto_rotate": true, "rotate_cron": ["0 */12 *"], ... },
   "processing_settings": { "exposure": 1.0, ... },
   "color_palette": { "black": { "r": 2, "g": 2, "b": 2 }, ... }
 }

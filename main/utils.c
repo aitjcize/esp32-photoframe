@@ -12,6 +12,7 @@
 #include "color_palette.h"
 #include "config.h"
 #include "config_manager.h"
+#include "cron.h"
 #include "display_manager.h"
 #include "esp_app_desc.h"
 #include "esp_http_client.h"
@@ -23,7 +24,6 @@
 #include "power_manager.h"
 #include "processing_settings.h"
 #include "storage.h"
-#include "testable_utils.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "utils";
@@ -65,6 +65,28 @@ const char *utils_consume_cert_pin_error(void)
     strncpy(out, last_cert_pin_error, sizeof(out));
     out[sizeof(out) - 1] = '\0';
     last_cert_pin_error[0] = '\0';
+    return out;
+}
+
+// Last config-validation error (transient, consumed by HTTP handler on failure)
+static char last_config_error[256] = {0};
+
+void utils_set_config_error(const char *msg)
+{
+    if (msg) {
+        strncpy(last_config_error, msg, sizeof(last_config_error) - 1);
+        last_config_error[sizeof(last_config_error) - 1] = '\0';
+    } else {
+        last_config_error[0] = '\0';
+    }
+}
+
+const char *utils_consume_config_error(void)
+{
+    static char out[256];
+    strncpy(out, last_config_error, sizeof(out));
+    out[sizeof(out) - 1] = '\0';
+    last_config_error[0] = '\0';
     return out;
 }
 
@@ -156,16 +178,51 @@ esp_err_t apply_config_from_json(cJSON *root)
         power_manager_reset_rotate_timer();
     }
 
-    item = cJSON_GetObjectItem(root, "rotate_interval");
-    if (item && cJSON_IsNumber(item)) {
-        config_manager_set_rotate_interval(item->valueint);
+    // Rotation schedule: an array of cron expressions. Validate every rule
+    // before applying any; reject the whole request on the first bad one.
+    item = cJSON_GetObjectItem(root, "rotate_cron");
+    if (item && cJSON_IsArray(item)) {
+        int count = cJSON_GetArraySize(item);
+        if (count > MAX_CRON_RULES) {
+            char msg[64];
+            snprintf(msg, sizeof(msg), "Too many schedule rules (max %d)", MAX_CRON_RULES);
+            utils_set_config_error(msg);
+            return ESP_FAIL;
+        }
+        const char *rules[MAX_CRON_RULES];
+        int n = 0;
+        cJSON *el;
+        cJSON_ArrayForEach(el, item)
+        {
+            if (!cJSON_IsString(el)) {
+                utils_set_config_error("Schedule rule must be a string");
+                return ESP_FAIL;
+            }
+            const char *expr = cJSON_GetStringValue(el);
+            if (strlen(expr) >= CRON_RULE_MAX_LEN) {
+                utils_set_config_error("Cron expression too long");
+                return ESP_FAIL;
+            }
+            cron_rule_t tmp;
+            if (!cron_parse(expr, &tmp)) {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "Invalid cron expression: %s", expr);
+                utils_set_config_error(msg);
+                return ESP_FAIL;
+            }
+            if (n < MAX_CRON_RULES) {
+                rules[n++] = expr;
+            }
+        }
+        config_manager_set_cron_rules(rules, n);
         power_manager_reset_rotate_timer();
-    }
-
-    item = cJSON_GetObjectItem(root, "auto_rotate_aligned");
-    if (item && cJSON_IsBool(item)) {
-        config_manager_set_auto_rotate_aligned(cJSON_IsTrue(item));
-        power_manager_reset_rotate_timer();
+    } else {
+        // Backward compatibility: convert a legacy interval to a cron rule.
+        item = cJSON_GetObjectItem(root, "rotate_interval");
+        if (item && cJSON_IsNumber(item)) {
+            config_manager_set_cron_rules_from_interval(item->valueint);
+            power_manager_reset_rotate_timer();
+        }
     }
 
     item = cJSON_GetObjectItem(root, "sleep_schedule_enabled");
@@ -1022,8 +1079,11 @@ int get_seconds_until_next_wakeup(void)
     time(&now);
     localtime_r(&now, &timeinfo);
 
-    int rotate_interval = config_manager_get_rotate_interval();
-    bool aligned = config_manager_get_auto_rotate_aligned();
+    cron_rule_t rules[MAX_CRON_RULES];
+    int n = config_manager_get_compiled_cron_rules(rules, MAX_CRON_RULES);
+    if (n == 0) {
+        return CRON_FALLBACK_SEC;
+    }
 
     sleep_schedule_config_t sleep_schedule = {
         .enabled = config_manager_get_sleep_schedule_enabled(),
@@ -1031,7 +1091,7 @@ int get_seconds_until_next_wakeup(void)
         .end_minutes = config_manager_get_sleep_schedule_end(),
     };
 
-    return calculate_next_wakeup_interval(&timeinfo, rotate_interval, aligned, &sleep_schedule);
+    return cron_seconds_until_next(&timeinfo, rules, n, &sleep_schedule);
 }
 
 void sanitize_hostname(const char *device_name, char *hostname, size_t max_len)

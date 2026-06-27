@@ -65,7 +65,11 @@ typedef enum {
 // via the app before the device sleeps.
 #define OOBE_AUTO_SLEEP_TIMEOUT_SEC 600
 
-#define IMAGE_ROTATE_INTERVAL_SEC 3600
+// Default rotation schedule for fresh / factory-reset devices: every 12 hours.
+// Simplified 3-field cron: "minute hour day-of-week".
+#define DEFAULT_ROTATE_CRON "0 */12 *"
+#define MAX_CRON_RULES 7
+#define CRON_RULE_MAX_LEN 64
 
 // WiFi
 #define NVS_WIFI_SSID_KEY "wifi_ssid"
@@ -82,8 +86,8 @@ typedef enum {
 
 // Auto Rotate
 #define NVS_AUTO_ROTATE_KEY "auto_rotate"
-#define NVS_ROTATE_INTERVAL_KEY "rotate_int"
-#define NVS_AUTO_ROTATE_ALIGNED_KEY "ar_align"
+#define NVS_ROTATE_CRON_KEY "rotate_cron"
+#define NVS_ROTATE_INTERVAL_KEY "rotate_int"  // legacy: read once to migrate to cron
 #define NVS_ROTATION_MODE_KEY "rotation_mode"
 #define NVS_SLEEP_SCHEDULE_ENABLED_KEY "sleep_sched_en"
 #define NVS_SLEEP_SCHEDULE_START_KEY "sleep_start"

@@ -74,7 +74,7 @@ static void rotation_timer_task(void *arg)
                     board_hal_is_usb_connected() ? "USB powered" : "deep sleep disabled";
                 ESP_LOGI(TAG, "Active rotation scheduled in %d seconds (%s, %s)",
                          seconds_until_next,
-                         config_manager_get_auto_rotate_aligned() ? "clock-aligned" : "interval",
+                         "cron",
                          reason);
             } else if (now >= next_rotation_time) {
                 // Time to rotate
@@ -90,7 +90,7 @@ static void rotation_timer_task(void *arg)
 
                 next_rotation_time = now + (seconds_until_next * 1000000LL);
                 ESP_LOGI(TAG, "Next rotation scheduled in %d seconds (%s)", seconds_until_next,
-                         config_manager_get_auto_rotate_aligned() ? "clock-aligned" : "interval");
+                         "cron");
             }
         } else {
             next_rotation_time = 0;  // Reset if auto-rotate disabled
@@ -329,7 +329,7 @@ void power_manager_enter_sleep(void)
 
         ESP_LOGI(TAG, "Auto-rotate enabled, setting timer wake-up for %d seconds (%s)",
                  wake_seconds,
-                 config_manager_get_auto_rotate_aligned() ? "clock-aligned" : "interval");
+                 "cron");
         esp_sleep_enable_timer_wakeup(wake_seconds * 1000000ULL);
 
         // Store expected wakeup time in RTC memory for drift detection
@@ -403,7 +403,7 @@ void power_manager_reset_rotate_timer(void)
 
     next_rotation_time = esp_timer_get_time() + (seconds_until_next * 1000000LL);
     ESP_LOGI(TAG, "Rotation timer reset, next rotation in %d seconds (%s)", seconds_until_next,
-             config_manager_get_auto_rotate_aligned() ? "clock-aligned" : "interval");
+             "cron");
 }
 
 wakeup_source_t power_manager_get_wakeup_source(void)

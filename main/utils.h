@@ -24,6 +24,11 @@ const char *utils_get_last_fetch_error(void);
 void utils_set_cert_pin_error(const char *msg);
 const char *utils_consume_cert_pin_error(void);
 
+// Last config-validation error (transient). set: stash a message when a config
+// value is rejected (e.g. an invalid cron expression). consume: read and clear.
+void utils_set_config_error(const char *msg);
+const char *utils_consume_config_error(void);
+
 // Fetch image from URL, process it, and save to Downloads album.
 // Returns ESP_OK on success (including 304), error code on failure.
 // On success with a downloaded image, saved_image_path will contain the path
@@ -45,12 +50,9 @@ esp_err_t trigger_image_rotation(void);
 struct cJSON;
 struct cJSON *create_battery_json(void);
 
-// Calculate next wake-up time considering sleep schedule
-// Returns seconds until next wake-up
-// Takes into account:
-// - Clock alignment (aligns to rotation interval boundaries if enabled)
-// - Sleep schedule (skips wake-ups that fall within sleep schedule)
-// - Overnight schedules (handles schedules that cross midnight)
+// Calculate seconds until the next scheduled rotation wake-up.
+// Evaluates the configured cron rules (earliest match wins) and applies the
+// quiet-hours mask. Returns CRON_FALLBACK_SEC when no rules are configured.
 int get_seconds_until_next_wakeup(void);
 
 // Sanitize device name to create a valid mDNS hostname

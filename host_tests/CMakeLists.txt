@@ -19,22 +19,20 @@ FetchContent_MakeAvailable(googletest)
 # Enable testing
 enable_testing()
 
-# Add test executable
+# Cron engine tests
 add_executable(
-  utils_test
-  test_utils.cpp
-  ../main/testable_utils.c
+  cron_test
+  test_cron.cpp
+  ../main/cron.c
 )
 
-# Link Google Test
 target_link_libraries(
-  utils_test
+  cron_test
   GTest::gtest_main
 )
 
-# Include directories
 target_include_directories(
-  utils_test
+  cron_test
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../main
@@ -42,4 +40,4 @@ target_include_directories(
 
 # Discover tests
 include(GoogleTest)
-gtest_discover_tests(utils_test)
+gtest_discover_tests(cron_test)

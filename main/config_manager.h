@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "config.h"
+#include "cron.h"
 #include "esp_err.h"
 
 esp_err_t config_manager_init(void);
@@ -42,11 +43,18 @@ const char *config_manager_get_wifi_password(void);
 void config_manager_set_auto_rotate(bool enabled);
 bool config_manager_get_auto_rotate(void);
 
-void config_manager_set_rotate_interval(int seconds);
-int config_manager_get_rotate_interval(void);
-
-void config_manager_set_auto_rotate_aligned(bool enabled);
-bool config_manager_get_auto_rotate_aligned(void);
+// Cron rotation schedule: an array of up to MAX_CRON_RULES standard 5-field
+// cron expressions. The next rotation is the earliest time matching any rule.
+int config_manager_get_cron_rule_count(void);
+const char *config_manager_get_cron_rule(int index);  // NULL if out of range
+// Replace the full rule set (caps at MAX_CRON_RULES, drops empty entries) and
+// persist to NVS. Callers should validate expressions with cron_parse() first.
+void config_manager_set_cron_rules(const char *const *rules, int count);
+// Replace the schedule with a single rule derived from a legacy interval (s).
+void config_manager_set_cron_rules_from_interval(int seconds);
+// Parse the stored rules into compiled form for the engine; returns count
+// written (<= max), skipping any rule that fails to parse.
+int config_manager_get_compiled_cron_rules(cron_rule_t *out, int max);
 
 void config_manager_set_sleep_schedule_enabled(bool enabled);
 bool config_manager_get_sleep_schedule_enabled(void);
