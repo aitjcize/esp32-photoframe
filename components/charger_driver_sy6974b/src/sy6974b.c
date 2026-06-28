@@ -9,7 +9,7 @@ static const char *TAG = "sy6974b";
 #define SY6974B_I2C_ADDR 0x6B
 
 // REG08 (STAT0): system status.
-//   bits [4:3] CHRG_STAT, bit [2] PG_STAT.
+//   bits [7:5] BUS_STAT, bits [4:3] CHRG_STAT, bit [2] PG_STAT.
 #define SY6974B_REG08_STAT0 0x08
 #define SY6974B_CHRG_STAT_SHIFT 3
 #define SY6974B_CHRG_STAT_MASK 0x03
@@ -18,6 +18,18 @@ static const char *TAG = "sy6974b";
 #define SY6974B_CHRG_STAT_FAST_CHARGE 2
 #define SY6974B_CHRG_STAT_DONE 3
 #define SY6974B_PG_STAT_BIT (1 << 2)
+
+// REG01 (POWER-ON CONFIG): charge enable lives here.
+//   bit [5] OTG_CONFIG (1 overrides/disables charging), bit [4] CHG_CONFIG.
+#define SY6974B_REG01_PWRON 0x01
+#define SY6974B_REG01_OTG_CONFIG_BIT (1 << 5)
+#define SY6974B_REG01_CHG_CONFIG_BIT (1 << 4)
+
+// REG09 (FAULT): latched fault status. Read twice; the 2nd read is current.
+#define SY6974B_REG09_FAULT 0x09
+
+// Highest register we dump for diagnostics.
+#define SY6974B_REG_MAX 0x0B
 
 static bool initialized = false;
 static bool available = false;
@@ -40,6 +52,50 @@ static int sy6974b_charge_status(void)
     if (sy6974b_read_reg(SY6974B_REG08_STAT0, &stat) != ESP_OK)
         return -1;
     return (stat >> SY6974B_CHRG_STAT_SHIFT) & SY6974B_CHRG_STAT_MASK;
+}
+
+void sy6974b_dump_registers(void)
+{
+    if (!available) {
+        ESP_LOGW(TAG, "dump: SY6974B not available");
+        return;
+    }
+
+    uint8_t regs[SY6974B_REG_MAX + 1];
+    for (int r = 0; r <= SY6974B_REG_MAX; r++) {
+        if (sy6974b_read_reg((uint8_t) r, &regs[r]) != ESP_OK) {
+            ESP_LOGW(TAG, "dump: REG%02X read failed", r);
+            regs[r] = 0;
+        }
+    }
+    // REG09 faults are latched; the 2nd consecutive read reflects current state.
+    uint8_t fault_latched = 0, fault_now = 0;
+    sy6974b_read_reg(SY6974B_REG09_FAULT, &fault_latched);
+    sy6974b_read_reg(SY6974B_REG09_FAULT, &fault_now);
+
+    ESP_LOGI(TAG, "REG00-0B: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X", regs[0],
+             regs[1], regs[2], regs[3], regs[4], regs[5], regs[6], regs[7], regs[8], regs[9],
+             regs[10], regs[11]);
+
+    static const char *const bus_stat[] = {"no-input",        "USB-SDP-500mA",   "USB-CDP-1.5A",
+                                           "USB-DCP-2.4A",     "?",               "unknown-adapter",
+                                           "non-std-adapter",  "OTG"};
+    static const char *const chrg_stat[] = {"not-charging", "pre-charge", "fast-charge", "done"};
+    uint8_t s = regs[SY6974B_REG08_STAT0];
+    ESP_LOGI(TAG, "STAT0=0x%02X: BUS=%s CHRG=%s PG=%d THERM=%d VSYS=%d", s, bus_stat[(s >> 5) & 7],
+             chrg_stat[(s >> 3) & 3], (s >> 2) & 1, (s >> 1) & 1, s & 1);
+
+    uint8_t c = regs[SY6974B_REG01_PWRON];
+    ESP_LOGI(TAG, "REG01=0x%02X: CHG_CONFIG=%d OTG_CONFIG=%d (OTG=1 overrides/disables charge)", c,
+             (c & SY6974B_REG01_CHG_CONFIG_BIT) ? 1 : 0,
+             (c & SY6974B_REG01_OTG_CONFIG_BIT) ? 1 : 0);
+
+    static const char *const chrg_fault[] = {"normal", "input-fault", "thermal-shutdown",
+                                             "safety-timer-expired"};
+    ESP_LOGI(TAG,
+             "FAULT=0x%02X (latched 0x%02X): WDG=%d BOOST=%d CHRG_FAULT=%s BAT_OVP=%d NTC=0x%X",
+             fault_now, fault_latched, (fault_now >> 7) & 1, (fault_now >> 6) & 1,
+             chrg_fault[(fault_now >> 4) & 3], (fault_now >> 3) & 1, fault_now & 7);
 }
 
 esp_err_t sy6974b_init(i2c_master_bus_handle_t i2c_bus)
@@ -79,6 +135,7 @@ esp_err_t sy6974b_init(i2c_master_bus_handle_t i2c_bus)
     available = true;
     initialized = true;
     ESP_LOGI(TAG, "SY6974B detected (STAT0=0x%02x)", stat);
+    sy6974b_dump_registers();
     return ESP_OK;
 }
 

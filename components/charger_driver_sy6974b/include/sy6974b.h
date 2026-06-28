@@ -35,6 +35,14 @@ bool sy6974b_is_charge_done(void);
 /** @return true when valid input power (VBUS) is present (power-good). */
 bool sy6974b_is_power_good(void);
 
+/**
+ * @brief Dump and decode the charger registers (REG00–REG0B) to the log.
+ *
+ * Decodes the status (REG08), charge-enable config (REG01), and latched fault
+ * (REG09) fields. Intended for diagnosing why charging may be inactive.
+ */
+void sy6974b_dump_registers(void);
+
 #ifdef __cplusplus
 }
 #endif
