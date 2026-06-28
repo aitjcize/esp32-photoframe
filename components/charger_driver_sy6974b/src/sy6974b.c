@@ -135,7 +135,6 @@ esp_err_t sy6974b_init(i2c_master_bus_handle_t i2c_bus)
     available = true;
     initialized = true;
     ESP_LOGI(TAG, "SY6974B detected (STAT0=0x%02x)", stat);
-    sy6974b_dump_registers();
     return ESP_OK;
 }
 
