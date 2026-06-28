@@ -1,6 +1,7 @@
 set(SRCS "")
 
 set(PRIV_REQS
+    charger_driver_sy6974b
     epaper_driver_ed2208_gca
     epaper_driver_ed2208_nca
     esp_driver_i2c

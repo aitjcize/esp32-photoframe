@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "pcf8563.h"
 #include "sensor.h"
+#include "sy6974b.h"
 
 #ifdef CONFIG_HAS_SDCARD
 #include "sdcard.h"
@@ -184,6 +185,11 @@ esp_err_t board_hal_init(void)
         if (pcf8563_init(i2c_bus) == ESP_OK) {
             ESP_LOGI(TAG, "PCF8563T RTC initialized");
         }
+
+        // Initialize SY6974B charger (shares I2C0 with the RTC/sensor).
+        if (sy6974b_init(i2c_bus) == ESP_OK) {
+            ESP_LOGI(TAG, "SY6974B charger initialized");
+        }
     } else {
         ESP_LOGE(TAG, "Failed to initialize I2C bus: %s", esp_err_to_name(i2c_ret));
     }
@@ -304,11 +310,16 @@ int board_hal_get_battery_percent(void)
 
 bool board_hal_is_charging(void)
 {
-    return false;
+    // Real charge state from the SY6974B; false if the charger didn't probe.
+    return sy6974b_is_charging();
 }
 
 bool board_hal_is_usb_connected(void)
 {
+    // Prefer the charger's power-good (detects any USB/adapter input, even a
+    // data-less charger); fall back to USB-serial-JTAG if the charger is absent.
+    if (sy6974b_is_available())
+        return sy6974b_is_power_good();
     return usb_serial_jtag_is_connected();
 }
 

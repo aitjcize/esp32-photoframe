@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "pcf8563.h"
 #include "sensor.h"
+#include "sy6974b.h"
 
 #ifdef CONFIG_HAS_SDCARD
 #include "sdcard.h"
@@ -19,6 +20,7 @@
 static const char *TAG = "board_hal_reterminal_e1002";
 
 static i2c_master_bus_handle_t i2c_bus = NULL;
+static i2c_master_bus_handle_t charger_i2c_bus = NULL;
 
 // Battery measurement constants
 #define VBAT_ADC_CHANNEL BOARD_HAL_BAT_ADC_PIN
@@ -176,6 +178,25 @@ esp_err_t board_hal_init(void)
         ESP_LOGE(TAG, "Failed to initialize I2C bus: %s", esp_err_to_name(i2c_ret));
     }
 
+    // SY6974B charger lives on a separate I2C1 bus (V1.2+). On older boards with
+    // the non-I2C ETA6003 charger, the probe in sy6974b_init() finds nothing and
+    // the driver stays disabled (callers fall back to legacy behavior).
+    i2c_master_bus_config_t charger_i2c_config = {
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .i2c_port = 1,
+        .scl_io_num = BOARD_HAL_CHARGER_I2C_SCL_PIN,
+        .sda_io_num = BOARD_HAL_CHARGER_I2C_SDA_PIN,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
+    };
+    if (i2c_new_master_bus(&charger_i2c_config, &charger_i2c_bus) == ESP_OK) {
+        if (sy6974b_init(charger_i2c_bus) == ESP_OK) {
+            ESP_LOGI(TAG, "SY6974B charger initialized");
+        }
+    } else {
+        ESP_LOGW(TAG, "Failed to initialize charger I2C1 bus");
+    }
+
     return ESP_OK;
 }
 
@@ -292,11 +313,18 @@ int board_hal_get_battery_percent(void)
 
 bool board_hal_is_charging(void)
 {
-    return false;
+    // Real charge state from the SY6974B; false if no I2C charger was probed
+    // (e.g. older ETA6003 boards).
+    return sy6974b_is_charging();
 }
 
 bool board_hal_is_usb_connected(void)
 {
+    // Prefer the charger's power-good (detects any USB/adapter input, even a
+    // data-less charger). Fall back to USB-serial-JTAG on boards without an
+    // I2C charger (ETA6003), where input presence can't be sensed directly.
+    if (sy6974b_is_available())
+        return sy6974b_is_power_good();
     return usb_serial_jtag_is_connected();
 }
 

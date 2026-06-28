@@ -28,9 +28,14 @@
 #define BOARD_HAL_SD_PWR_PIN GPIO_NUM_16
 #define BOARD_HAL_SD_CS_PIN GPIO_NUM_14
 
-// I2C Pins
+// I2C Pins (I2C0: RTC + T/RH sensor)
 #define BOARD_HAL_I2C_SDA_PIN GPIO_NUM_19
 #define BOARD_HAL_I2C_SCL_PIN GPIO_NUM_20
+
+// SY6974B charger on a separate I2C1 bus (present on V1.2+; earlier revisions
+// ship a non-I2C ETA6003 charger, so the runtime probe handles its absence).
+#define BOARD_HAL_CHARGER_I2C_SDA_PIN GPIO_NUM_39
+#define BOARD_HAL_CHARGER_I2C_SCL_PIN GPIO_NUM_40
 
 // Power Management
 #define BOARD_HAL_BAT_ADC_PIN ADC_CHANNEL_0  // GPIO 1
