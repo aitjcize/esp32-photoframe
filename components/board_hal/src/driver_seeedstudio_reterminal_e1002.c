@@ -4,6 +4,8 @@
 #include "driver/spi_master.h"
 #include "driver/usb_serial_jtag.h"
 #include "epaper.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
@@ -27,7 +29,17 @@ static i2c_master_bus_handle_t charger_i2c_bus = NULL;
 // Voltage divider ratio: 2.0 (100k/100k resistor divider)
 #define VBAT_VOLTAGE_DIVIDER 2.0f
 
+// Optional per-unit correction for resistor-divider tolerance, measured with a
+// multimeter: set to (multimeter_mV / firmware_reported_mV). 1.0 = none.
+#ifndef VBAT_CAL_SCALE
+#define VBAT_CAL_SCALE 1.0f
+#endif
+
+// ADC samples averaged per reading to reduce noise.
+#define VBAT_ADC_SAMPLES 8
+
 static adc_oneshot_unit_handle_t adc_handle = NULL;
+static adc_cali_handle_t adc_cali_handle = NULL;
 
 static void board_hal_battery_adc_init(void)
 {
@@ -55,6 +67,19 @@ static void board_hal_battery_adc_init(void)
         adc_oneshot_del_unit(adc_handle);
         adc_handle = NULL;
         return;
+    }
+
+    // eFuse-based calibration converts raw counts to accurate millivolts; the
+    // ESP32-S3 ADC is nonlinear, so the raw*3300/4095 estimate drifts.
+    adc_cali_curve_fitting_config_t cali_config = {
+        .unit_id = ADC_UNIT_1,
+        .chan = VBAT_ADC_CHANNEL,
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    if (adc_cali_create_scheme_curve_fitting(&cali_config, &adc_cali_handle) != ESP_OK) {
+        ESP_LOGW(TAG, "ADC calibration unavailable; using linear estimate");
+        adc_cali_handle = NULL;
     }
 }
 
@@ -264,20 +289,32 @@ int board_hal_get_battery_voltage(void)
     // Wait for stabilization
     vTaskDelay(pdMS_TO_TICKS(10));
 
-    int adc_raw;
-    esp_err_t ret = adc_oneshot_read(adc_handle, VBAT_ADC_CHANNEL, &adc_raw);
+    // Average several samples to reduce noise.
+    int64_t raw_sum = 0;
+    int samples = 0;
+    for (int i = 0; i < VBAT_ADC_SAMPLES; i++) {
+        int adc_raw;
+        if (adc_oneshot_read(adc_handle, VBAT_ADC_CHANNEL, &adc_raw) == ESP_OK) {
+            raw_sum += adc_raw;
+            samples++;
+        }
+    }
 
     // Disable measurement
     gpio_set_level(BOARD_HAL_BAT_EN_PIN, 0);
 
-    if (ret == ESP_OK) {
-        // Voltage = raw * (3300 / 4095) * divider
-        // Note: ADC_ATTEN_DB_12 covers up to ~3.1-3.3V depending on cal.
-        // Approx: 0.8 mV per LSB * divider.
-        float voltage_mv = (float) adc_raw * (3300.0f / 4095.0f) * VBAT_VOLTAGE_DIVIDER;
-        return (int) voltage_mv;
+    if (samples == 0)
+        return -1;
+    int raw_avg = (int) (raw_sum / samples);
+
+    int pin_mv;
+    if (adc_cali_handle && adc_cali_raw_to_voltage(adc_cali_handle, raw_avg, &pin_mv) == ESP_OK) {
+        // Calibrated mV at the ADC pin; undo the divider + apply the optional
+        // multimeter correction.
+        return (int) ((float) pin_mv * VBAT_VOLTAGE_DIVIDER * VBAT_CAL_SCALE);
     }
-    return -1;
+    // Fallback: uncalibrated linear estimate.
+    return (int) ((float) raw_avg * (3300.0f / 4095.0f) * VBAT_VOLTAGE_DIVIDER * VBAT_CAL_SCALE);
 }
 
 int board_hal_get_battery_percent(void)
