@@ -1,4 +1,4 @@
-.PHONY: format format-check format-diff test help
+.PHONY: format format-check format-diff test help install-hooks
 
 # Use clang-format-18 for consistency with CI
 # On macOS: brew install llvm@18 && brew link llvm@18
@@ -21,6 +21,12 @@ help:
 	@echo "  format-check  - Check if files need formatting (non-zero exit if changes needed)"
 	@echo "  format-diff   - Show what would change without modifying files"
 	@echo "  test          - Build and run unit tests (requires ESP-IDF environment)"
+	@echo "  install-hooks - Enable the git pre-commit formatting hook (.githooks)"
+
+install-hooks:
+	@git config core.hooksPath .githooks
+	@echo "Git hooks enabled (core.hooksPath = .githooks)."
+	@echo "Commits now run 'make format-check' first."
 
 format:
 	@echo "Formatting C/H files..."
