@@ -77,9 +77,9 @@ void sy6974b_dump_registers(void)
              regs[1], regs[2], regs[3], regs[4], regs[5], regs[6], regs[7], regs[8], regs[9],
              regs[10], regs[11]);
 
-    static const char *const bus_stat[] = {"no-input",        "USB-SDP-500mA",   "USB-CDP-1.5A",
-                                           "USB-DCP-2.4A",     "?",               "unknown-adapter",
-                                           "non-std-adapter",  "OTG"};
+    static const char *const bus_stat[] = {
+        "no-input", "USB-SDP-500mA",   "USB-CDP-1.5A",    "USB-DCP-2.4A",
+        "?",        "unknown-adapter", "non-std-adapter", "OTG"};
     static const char *const chrg_stat[] = {"not-charging", "pre-charge", "fast-charge", "done"};
     uint8_t s = regs[SY6974B_REG08_STAT0];
     ESP_LOGI(TAG, "STAT0=0x%02X: BUS=%s CHRG=%s PG=%d THERM=%d VSYS=%d", s, bus_stat[(s >> 5) & 7],
