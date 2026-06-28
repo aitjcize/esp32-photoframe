@@ -3,7 +3,7 @@
 #include "driver/spi_master.h"
 #include "driver/usb_serial_jtag.h"
 #include "epaper.h"
-#include "esp_adc/adc_oneshot.h"
+#include "battery_adc.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
@@ -18,7 +18,13 @@ static const char *TAG = "board_hal_ee04";
 #define VBAT_VOLTAGE_DIVIDER 2.0f
 #define VBAT_ADC_ENABLE_PIN GPIO_NUM_6  // TPS22916 enable - must be HIGH to read battery voltage
 
-static adc_oneshot_unit_handle_t adc_handle = NULL;
+// Optional per-unit correction for resistor-divider tolerance, measured with a
+// multimeter: set to (multimeter_mV / firmware_reported_mV). 1.0 = none.
+#ifndef VBAT_CAL_SCALE
+#define VBAT_CAL_SCALE 1.0f
+#endif
+
+static battery_adc_t *vbat_adc = NULL;
 
 esp_err_t board_hal_init(void)
 {
@@ -52,27 +58,18 @@ esp_err_t board_hal_init(void)
     };
     epaper_init(&ep_cfg);
 
-    // Initialize ADC for battery voltage
-    adc_oneshot_unit_init_cfg_t init_config = {
-        .unit_id = ADC_UNIT_1,
-        .clk_src = ADC_DIGI_CLK_SRC_DEFAULT,
+    // Battery voltage ADC (shared helper handles calibration + averaging).
+    battery_adc_config_t vbat_cfg = {
+        .unit = ADC_UNIT_1,
+        .channel = VBAT_ADC_CHANNEL,
+        .atten = ADC_ATTEN_DB_12,
+        .enable_pin = VBAT_ADC_ENABLE_PIN,
+        .settle_ms = 10,
+        .samples = 8,
+        .divider = VBAT_VOLTAGE_DIVIDER,
+        .cal_scale = VBAT_CAL_SCALE,
     };
-    esp_err_t ret = adc_oneshot_new_unit(&init_config, &adc_handle);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "ADC init failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    adc_oneshot_chan_cfg_t config = {
-        .bitwidth = ADC_BITWIDTH_DEFAULT,
-        .atten =
-            ADC_ATTEN_DB_12,  // Full range up to ~3.3V (renamed from ADC_ATTEN_DB_11 in IDF 5.x)
-    };
-    ret = adc_oneshot_config_channel(adc_handle, VBAT_ADC_CHANNEL, &config);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "ADC channel config failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
+    battery_adc_create(&vbat_cfg, &vbat_adc);
 
     // Configure ADC enable pin (TPS22916 load switch)
     // GPIO6 must be HIGH before reading battery voltage on GPIO1 (A0).
@@ -105,11 +102,9 @@ esp_err_t board_hal_prepare_for_sleep(void)
     gpio_hold_en(VBAT_ADC_ENABLE_PIN);
     gpio_deep_sleep_hold_en();
 
-    // Disable ADC to save power
-    if (adc_handle) {
-        adc_oneshot_del_unit(adc_handle);
-        adc_handle = NULL;
-    }
+    // Release the ADC + calibration to save power.
+    battery_adc_destroy(vbat_adc);
+    vbat_adc = NULL;
 
     return ESP_OK;
 }
@@ -122,26 +117,7 @@ bool board_hal_is_battery_connected(void)
 
 int board_hal_get_battery_voltage(void)
 {
-    if (!adc_handle)
-        return -1;
-
-    // Enable TPS22916 load switch (GPIO6 HIGH) to connect voltage divider to ADC
-    gpio_set_level(VBAT_ADC_ENABLE_PIN, 1);
-    vTaskDelay(pdMS_TO_TICKS(10));  // Allow voltage to stabilize
-
-    int adc_raw;
-    int result = -1;
-    if (adc_oneshot_read(adc_handle, VBAT_ADC_CHANNEL, &adc_raw) == ESP_OK) {
-        // TODO: Use esp_adc_cal / adc_cali for calibrated readings; raw conversion
-        // can be off by 5-15% due to non-linear ADC response on ESP32-S3.
-        float voltage_mv = (float) adc_raw * (3300.0f / 4095.0f) * VBAT_VOLTAGE_DIVIDER;
-        result = (int) voltage_mv;
-    }
-
-    // Disable TPS22916 to save power; only enable briefly during reads
-    gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);
-
-    return result;
+    return battery_adc_read_mv(vbat_adc);
 }
 
 int board_hal_get_battery_percent(void)

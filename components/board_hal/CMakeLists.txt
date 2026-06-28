@@ -1,4 +1,5 @@
-set(SRCS "")
+# Shared battery-voltage ADC helper used by the ADC-based boards.
+set(SRCS "src/battery_adc.c")
 
 set(PRIV_REQS
     charger_driver_sy6974b
