@@ -61,6 +61,10 @@ export const useSettingsStore = defineStore("settings", () => {
   // Original config from server (for change detection)
   let originalConfig = {};
 
+  // Orientation as currently saved/applied on the device. The image preview uses
+  // this (not the live dropdown) so it only re-lays-out when the user saves.
+  const appliedOrientation = ref("landscape");
+
   let originalParams = {};
 
   // Palette - use defaults from epaper-image-convert library
@@ -190,6 +194,7 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.httpHeaderKey = data.http_header_key || "";
       deviceSettings.value.httpHeaderValue = data.http_header_value || "";
       deviceSettings.value.displayOrientation = data.display_orientation || "landscape";
+      appliedOrientation.value = deviceSettings.value.displayOrientation;
       deviceSettings.value.rotationMode = data.rotation_mode || "storage";
       deviceSettings.value.sdRotationMode = data.sd_rotation_mode || "random";
       deviceSettings.value.deviceName = data.device_name || "PhotoFrame";
@@ -388,6 +393,7 @@ export const useSettingsStore = defineStore("settings", () => {
       if (data.status === "success") {
         // Update original config with new values
         Object.assign(originalConfig, changedFields);
+        appliedOrientation.value = deviceSettings.value.displayOrientation;
         return { success: true, message: "Settings saved successfully" };
       } else {
         return { success: false, message: data.message || "Failed to save settings" };
@@ -483,6 +489,7 @@ export const useSettingsStore = defineStore("settings", () => {
     activeSettingsTab,
     params,
     deviceSettings,
+    appliedOrientation,
     palette,
     preset,
     presetNames,

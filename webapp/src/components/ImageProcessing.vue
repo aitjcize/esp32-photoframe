@@ -103,7 +103,9 @@ function calculateHistogram(canvas) {
 function getFrameDimensions() {
   let frameWidth = appStore.systemInfo.width || 800;
   let frameHeight = appStore.systemInfo.height || 480;
-  const orientation = settingsStore.deviceSettings.displayOrientation;
+  // Use the saved/applied orientation, not the live dropdown, so the preview
+  // only re-lays-out when the user saves the settings.
+  const orientation = settingsStore.appliedOrientation;
 
   if (orientation === "portrait" && frameWidth > frameHeight) {
     [frameWidth, frameHeight] = [frameHeight, frameWidth];
@@ -192,12 +194,14 @@ watch(
   }
 );
 
-// Watch for parameter changes - reprocess without reloading image
+// Watch for parameter changes - reprocess without reloading image. Debounced so
+// dragging a slider at full panel resolution doesn't reprocess on every tick
+// (laggy); the preview updates once the value settles (on release).
 watch(
   () => props.params,
-  async () => {
+  () => {
     if (sourceCanvas && isReady.value) {
-      await updatePreview();
+      debouncedUpdatePreview();
     }
   },
   { deep: true }
@@ -223,6 +227,17 @@ watch(bgColorMode, async () => {
     await updatePreview();
   }
 });
+
+// Watch the saved/applied orientation (updated only when the user saves) - the
+// frame dimensions swap, so re-lay-out and reprocess the current image.
+watch(
+  () => settingsStore.appliedOrientation,
+  async () => {
+    if (sourceCanvas && isReady.value) {
+      await updatePreview();
+    }
+  }
+);
 
 // Watch for scale mode changes
 watch(scaleMode, async (newMode) => {

@@ -115,7 +115,8 @@ async function uploadImage(mode = "upload") {
     // Always use native panel dimensions for processing
     const targetWidth = displayWidth.value;
     const targetHeight = displayHeight.value;
-    const orientation = settingsStore.deviceSettings.displayOrientation;
+    // Saved/applied orientation, matching the preview (updated on save).
+    const orientation = settingsStore.appliedOrientation;
     const palette = appStore.isGrayscale ? imageProcessor.GRAYSCALE16 : imageProcessor.SPECTRA6;
 
     // Get scale mode and params from the preview component
