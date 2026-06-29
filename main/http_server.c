@@ -2042,6 +2042,7 @@ static esp_err_t system_info_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(response, "width", BOARD_HAL_DISPLAY_WIDTH);
     cJSON_AddNumberToObject(response, "height", BOARD_HAL_DISPLAY_HEIGHT);
     cJSON_AddStringToObject(response, "board_name", BOARD_HAL_NAME);
+    cJSON_AddStringToObject(response, "display_type", BOARD_HAL_DISPLAY_TYPE);
     cJSON_AddStringToObject(response, "wakeup_key_name", BOARD_HAL_WAKEUP_KEY_NAME);
 
     storage_type_t storage_type = storage_get_type();

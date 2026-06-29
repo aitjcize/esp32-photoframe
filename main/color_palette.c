@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "board_hal.h"
 #include "cJSON.h"
 #include "config.h"
 #include "esp_log.h"
@@ -129,12 +130,24 @@ char *color_palette_to_json(const color_palette_t *palette)
         return NULL;
     }
 
-    cJSON_AddItemToObject(json, "black", color_to_json(&palette->black));
-    cJSON_AddItemToObject(json, "white", color_to_json(&palette->white));
-    cJSON_AddItemToObject(json, "yellow", color_to_json(&palette->yellow));
-    cJSON_AddItemToObject(json, "red", color_to_json(&palette->red));
-    cJSON_AddItemToObject(json, "blue", color_to_json(&palette->blue));
-    cJSON_AddItemToObject(json, "green", color_to_json(&palette->green));
+    if (strncmp(BOARD_HAL_DISPLAY_TYPE, "gc", 2) == 0) {
+        // Grayscale (GC16) panels have no per-color calibration; report the
+        // 16-level gray ramp instead of the meaningless 6-color Spectra palette.
+        cJSON *grays = cJSON_CreateArray();
+        for (int i = 0; i < 16; i++) {
+            int v = i * 17;  // 0..255 across 16 levels (255 / 15 == 17)
+            int rgb[3] = {v, v, v};
+            cJSON_AddItemToArray(grays, cJSON_CreateIntArray(rgb, 3));
+        }
+        cJSON_AddItemToObject(json, "grays", grays);
+    } else {
+        cJSON_AddItemToObject(json, "black", color_to_json(&palette->black));
+        cJSON_AddItemToObject(json, "white", color_to_json(&palette->white));
+        cJSON_AddItemToObject(json, "yellow", color_to_json(&palette->yellow));
+        cJSON_AddItemToObject(json, "red", color_to_json(&palette->red));
+        cJSON_AddItemToObject(json, "blue", color_to_json(&palette->blue));
+        cJSON_AddItemToObject(json, "green", color_to_json(&palette->green));
+    }
 
     char *json_str = cJSON_PrintUnformatted(json);
     cJSON_Delete(json);

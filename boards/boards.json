@@ -32,6 +32,14 @@
     "url": "https://www.seeedstudio.com/reTerminal-E1002-p-6533.html"
   },
   {
+    "id": "seeedstudio_reterminal_e1003",
+    "label": "Seeed Studio reTerminal E1003",
+    "display": "10.3\" 16-level grayscale",
+    "resolution": [1872, 1404],
+    "storage": "SD (SPI) + Internal flash",
+    "url": "https://www.seeedstudio.com/reTerminal-E1003-p-6731.html"
+  },
+  {
     "id": "seeedstudio_reterminal_e1004",
     "label": "Seeed Studio reTerminal E1004",
     "display": "13.3\" 6-color",

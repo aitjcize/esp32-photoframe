@@ -52,6 +52,17 @@ void epaper_display(uint8_t *image);
 void epaper_clear(uint8_t *image, uint8_t color);
 
 /**
+ * @brief Set the panel temperature in degrees Celsius.
+ *
+ * Controllers that select their display waveform by temperature (e.g. IT8951)
+ * use this to pick the right waveform; feeding a live reading improves grayscale
+ * quality and reduces ghosting. Only implemented by drivers that need it.
+ *
+ * @param celsius Panel temperature in degrees Celsius
+ */
+void epaper_set_temperature(int8_t celsius);
+
+/**
  * @brief Enter deep sleep mode
  */
 void epaper_enter_deepsleep(void);

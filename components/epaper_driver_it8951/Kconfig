@@ -1,0 +1,7 @@
+config EP_DRIVER_IT8951
+    bool "E-Ink IT8951 controller (grayscale, e.g. reTerminal E1003)"
+    help
+        Driver for IT8951-based grayscale e-paper panels (16-level / GC16),
+        such as the Seeed reTerminal E1003 (10.3" ED103TC2, 1872x1404). The
+        IT8951 T-CON drives the panel + TPS65185 PMIC internally; the ESP32
+        talks to it over SPI (CS/RST/HRDY) and streams 4bpp gray data.

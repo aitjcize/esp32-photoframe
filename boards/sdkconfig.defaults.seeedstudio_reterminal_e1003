@@ -1,0 +1,13 @@
+# Seeed Studio reTerminal E1003 Specifics
+CONFIG_BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1003=y
+
+# Flash Configuration (32MB with 80MHz QIO)
+CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="32MB"
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# Internal flash storage (LittleFS)
+CONFIG_USE_INTERNAL_FLASH_STORAGE=y
+
+# Note: OPI PSRAM (needed for the IT8951 1872x1404 4bpp framebuffer, ~1.3 MB)
+# is enabled globally in sdkconfig.defaults.

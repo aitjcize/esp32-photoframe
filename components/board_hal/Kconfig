@@ -51,6 +51,18 @@ menu "Board Configuration"
                 Includes battery monitoring and deep sleep support.
                 SD card: SPI interface.
 
+        config BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1003
+            bool "Seeed reTerminal E1003 (10.3\" Grayscale GC16)"
+            select SDCARD_DRIVER_SPI
+            select SENSOR_DRIVER_SHT40
+            select RTC_DRIVER_PCF8563
+            select EP_DRIVER_IT8951
+            help
+                Driver for Seeed reTerminal E1003 with 10.3" grayscale display
+                (1872x1404, 16-level / GC16) driven by an IT8951 T-CON over SPI.
+                Includes SY6974B charger, battery monitoring, and deep sleep.
+                SD card: SPI interface (shared bus with the IT8951).
+
         config BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1004
             bool "Seeed reTerminal E1004 (13.3\" Spectra 6)"
             select SDCARD_DRIVER_SPI
