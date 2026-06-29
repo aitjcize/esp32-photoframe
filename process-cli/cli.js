@@ -685,6 +685,7 @@ async function processImageFile(
       scaleMode: processingOptions.scaleMode || "cover",
       backgroundColor: processingOptions.backgroundColor || "white",
       usePerceivedOutput: processingOptions.usePerceivedOutput || false,
+      grayscale: processingOptions.grayscale || false,
     },
   );
 
@@ -695,7 +696,9 @@ async function processImageFile(
   const format = processingOptions.format || "epdgz";
   if (format === "epdgz") {
     console.log(`  Writing EPDGZ: ${outputBmp}`);
-    const epdBuffer = await createEPDGZ(canvas);
+    const epdBuffer = await createEPDGZ(canvas, {
+      grayscale: processingOptions.grayscale || false,
+    });
     fs.writeFileSync(outputBmp, epdBuffer);
   } else if (format === "png") {
     const outputPng = outputBmp.replace(/\.bmp$/, ".png");
@@ -748,6 +751,10 @@ program
   )
   .option("-v, --verbose", "Enable verbose logging")
   .option("--format <format>", "Output format: epdgz, png, or bmp", "epdgz")
+  .option(
+    "--grayscale",
+    "Pack output as 16-level grayscale (GC16 / IT8951 panels)",
+  )
   .option(
     "--preset <name>",
     `Processing preset: ${getPresetNames().join(", ")} `,
@@ -1002,6 +1009,7 @@ program
             orientation: options.orientation || "landscape",
             scaleMode: options.scaleMode || "cover",
             backgroundColor: options.backgroundColor || "white",
+            grayscale: options.grayscale || false,
           }
         : {
             generateThumbnail: true,
@@ -1061,6 +1069,7 @@ program
             orientation: options.orientation || "landscape",
             scaleMode: options.scaleMode || "cover",
             backgroundColor: options.backgroundColor || "white",
+            grayscale: options.grayscale || false,
           };
 
       // Check if --serve mode is enabled

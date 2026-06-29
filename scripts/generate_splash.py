@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Generate OOBE splash screen EPDGZ files for embedding in firmware.
 
-Creates SVG splash screens by display resolution (not per-board), converts
-to PNG via rsvg-convert, then uses process-cli to dither and produce EPDGZ.
-
-Currently generates two variants:
-  - 800x480   (landscape: Waveshare PhotoPainter 7.3", reTerminal E1002, XIAO EE04)
-  - 1200x1600 (portrait: XIAO EE02, reTerminal E1004)
+Creates an SVG splash screen at the target board's display resolution (looked
+up from boards.json via boards.py), converts to PNG via rsvg-convert, then uses
+process-cli to dither and produce EPDGZ. Layout adapts to landscape/portrait.
 
 Dependencies:
   pip install qrcode
@@ -27,17 +24,14 @@ except ImportError:
     print("Install qrcode: pip install qrcode")
     sys.exit(1)
 
+# boards.py lives alongside this script (scripts/ is sys.path[0] when run directly).
+from boards import BOARD_DIMENSIONS, BOARD_DISPLAY_TYPE
+
 # App download URL
 APP_URL = "https://aitjcize.github.io/esp32-photoframe/#companion-app"
 
 # QR code module size in SVG units
 QR_MODULE_SIZE = 4
-
-# Screen size variants to generate
-SCREEN_SIZES = {
-    "800x480": (800, 480),
-    "1200x1600": (1200, 1600),
-}
 
 # Layout parameters per orientation (all values are fractions of width or height)
 LAYOUT = {
@@ -215,7 +209,7 @@ def svg_to_png(svg_path: str, png_path: str, width: int, height: int) -> bool:
         return False
 
 
-def _get_process_cli_base(width: int, height: int) -> list:
+def _get_process_cli_base(width: int, height: int, grayscale: bool = False) -> list:
     """Return base process-cli command args with orientation detection."""
     node = shutil.which("node")
     if not node:
@@ -227,7 +221,7 @@ def _get_process_cli_base(width: int, height: int) -> list:
         )
 
     orientation = "portrait" if height > width else "landscape"
-    return [
+    cmd = [
         node,
         PROCESS_CLI,
         "--placeholder--",  # input path placeholder
@@ -238,12 +232,17 @@ def _get_process_cli_base(width: int, height: int) -> list:
         "--scale-mode",
         "cover",
     ]
+    if grayscale:
+        cmd.append("--grayscale")
+    return cmd
 
 
-def png_to_epdgz(png_path: str, output_dir: str, width: int, height: int) -> bool:
+def png_to_epdgz(
+    png_path: str, output_dir: str, width: int, height: int, grayscale: bool = False
+) -> bool:
     """Convert PNG to EPDGZ using process-cli."""
     try:
-        cmd = _get_process_cli_base(width, height)
+        cmd = _get_process_cli_base(width, height, grayscale)
         cmd[2] = png_path  # replace placeholder
         cmd.extend(["-o", output_dir, "--format", "epdgz"])
         subprocess.run(cmd, check=True)
@@ -360,21 +359,12 @@ def generate_meta_header(
 
 
 def main():
-    # Import board dimensions from boards.py
-    sys.path.insert(0, os.path.dirname(__file__))
-    from boards import BOARD_DIMENSIONS
-
     parser = argparse.ArgumentParser(description="Generate OOBE splash screen EPDGZ")
-    size_group = parser.add_mutually_exclusive_group(required=True)
-    size_group.add_argument(
+    parser.add_argument(
         "--board",
+        required=True,
         choices=BOARD_DIMENSIONS.keys(),
         help="Board name (looks up display resolution from boards.py)",
-    )
-    size_group.add_argument(
-        "--size",
-        choices=SCREEN_SIZES.keys(),
-        help="Display resolution directly (e.g. 800x480)",
     )
     parser.add_argument(
         "--output-dir",
@@ -388,10 +378,10 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.board:
-        w, h = BOARD_DIMENSIONS[args.board]
-    else:
-        w, h = SCREEN_SIZES[args.size]
+    w, h = BOARD_DIMENSIONS[args.board]
+    # Grayscale ("gc16", future "gc8") boards pack the splash as gray levels so
+    # white stays white on the panel (Spectra packing would render it near-black).
+    grayscale = BOARD_DISPLAY_TYPE[args.board].startswith("gc")
 
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -429,7 +419,7 @@ def main():
             print(f"  PNG: {png_path}")
 
             print(f"  Converting to EPDGZ via process-cli...")
-            if not png_to_epdgz(png_path, args.output_dir, w, h):
+            if not png_to_epdgz(png_path, args.output_dir, w, h, grayscale):
                 print(f"  ERROR: Failed to generate EPDGZ")
                 sys.exit(1)
 

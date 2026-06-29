@@ -36,6 +36,7 @@
     "label": "Seeed Studio reTerminal E1003",
     "display": "10.3\" 16-level grayscale",
     "resolution": [1872, 1404],
+    "display_type": "gc16",
     "storage": "SD (SPI) + Internal flash",
     "url": "https://www.seeedstudio.com/reTerminal-E1003-p-6731.html"
   },

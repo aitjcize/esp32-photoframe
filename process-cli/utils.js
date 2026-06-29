@@ -12,6 +12,7 @@ import {
   applyExifOrientation,
   rotateImage,
   SPECTRA6,
+  GRAYSCALE16,
 } from "@aitjcize/epaper-image-convert";
 
 /**
@@ -81,6 +82,7 @@ export async function processImagePipeline(
     scaleMode = "cover",
     backgroundColor = "white",
     usePerceivedOutput = false,
+    grayscale = false,
   } = options;
 
   // Load image (with HEIC conversion if needed)
@@ -119,7 +121,10 @@ export async function processImagePipeline(
   // The library expects { theoretical, perceived } format
   // devicePalette from the device is the "perceived" palette
   let palette;
-  if (devicePalette) {
+  if (grayscale) {
+    // 16-level grayscale (GC16 / IT8951): dither against the gray ramp.
+    palette = GRAYSCALE16;
+  } else if (devicePalette) {
     // Use SPECTRA6 theoretical with device-provided perceived palette
     palette = {
       theoretical: SPECTRA6.theoretical,

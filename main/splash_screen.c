@@ -24,6 +24,13 @@ extern const uint8_t setup_complete_epdgz_end[] asm("_binary_setup_complete_epdg
 #define EPD_BLACK 0
 #define EPD_WHITE 1
 
+// On grayscale (gc*) panels "white" is gray level 15, not the Spectra index 1;
+// drawing the QR with index 1 puts its quiet zone at near-black.
+static inline uint8_t splash_white_nibble(void)
+{
+    return strncmp(BOARD_HAL_DISPLAY_TYPE, "gc", 2) == 0 ? 0x0F : EPD_WHITE;
+}
+
 /**
  * Set a pixel in the 4-bit-per-pixel e-paper buffer.
  * Two pixels per byte: high nibble = even pixel, low nibble = odd pixel.
@@ -94,7 +101,7 @@ static void qr_draw_callback(esp_qrcode_handle_t qrcode)
         for (int x = 0; x < rect_w; x++) {
             if (in_rounded_rect(x, y, rect_w, rect_h, pad)) {
                 set_pixel(ctx->buffer, ctx->buf_width, ctx->pos_x - pad + x, ctx->pos_y - pad + y,
-                          EPD_WHITE);
+                          splash_white_nibble());
             }
         }
     }
@@ -168,8 +175,8 @@ esp_err_t splash_screen_display(void)
         return ESP_ERR_NO_MEM;
     }
 
-    // Fill with white initially
-    memset(epd_buffer, 0x11, buf_size);  // 0x11 = white|white (index 1)
+    // Fill with white initially (panel-aware: grayscale white is level 15)
+    memset(epd_buffer, splash_white_nibble() * 0x11, buf_size);
 
     // Decompress the embedded EPDGZ into the buffer
     size_t epdgz_size = splash_epdgz_end - splash_epdgz_start;
@@ -236,7 +243,7 @@ esp_err_t splash_screen_display_setup_complete(const char *hostname)
         return ESP_ERR_NO_MEM;
     }
 
-    memset(epd_buffer, 0x11, buf_size);
+    memset(epd_buffer, splash_white_nibble() * 0x11, buf_size);
 
     // Decompress the setup-complete EPDGZ
     size_t epdgz_size = setup_complete_epdgz_end - setup_complete_epdgz_start;
