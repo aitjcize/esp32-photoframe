@@ -21,6 +21,10 @@ onMounted(async () => {
     settingsStore.loadDeviceSettings(),
     settingsStore.loadPalette(),
   ]);
+  // Grayscale frames default to the grayscale preset (if not yet customized).
+  if (appStore.isGrayscale) {
+    settingsStore.applyGrayscaleDefaultIfUntouched();
+  }
   appStore.selectAlbum("Default");
 
   // Refresh battery every 30s

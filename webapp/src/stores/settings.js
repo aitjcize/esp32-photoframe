@@ -118,6 +118,15 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }
 
+  // For a fresh grayscale frame (processing still at library defaults), default
+  // to the grayscale preset, which is tuned for monochrome (LAB + s-curve).
+  // A device that has already customized its settings is left untouched.
+  function applyGrayscaleDefaultIfUntouched() {
+    const def = getDefaultParams();
+    const untouched = presetKeys.every((k) => !(k in def) || params.value[k] === def[k]);
+    if (untouched) applyPreset("grayscale");
+  }
+
   watch(
     params,
     () => {
@@ -469,6 +478,7 @@ export const useSettingsStore = defineStore("settings", () => {
     preset,
     presetNames,
     applyPreset,
+    applyGrayscaleDefaultIfUntouched,
     loadSettings,
     loadDeviceSettings,
     saveDeviceSettings,
