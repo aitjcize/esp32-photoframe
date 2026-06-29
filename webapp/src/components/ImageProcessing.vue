@@ -170,7 +170,9 @@ onMounted(async () => {
     imageProcessor = await import("@aitjcize/epaper-image-convert");
     isReady.value = true;
 
-    effectivePalette.value = props.palette || imageProcessor.SPECTRA6.perceived;
+    effectivePalette.value = appStore.isGrayscale
+      ? imageProcessor.GRAYSCALE16.perceived
+      : props.palette || imageProcessor.SPECTRA6.perceived;
 
     if (props.imageFile) {
       await loadAndProcessImage(props.imageFile);
@@ -288,8 +290,10 @@ async function updatePreview() {
     compressDynamicRange: props.params.compressDynamicRange,
   };
 
-  const palette = imageProcessor.SPECTRA6;
-  if (props.palette && Object.keys(props.palette).length > 0) {
+  let palette = imageProcessor.SPECTRA6;
+  if (appStore.isGrayscale) {
+    palette = imageProcessor.GRAYSCALE16;
+  } else if (props.palette && Object.keys(props.palette).length > 0) {
     palette.perceived = props.palette;
   }
 

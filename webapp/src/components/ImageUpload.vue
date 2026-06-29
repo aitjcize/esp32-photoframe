@@ -116,7 +116,7 @@ async function uploadImage(mode = "upload") {
     const targetWidth = displayWidth.value;
     const targetHeight = displayHeight.value;
     const orientation = settingsStore.deviceSettings.displayOrientation;
-    const palette = imageProcessor.SPECTRA6;
+    const palette = appStore.isGrayscale ? imageProcessor.GRAYSCALE16 : imageProcessor.SPECTRA6;
 
     // Get scale mode and params from the preview component
     // Vue auto-unwraps refs from defineExpose, so no .value needed
@@ -141,7 +141,9 @@ async function uploadImage(mode = "upload") {
     });
 
     // Convert dithered canvas to gzip-compressed 4-bit EPD format using the library
-    const compressedBuffer = await imageProcessor.createEPDGZ(result.canvas);
+    const compressedBuffer = await imageProcessor.createEPDGZ(result.canvas, {
+      grayscale: appStore.isGrayscale,
+    });
     const rawBlob = new Blob([compressedBuffer], { type: "application/gzip" });
 
     // Derive a short, unique basename from (filename + upload timestamp)

@@ -93,8 +93,17 @@ export const useSettingsStore = defineStore("settings", () => {
 
     const current = params.value;
     for (const key of presetKeys) {
-      // Only compare keys that exist in the target preset
-      if (key in target && current[key] !== target[key]) return false;
+      if (!(key in target)) continue;
+      const a = current[key];
+      const b = target[key];
+      // Compare numbers with a tolerance: the device persists floats as 32-bit,
+      // so e.g. 1.4 round-trips as 1.39999998 and exact matching would never
+      // detect the preset (it would fall back to "custom").
+      if (typeof a === "number" && typeof b === "number") {
+        if (Math.abs(a - b) > 1e-3) return false;
+      } else if (a !== b) {
+        return false;
+      }
     }
     return true;
   }
