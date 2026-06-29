@@ -20,6 +20,9 @@ void color_palette_get_defaults(color_palette_t *palette)
     palette->red = (color_rgb_t){135, 19, 0};
     palette->blue = (color_rgb_t){5, 64, 158};
     palette->green = (color_rgb_t){39, 102, 60};
+    // GC16 grayscale luminance endpoints (Y, 0..1); panel-measured, calibratable.
+    palette->gray_black_y = 0.02f;
+    palette->gray_white_y = 0.90f;
 }
 
 esp_err_t color_palette_init(void)
@@ -110,6 +113,13 @@ void color_palette_from_json(cJSON *json, color_palette_t *palette)
         color_from_json(color, &palette->blue);
     if ((color = cJSON_GetObjectItem(json, "green")))
         color_from_json(color, &palette->green);
+
+    // GC16 grayscale calibration endpoints (relative luminance Y, 0..1).
+    cJSON *item;
+    if ((item = cJSON_GetObjectItem(json, "black_y")) && cJSON_IsNumber(item))
+        palette->gray_black_y = (float) item->valuedouble;
+    if ((item = cJSON_GetObjectItem(json, "white_y")) && cJSON_IsNumber(item))
+        palette->gray_white_y = (float) item->valuedouble;
 }
 
 static cJSON *color_to_json(const color_rgb_t *color)
@@ -131,15 +141,11 @@ char *color_palette_to_json(const color_palette_t *palette)
     }
 
     if (strncmp(BOARD_HAL_DISPLAY_TYPE, "gc", 2) == 0) {
-        // Grayscale (GC16) panels have no per-color calibration; report the
-        // 16-level gray ramp instead of the meaningless 6-color Spectra palette.
-        cJSON *grays = cJSON_CreateArray();
-        for (int i = 0; i < 16; i++) {
-            int v = i * 17;  // 0..255 across 16 levels (255 / 15 == 17)
-            int rgb[3] = {v, v, v};
-            cJSON_AddItemToArray(grays, cJSON_CreateIntArray(rgb, 3));
-        }
-        cJSON_AddItemToObject(json, "grays", grays);
+        // Grayscale (GC16): no per-color calibration. Report the two measured
+        // luminance endpoints (Y of full black/white); the 16-level perceived
+        // ramp is derived from these by epaper-image-convert.
+        cJSON_AddNumberToObject(json, "black_y", palette->gray_black_y);
+        cJSON_AddNumberToObject(json, "white_y", palette->gray_white_y);
     } else {
         cJSON_AddItemToObject(json, "black", color_to_json(&palette->black));
         cJSON_AddItemToObject(json, "white", color_to_json(&palette->white));
