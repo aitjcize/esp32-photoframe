@@ -1,6 +1,9 @@
 <script setup>
 import { computed } from "vue";
 import { getDitherOptions, getPresetOptions } from "@aitjcize/epaper-image-convert";
+import { useAppStore } from "../stores";
+
+const appStore = useAppStore();
 
 const props = defineProps({
   params: {
@@ -114,8 +117,8 @@ function updateParam(key, value) {
         </v-slider>
       </v-col>
 
-      <!-- Saturation -->
-      <v-col cols="12" md="4">
+      <!-- Saturation (hidden on grayscale panels) -->
+      <v-col v-if="!appStore.isGrayscale" cols="12" md="4">
         <v-slider
           :model-value="params.saturation"
           :min="0.5"

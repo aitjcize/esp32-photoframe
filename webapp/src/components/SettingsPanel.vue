@@ -334,7 +334,7 @@ async function performFactoryReset() {
         <v-tab value="homeAssistant"> Home Assistant </v-tab>
         <v-tab value="processing"> Processing </v-tab>
         <v-tab value="ai"> AI Generation </v-tab>
-        <v-tab value="calibration"> Palette </v-tab>
+        <v-tab v-if="!appStore.isGrayscale" value="calibration"> Palette </v-tab>
         <v-tab value="maintenance"> Maintenance </v-tab>
       </v-tabs>
 

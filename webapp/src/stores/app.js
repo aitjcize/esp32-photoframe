@@ -49,6 +49,10 @@ export const useAppStore = defineStore("app", () => {
 
   const currentAlbumImages = computed(() => images.value);
 
+  // Grayscale panels ("gc16", and any future "gc8"/"gc4") hide the color-only
+  // controls (saturation, 6-color palette calibration).
+  const isGrayscale = computed(() => (systemInfo.value.display_type || "").startsWith("gc"));
+
   // Actions
   async function loadBatteryStatus() {
     try {
@@ -261,6 +265,7 @@ export const useAppStore = defineStore("app", () => {
     // Getters
     sortedAlbums,
     currentAlbumImages,
+    isGrayscale,
     // Actions
     loadBatteryStatus,
     loadAlbums,
