@@ -630,6 +630,23 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
 
             esp_http_client_handle_t thumb_client = esp_http_client_init(&thumb_config);
             if (thumb_client) {
+                // Authenticate the thumbnail fetch the same way as the image
+                // fetch -- the X-Thumbnail-URL is served by the same host, which
+                // may be token-gated.
+                const char *thumb_token = config_manager_get_access_token();
+                if (thumb_token && strlen(thumb_token) > 0) {
+                    char thumb_auth[ACCESS_TOKEN_MAX_LEN + 20];
+                    snprintf(thumb_auth, sizeof(thumb_auth), "Bearer %s", thumb_token);
+                    esp_http_client_set_header(thumb_client, "Authorization", thumb_auth);
+                }
+                const char *thumb_hk = config_manager_get_http_header_key();
+                const char *thumb_hv = config_manager_get_http_header_value();
+                if (thumb_hk && strlen(thumb_hk) > 0 && thumb_hv && strlen(thumb_hv) > 0 &&
+                    !(strcasecmp(thumb_hk, "Authorization") == 0 && thumb_token &&
+                      strlen(thumb_token) > 0)) {
+                    esp_http_client_set_header(thumb_client, thumb_hk, thumb_hv);
+                }
+
                 esp_err_t thumb_err = esp_http_client_perform(thumb_client);
                 int thumb_status = esp_http_client_get_status_code(thumb_client);
 
