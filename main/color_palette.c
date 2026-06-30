@@ -21,7 +21,9 @@ void color_palette_get_defaults(color_palette_t *palette)
     palette->blue = (color_rgb_t){5, 64, 158};
     palette->green = (color_rgb_t){39, 102, 60};
     // GC16 grayscale luminance endpoints (Y, 0..1); panel-measured, calibratable.
-    palette->gray_black_y = 0.02f;
+    // black=0 keeps shadows at pure black (punchier); raise toward the panel's
+    // real black for WYSIWYG.
+    palette->gray_black_y = 0.0f;
     palette->gray_white_y = 0.90f;
 }
 
