@@ -217,16 +217,19 @@ watch(
   { deep: true }
 );
 
-// Watch for palette changes - reprocess and update ToneCurve
+// Watch for palette changes - reprocess and update ToneCurve. For grayscale the
+// prop is the device calibration ({black_y, white_y} in the store), so rebuild
+// the perceived ramp via grayscalePalette() rather than using the raw object,
+// which has no perceived black/white for the ToneCurve + CDR to read. (This also
+// makes calibration edits flow into the preview, since the prop IS the store.)
 watch(
   () => props.palette,
-  async (newPalette) => {
-    if (newPalette) {
-      effectivePalette.value = newPalette;
-    }
-    if (sourceCanvas && isReady.value) {
-      await updatePreview();
-    }
+  async () => {
+    if (!isReady.value) return;
+    effectivePalette.value = appStore.isGrayscale
+      ? grayscalePalette().perceived
+      : props.palette || imageProcessor.SPECTRA6.perceived;
+    if (sourceCanvas) await updatePreview();
   },
   { deep: true }
 );

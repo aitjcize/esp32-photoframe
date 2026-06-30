@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted, watch } from "vue";
 import { useSettingsStore } from "../stores";
 
 const settingsStore = useSettingsStore();
@@ -9,16 +9,37 @@ const snackbar = ref(false);
 const snackbarText = ref("");
 const snackbarColor = ref("success");
 
+// Local field models. The firmware stores Y as a float32, so a saved 0.90
+// round-trips as 0.899999976...; round for display so the inputs read cleanly.
+const blackY = ref(0);
+const whiteY = ref(0.9);
+const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+
+function applyToStore() {
+  settingsStore.palette.black_y = round2(blackY.value);
+  settingsStore.palette.white_y = round2(whiteY.value);
+}
+
+// Push edits into the store (which drives the live preview + tone curve) only
+// after the user pauses, so the panel re-renders once instead of per keystroke.
+let writeTimer = null;
+watch([blackY, whiteY], () => {
+  if (writeTimer) clearTimeout(writeTimer);
+  writeTimer = setTimeout(applyToStore, 500);
+});
+
 onMounted(async () => {
   await settingsStore.loadPalette();
-  // Guard against missing keys (e.g. standalone mode or a color-palette payload):
-  // ensure both fields exist with sensible GC16 defaults so the inputs bind cleanly.
-  if (typeof settingsStore.palette.black_y !== "number") {
-    settingsStore.palette.black_y = 0;
-  }
-  if (typeof settingsStore.palette.white_y !== "number") {
-    settingsStore.palette.white_y = 0.9;
-  }
+  blackY.value = round2(
+    typeof settingsStore.palette.black_y === "number" ? settingsStore.palette.black_y : 0
+  );
+  whiteY.value = round2(
+    typeof settingsStore.palette.white_y === "number" ? settingsStore.palette.white_y : 0.9
+  );
+});
+
+onUnmounted(() => {
+  if (writeTimer) clearTimeout(writeTimer);
 });
 
 function showSnackbar(text, color) {
@@ -28,6 +49,9 @@ function showSnackbar(text, color) {
 }
 
 async function save() {
+  // Flush any pending debounced edit before saving.
+  if (writeTimer) clearTimeout(writeTimer);
+  applyToStore();
   saving.value = true;
   try {
     const ok = await settingsStore.savePalette();
@@ -62,7 +86,7 @@ async function save() {
     <v-row>
       <v-col cols="12" md="6">
         <v-text-field
-          v-model.number="settingsStore.palette.black_y"
+          v-model.number="blackY"
           label="Black luminance (Y)"
           type="number"
           :min="0"
@@ -75,7 +99,7 @@ async function save() {
       </v-col>
       <v-col cols="12" md="6">
         <v-text-field
-          v-model.number="settingsStore.palette.white_y"
+          v-model.number="whiteY"
           label="White luminance (Y)"
           type="number"
           :min="0"
