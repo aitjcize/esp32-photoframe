@@ -115,11 +115,11 @@ Buttons behave differently depending on whether the device is awake (web UI acce
 
 **When in deep sleep:**
 
-| Button | Waveshare PhotoPainter | XIAO EE02 / EE04 | reTerminal E1002 | reTerminal E1004 |
-|--------|----------------------|-------------------|------------------|------------------|
-| **Wake** | BOOT button | Button 3 | Green button | Refresh button |
-| **Rotate** | KEY button | Button 1 | Left button | Next (right) button |
-| **Clear** | N/A | Button 2 | Right button | Prev (left) button |
+| Button | Waveshare PhotoPainter | XIAO EE02 / EE04 | reTerminal E1002 | reTerminal E1003 | reTerminal E1004 |
+|--------|----------------------|-------------------|------------------|------------------|------------------|
+| **Wake** | BOOT button | Button 3 | Green button | Refresh button | Refresh button |
+| **Rotate** | KEY button | Button 1 | Left button | Left button | Right button |
+| **Clear** | N/A | Button 2 | Right button | Right button | Left button |
 
 - **Wake**: Wakes the device and starts the web UI / HTTP server (stays awake)
 - **Rotate**: Wakes the device, rotates to the next image, then goes back to sleep

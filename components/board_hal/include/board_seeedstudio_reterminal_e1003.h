@@ -10,11 +10,13 @@
 // Display color model reported to the server (selects the GC16 grayscale path).
 #define BOARD_HAL_DISPLAY_TYPE "gc16"
 
-// Button Definitions (active-low). Mirror the E1004 mapping:
-//   Refresh (GPIO5) -> Wake, Next/right (GPIO3) -> Rotate, Prev/left (GPIO4) -> Clear
-#define BOARD_HAL_WAKEUP_KEY GPIO_NUM_5  // Refresh button (Wake/Select)
+// Button Definitions (active-low). The E1003 wires its Wake and Rotate buttons
+// to swapped GPIOs relative to the E1004, so they're swapped here (vs the E1004
+// pinout) to keep the same button behavior:
+//   Refresh (GPIO3) -> Wake, Left (GPIO5) -> Rotate, Right (GPIO4) -> Clear
+#define BOARD_HAL_WAKEUP_KEY GPIO_NUM_3  // Wake / Select
 #define BOARD_HAL_WAKEUP_KEY_NAME "Refresh Button"
-#define BOARD_HAL_ROTATE_KEY GPIO_NUM_3  // Next / right button (Rotate)
+#define BOARD_HAL_ROTATE_KEY GPIO_NUM_5  // Rotate
 #define BOARD_HAL_CLEAR_KEY GPIO_NUM_4   // Prev / left button (Clear)
 
 // SPI Pins (shared by the IT8951 controller and the microSD card)
