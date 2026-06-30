@@ -461,15 +461,15 @@ void epaper_display(uint8_t *image)
 
 void epaper_clear(uint8_t *image, uint8_t color)
 {
-    (void) image;
     (void) color;
-    // INIT-mode refresh clears the panel to white and removes ghosting,
-    // independent of frame-buffer contents.
-    if (!s_spi) {
-        return;
+    // Fill the frame buffer with white (GC16 level 15 -> nibble 0xF). The named
+    // 6-color "white" doesn't map to GC16, so "clear" is always white here. The
+    // caller (display_manager_clear) then epaper_display()s this buffer -- one
+    // GC16 white refresh. Without this fill the buffer keeps the previous image
+    // and the caller's epaper_display would repaint it.
+    if (image) {
+        memset(image, 0xFF, (size_t) s_dev.panel_w * s_dev.panel_h / 2);
     }
-    it8951_display_area(0, 0, s_dev.panel_w, s_dev.panel_h, IT8951_MODE_INIT);
-    it8951_wait_display_ready();
 }
 
 void epaper_enter_deepsleep(void)
