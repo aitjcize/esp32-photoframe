@@ -10,17 +10,18 @@ const snackbar = ref(false);
 const snackbarText = ref("");
 const snackbarColor = ref("success");
 
-// Local field models. The firmware stores Y as a float32, so a saved 0.90
-// round-trips as 0.899999976...; round for display so the inputs read cleanly.
+// Local field models. The firmware stores Y as a float32, so a saved value
+// round-trips with noise (0.90 -> 0.899999976...); round for display so the
+// inputs read cleanly. 3 digits, since black_y is ~0.009.
 const blackY = ref(0.009);
 const whiteY = ref(0.65);
 const gamma = ref(1.42);
-const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+const round3 = (v) => Math.round((Number(v) || 0) * 1000) / 1000;
 
 function applyToStore() {
-  settingsStore.palette.black_y = round2(blackY.value);
-  settingsStore.palette.white_y = round2(whiteY.value);
-  settingsStore.palette.gamma = round2(gamma.value);
+  settingsStore.palette.black_y = round3(blackY.value);
+  settingsStore.palette.white_y = round3(whiteY.value);
+  settingsStore.palette.gamma = round3(gamma.value);
 }
 
 // Push edits into the store (which drives the live preview + tone curve) only
@@ -33,13 +34,13 @@ watch([blackY, whiteY, gamma], () => {
 
 onMounted(async () => {
   await settingsStore.loadPalette();
-  blackY.value = round2(
+  blackY.value = round3(
     typeof settingsStore.palette.black_y === "number" ? settingsStore.palette.black_y : 0.009
   );
-  whiteY.value = round2(
+  whiteY.value = round3(
     typeof settingsStore.palette.white_y === "number" ? settingsStore.palette.white_y : 0.65
   );
-  gamma.value = round2(
+  gamma.value = round3(
     typeof settingsStore.palette.gamma === "number" ? settingsStore.palette.gamma : 1.42
   );
 });
@@ -117,7 +118,7 @@ async function displayCalibration() {
           type="number"
           :min="0"
           :max="1"
-          :step="0.01"
+          :step="0.001"
           variant="outlined"
           hint="Measured relative luminance of full black (0–1). 0 keeps shadows pure black."
           persistent-hint
