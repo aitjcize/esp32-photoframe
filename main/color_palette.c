@@ -22,9 +22,10 @@ void color_palette_get_defaults(color_palette_t *palette)
     palette->green = (color_rgb_t){39, 102, 60};
     // GC16 grayscale luminance endpoints (Y, 0..1); panel-measured, calibratable.
     // black=0 keeps shadows at pure black (punchier); raise toward the panel's
-    // real black for WYSIWYG.
+    // real black for WYSIWYG. gamma shapes mid-levels (1.0 = perceptually linear).
     palette->gray_black_y = 0.0f;
     palette->gray_white_y = 0.90f;
+    palette->gray_gamma = 1.0f;
 }
 
 esp_err_t color_palette_init(void)
@@ -122,6 +123,8 @@ void color_palette_from_json(cJSON *json, color_palette_t *palette)
         palette->gray_black_y = (float) item->valuedouble;
     if ((item = cJSON_GetObjectItem(json, "white_y")) && cJSON_IsNumber(item))
         palette->gray_white_y = (float) item->valuedouble;
+    if ((item = cJSON_GetObjectItem(json, "gamma")) && cJSON_IsNumber(item))
+        palette->gray_gamma = (float) item->valuedouble;
 }
 
 static cJSON *color_to_json(const color_rgb_t *color)
@@ -148,6 +151,7 @@ char *color_palette_to_json(const color_palette_t *palette)
         // ramp is derived from these by epaper-image-convert.
         cJSON_AddNumberToObject(json, "black_y", palette->gray_black_y);
         cJSON_AddNumberToObject(json, "white_y", palette->gray_white_y);
+        cJSON_AddNumberToObject(json, "gamma", palette->gray_gamma);
     } else {
         cJSON_AddItemToObject(json, "black", color_to_json(&palette->black));
         cJSON_AddItemToObject(json, "white", color_to_json(&palette->white));

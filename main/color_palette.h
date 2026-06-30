@@ -20,10 +20,12 @@ typedef struct {
     color_rgb_t blue;
     color_rgb_t green;
     // GC16 grayscale calibration: measured RELATIVE LUMINANCE (Y, 0..1) of full
-    // black / full white. The 16-level perceived ramp is derived from these two
-    // endpoints downstream (epaper-image-convert). Unused for color panels.
+    // black / full white, plus a mid-level gamma (1.0 = perceptually linear,
+    // >1 darkens mids). The 16-level perceived ramp is derived from these
+    // downstream (epaper-image-convert). Unused for color panels.
     float gray_black_y;
     float gray_white_y;
+    float gray_gamma;
 } color_palette_t;
 
 esp_err_t color_palette_init(void);
