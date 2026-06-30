@@ -117,7 +117,12 @@ async function uploadImage(mode = "upload") {
     const targetHeight = displayHeight.value;
     // Saved/applied orientation, matching the preview (updated on save).
     const orientation = settingsStore.appliedOrientation;
-    const palette = appStore.isGrayscale ? imageProcessor.GRAYSCALE16 : imageProcessor.SPECTRA6;
+    const palette = appStore.isGrayscale
+      ? imageProcessor.makeGrayscale16({
+          blackY: settingsStore.palette?.black_y ?? 0,
+          whiteY: settingsStore.palette?.white_y ?? 0.9,
+        })
+      : imageProcessor.SPECTRA6;
 
     // Get scale mode and params from the preview component
     // Vue auto-unwraps refs from defineExpose, so no .value needed

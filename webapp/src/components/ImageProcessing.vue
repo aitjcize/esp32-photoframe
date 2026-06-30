@@ -60,6 +60,16 @@ let sourceCanvas = null;
 let imageProcessor = null;
 let isReady = ref(false);
 
+// GC16 grayscale palette built from the device's measured luminance endpoints
+// (Y of black/white from /api/settings/palette), so the preview matches the
+// panel. Falls back to the package defaults when the device hasn't reported.
+function grayscalePalette() {
+  return imageProcessor.makeGrayscale16({
+    blackY: settingsStore.palette?.black_y ?? 0,
+    whiteY: settingsStore.palette?.white_y ?? 0.9,
+  });
+}
+
 // Debounce timer for processing during pan/zoom
 let processDebounceTimer = null;
 
@@ -173,7 +183,7 @@ onMounted(async () => {
     isReady.value = true;
 
     effectivePalette.value = appStore.isGrayscale
-      ? imageProcessor.GRAYSCALE16.perceived
+      ? grayscalePalette().perceived
       : props.palette || imageProcessor.SPECTRA6.perceived;
 
     if (props.imageFile) {
@@ -307,7 +317,7 @@ async function updatePreview() {
 
   let palette = imageProcessor.SPECTRA6;
   if (appStore.isGrayscale) {
-    palette = imageProcessor.GRAYSCALE16;
+    palette = grayscalePalette();
   } else if (props.palette && Object.keys(props.palette).length > 0) {
     palette.perceived = props.palette;
   }
