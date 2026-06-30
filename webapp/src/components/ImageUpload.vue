@@ -119,9 +119,9 @@ async function uploadImage(mode = "upload") {
     const orientation = settingsStore.appliedOrientation;
     const palette = appStore.isGrayscale
       ? imageProcessor.makeGrayscale16({
-          blackY: settingsStore.palette?.black_y ?? 0,
-          whiteY: settingsStore.palette?.white_y ?? 0.9,
-          gamma: settingsStore.palette?.gamma ?? 1,
+          blackY: settingsStore.palette?.black_y ?? 0.009,
+          whiteY: settingsStore.palette?.white_y ?? 0.65,
+          gamma: settingsStore.palette?.gamma ?? 1.42,
         })
       : imageProcessor.SPECTRA6;
 

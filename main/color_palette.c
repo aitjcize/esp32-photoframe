@@ -20,12 +20,11 @@ void color_palette_get_defaults(color_palette_t *palette)
     palette->red = (color_rgb_t){135, 19, 0};
     palette->blue = (color_rgb_t){5, 64, 158};
     palette->green = (color_rgb_t){39, 102, 60};
-    // GC16 grayscale luminance endpoints (Y, 0..1); panel-measured, calibratable.
-    // black=0 keeps shadows at pure black (punchier); raise toward the panel's
-    // real black for WYSIWYG. gamma shapes mid-levels (1.0 = perceptually linear).
-    palette->gray_black_y = 0.0f;
-    palette->gray_white_y = 0.90f;
-    palette->gray_gamma = 1.0f;
+    // GC16 grayscale calibration (Y, 0..1; gamma shapes mid-levels), panel-
+    // measured + calibratable. Defaults are the measured ED103TC2 calibration.
+    palette->gray_black_y = 0.009f;
+    palette->gray_white_y = 0.65f;
+    palette->gray_gamma = 1.42f;
 }
 
 esp_err_t color_palette_init(void)

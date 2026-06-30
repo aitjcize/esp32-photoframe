@@ -65,9 +65,9 @@ let isReady = ref(false);
 // panel. Falls back to the package defaults when the device hasn't reported.
 function grayscalePalette() {
   return imageProcessor.makeGrayscale16({
-    blackY: settingsStore.palette?.black_y ?? 0,
-    whiteY: settingsStore.palette?.white_y ?? 0.9,
-    gamma: settingsStore.palette?.gamma ?? 1,
+    blackY: settingsStore.palette?.black_y ?? 0.009,
+    whiteY: settingsStore.palette?.white_y ?? 0.65,
+    gamma: settingsStore.palette?.gamma ?? 1.42,
   });
 }
 
