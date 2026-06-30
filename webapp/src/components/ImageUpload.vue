@@ -121,6 +121,7 @@ async function uploadImage(mode = "upload") {
       ? imageProcessor.makeGrayscale16({
           blackY: settingsStore.palette?.black_y ?? 0,
           whiteY: settingsStore.palette?.white_y ?? 0.9,
+          gamma: settingsStore.palette?.gamma ?? 1,
         })
       : imageProcessor.SPECTRA6;
 
