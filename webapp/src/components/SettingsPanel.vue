@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useSettingsStore, useAppStore } from "../stores";
 import PaletteCalibration from "./PaletteCalibration.vue";
+import GrayscaleCalibration from "./GrayscaleCalibration.vue";
 import ProcessingControls from "./ProcessingControls.vue";
 
 const settingsStore = useSettingsStore();
@@ -334,7 +335,9 @@ async function performFactoryReset() {
         <v-tab value="homeAssistant"> Home Assistant </v-tab>
         <v-tab value="processing"> Processing </v-tab>
         <v-tab value="ai"> AI Generation </v-tab>
-        <v-tab v-if="!appStore.isGrayscale" value="calibration"> Palette </v-tab>
+        <v-tab value="calibration">
+          {{ appStore.isGrayscale ? "Grayscale" : "Palette" }}
+        </v-tab>
         <v-tab value="maintenance"> Maintenance </v-tab>
       </v-tabs>
 
@@ -757,7 +760,8 @@ async function performFactoryReset() {
 
           <!-- Calibration Tab -->
           <v-tabs-window-item value="calibration">
-            <PaletteCalibration />
+            <GrayscaleCalibration v-if="appStore.isGrayscale" />
+            <PaletteCalibration v-else />
           </v-tabs-window-item>
 
           <!-- Maintenance Tab -->
