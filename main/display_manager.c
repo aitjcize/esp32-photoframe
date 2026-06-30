@@ -262,8 +262,14 @@ esp_err_t display_manager_show_calibration(void)
     // Re-initialize paint with current orientation
     display_manager_initialize_paint();
 
-    // Draw the calibration pattern directly to the buffer
-    Paint_DrawCalibrationPattern();
+    // Draw the calibration pattern directly to the buffer. Grayscale (GC16)
+    // panels get a 16-level gray step wedge instead of the 6-color swatches.
+    if (strncmp(BOARD_HAL_DISPLAY_TYPE, "gc", 2) == 0) {
+        Paint_SetScale(16);
+        Paint_DrawGrayscaleCalibrationPattern();
+    } else {
+        Paint_DrawCalibrationPattern();
+    }
 
     // Display the buffer
     epaper_display(epd_image_buffer);

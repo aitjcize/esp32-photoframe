@@ -5,15 +5,16 @@ import { useSettingsStore } from "../stores";
 const settingsStore = useSettingsStore();
 
 const saving = ref(false);
+const displaying = ref(false);
 const snackbar = ref(false);
 const snackbarText = ref("");
 const snackbarColor = ref("success");
 
 // Local field models. The firmware stores Y as a float32, so a saved 0.90
 // round-trips as 0.899999976...; round for display so the inputs read cleanly.
-const blackY = ref(0);
-const whiteY = ref(0.9);
-const gamma = ref(1);
+const blackY = ref(0.009);
+const whiteY = ref(0.65);
+const gamma = ref(1.42);
 const round2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 
 function applyToStore() {
@@ -33,13 +34,13 @@ watch([blackY, whiteY, gamma], () => {
 onMounted(async () => {
   await settingsStore.loadPalette();
   blackY.value = round2(
-    typeof settingsStore.palette.black_y === "number" ? settingsStore.palette.black_y : 0
+    typeof settingsStore.palette.black_y === "number" ? settingsStore.palette.black_y : 0.009
   );
   whiteY.value = round2(
-    typeof settingsStore.palette.white_y === "number" ? settingsStore.palette.white_y : 0.9
+    typeof settingsStore.palette.white_y === "number" ? settingsStore.palette.white_y : 0.65
   );
   gamma.value = round2(
-    typeof settingsStore.palette.gamma === "number" ? settingsStore.palette.gamma : 1
+    typeof settingsStore.palette.gamma === "number" ? settingsStore.palette.gamma : 1.42
   );
 });
 
@@ -71,6 +72,25 @@ async function save() {
     saving.value = false;
   }
 }
+
+// Show the raw 16-level gray step wedge on the panel (the GC16 analog of the
+// Spectra E6 calibration swatches). This is the panel's true per-level response
+// to compare the on-screen preview against while tuning the values above.
+async function displayCalibration() {
+  displaying.value = true;
+  try {
+    const response = await fetch("/api/calibration/display", { method: "POST" });
+    if (response.ok) {
+      showSnackbar("Step wedge displayed on the panel", "success");
+    } else {
+      showSnackbar("Failed to display step wedge", "error");
+    }
+  } catch (_error) {
+    showSnackbar("Failed to display step wedge", "error");
+  } finally {
+    displaying.value = false;
+  }
+}
 </script>
 
 <template>
@@ -84,8 +104,9 @@ async function save() {
     <p class="text-body-2 mb-4">
       Keeping <strong>black luminance at 0</strong> renders shadows as pure black for a punchier,
       higher-contrast result. Raising it toward your panel's real black makes the on-screen preview
-      match what the panel actually shows (WYSIWYG). You can measure these by displaying a
-      full-black image, then a full-white image, and metering the panel's luminance.
+      match what the panel actually shows (WYSIWYG). Use <strong>Show Step Wedge</strong> to display
+      all 16 raw gray levels on the panel, then adjust <strong>gamma</strong> until the panel's
+      mid-tones match the preview (the ends won't move; gamma only reshapes the middle).
     </p>
 
     <v-row>
@@ -111,7 +132,7 @@ async function save() {
           :max="1"
           :step="0.01"
           variant="outlined"
-          hint="Measured relative luminance of full white (0–1). Default 0.90."
+          hint="Measured relative luminance of full white (0–1). Default 0.65."
           persistent-hint
         />
       </v-col>
@@ -124,7 +145,7 @@ async function save() {
           :max="4"
           :step="0.05"
           variant="outlined"
-          hint="Mid-level shaping; 1.0 = neutral, >1 darkens mid-tones. Default 1.0."
+          hint="Mid-level shaping; 1.0 = neutral, >1 darkens mid-tones. Default 1.42."
           persistent-hint
         />
       </v-col>
@@ -134,6 +155,10 @@ async function save() {
       <v-btn color="primary" :loading="saving" @click="save">
         <v-icon icon="mdi-content-save" start />
         Save Calibration
+      </v-btn>
+      <v-btn variant="outlined" :loading="displaying" @click="displayCalibration">
+        <v-icon icon="mdi-gradient-horizontal" start />
+        Show Step Wedge
       </v-btn>
     </div>
 

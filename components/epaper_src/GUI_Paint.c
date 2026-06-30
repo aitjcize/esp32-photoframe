@@ -1050,3 +1050,34 @@ void Paint_DrawCalibrationPattern(void)
         }
     }
 }
+
+void Paint_DrawGrayscaleCalibrationPattern(void)
+{
+    // 16 equal bars stepping the raw GC16 hardware levels 0 (black) .. 15
+    // (white). The nibble written by Paint_SetPixel IS the gray level, so this
+    // shows the panel's true per-level response -- the ground truth for tuning
+    // the grayscale calibration (black/white luminance + gamma) against. Bars
+    // run along the longer axis so each stays a reasonable width.
+    UWORD width = Paint.Width;
+    UWORD height = Paint.Height;
+
+    if (width >= height) {
+        UWORD bar = width / 16;
+        for (UWORD x = 0; x < width; x++) {
+            UBYTE level = (bar > 0) ? (UBYTE) (x / bar) : 0;
+            if (level > 15)
+                level = 15;
+            for (UWORD y = 0; y < height; y++)
+                Paint_SetPixel(x, y, level);
+        }
+    } else {
+        UWORD bar = height / 16;
+        for (UWORD y = 0; y < height; y++) {
+            UBYTE level = (bar > 0) ? (UBYTE) (y / bar) : 0;
+            if (level > 15)
+                level = 15;
+            for (UWORD x = 0; x < width; x++)
+                Paint_SetPixel(x, y, level);
+        }
+    }
+}

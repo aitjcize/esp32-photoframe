@@ -234,6 +234,7 @@ void Paint_DrawBitMap(const unsigned char* image_buffer);
 
 // calibration
 void Paint_DrawCalibrationPattern(void);
+void Paint_DrawGrayscaleCalibrationPattern(void);
 
 #ifdef __cplusplus
 }
