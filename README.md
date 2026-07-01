@@ -1,6 +1,6 @@
 # ESP32 PhotoFrame
 
-A modern, feature-rich firmware for ESP32-based e-paper photo frames (currently supporting **Waveshare PhotoPainter**, **Seeed Studio XIAO EE02/EE04**, and **Seeed Studio reTerminal E1002/E1004**). This firmware replaces stock firmware with a powerful RESTful API, web interface, and **significantly better image quality**.
+A modern, feature-rich firmware for ESP32-based e-paper photo frames (currently supporting **Waveshare PhotoPainter**, **Seeed Studio XIAO EE02/EE04**, and **Seeed Studio reTerminal E1002/E1003/E1004**). This firmware replaces stock firmware with a powerful RESTful API, web interface, and **significantly better image quality**.
 
 ![PhotoFrame](.img/esp32-photoframe.png)
 
@@ -105,9 +105,10 @@ Configure your API keys in **Settings > AI Generation**.
 | [Seeed Studio XIAO EE02](https://www.seeedstudio.com/XIAO-ePaper-DIY-Kit-EE02-for-13-3-Spectratm-6-E-Ink.html) | 13.3" 6-color | Internal flash | `seeedstudio_xiao_ee02` |
 | [Seeed Studio XIAO EE04](https://www.seeedstudio.com/XIAO-ePaper-EE04-DIY-Bundle-Kit.html) | 7.3" 6-color | Internal flash | `seeedstudio_xiao_ee04` |
 | [Seeed Studio reTerminal E1002](https://www.seeedstudio.com/reTerminal-E1002-p-6533.html) | 7.3" 6-color | SD card (SPI) + Internal flash | `seeedstudio_reterminal_e1002` |
+| [Seeed Studio reTerminal E1003](https://www.seeedstudio.com/reTerminal-E1003-p-6731.html) | 10.3" 16-level grayscale | SD card (SPI) + Internal flash | `seeedstudio_reterminal_e1003` |
 | [Seeed Studio reTerminal E1004](https://www.seeedstudio.com/reTerminal-E1004-p-6692.html) | 13.3" 6-color | SD card (SPI) + Internal flash | `seeedstudio_reterminal_e1004` |
 
-The reTerminal E1002 and E1004 also include a SHT40 temperature/humidity sensor, PCF8563 RTC, and battery monitoring.
+The reTerminal E1002, E1003, and E1004 also include a SHT40 temperature/humidity sensor, PCF8563 RTC, and battery monitoring.
 
 ### Button Functions
 
@@ -172,6 +173,9 @@ We provide a `build.py` helper script to simplify building for different boards.
 
 # Build for Seeed Studio reTerminal E1002
 ./build.py --board seeedstudio_reterminal_e1002
+
+# Build for Seeed Studio reTerminal E1003 (10.3" 16-level grayscale e-paper)
+./build.py --board seeedstudio_reterminal_e1003
 
 # Build for Seeed Studio reTerminal E1004 (13.3" 6-color e-paper)
 ./build.py --board seeedstudio_reterminal_e1004
