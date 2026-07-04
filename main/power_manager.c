@@ -28,6 +28,12 @@
 // RTC memory to store expected wakeup time (persists across deep sleep)
 RTC_DATA_ATTR static time_t expected_wakeup_time = 0;
 
+// Boundary the current timer wake was targeting (from expected_wakeup_time).
+// Used to detect a wake that fired early due to RTC drift: if a clock
+// correction (external RTC restore or NTP sync) shows this is still in the
+// future, the caller skips the rotation and goes back to sleep until then.
+static time_t wake_target_boundary = 0;
+
 static const char *TAG = "power_manager";
 
 static TaskHandle_t sleep_timer_task_handle = NULL;
@@ -218,6 +224,10 @@ esp_err_t power_manager_init(void)
 
         // Check time drift and force NTP sync if needed
         if (expected_wakeup_time > 0) {
+            // Remember which boundary this wake was targeting so the early
+            // wake check can re-sleep until it if the timer fired early
+            wake_target_boundary = expected_wakeup_time;
+
             time_t now;
             time(&now);
             int drift = (int) (now - expected_wakeup_time);
@@ -404,6 +414,20 @@ void power_manager_reset_rotate_timer(void)
     next_rotation_time = esp_timer_get_time() + (seconds_until_next * 1000000LL);
     ESP_LOGI(TAG, "Rotation timer reset, next rotation in %d seconds (%s)", seconds_until_next,
              config_manager_get_auto_rotate_aligned() ? "clock-aligned" : "interval");
+}
+
+int power_manager_get_seconds_until_wake_target(void)
+{
+    if (wakeup_source != WAKEUP_SOURCE_TIMER || wake_target_boundary == 0) {
+        return 0;
+    }
+
+    time_t now;
+    time(&now);
+    if (wake_target_boundary <= now) {
+        return 0;
+    }
+    return (int) (wake_target_boundary - now);
 }
 
 wakeup_source_t power_manager_get_wakeup_source(void)

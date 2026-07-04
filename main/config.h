@@ -65,6 +65,15 @@ typedef enum {
 // via the app before the device sleeps.
 #define OOBE_AUTO_SLEEP_TIMEOUT_SEC 600
 
+// If a timer wake turns out to be early (RTC drift revealed by external RTC
+// restore or NTP sync), rotate anyway when the scheduled time is at most this
+// close; otherwise go back to sleep until the scheduled time. Must stay
+// shorter than the time a rotation takes end-to-end: a rotation that starts
+// within tolerance then finishes past its boundary, so the next wake-up
+// computation lands on the following interval instead of re-firing the
+// boundary that was just serviced.
+#define EARLY_WAKE_TOLERANCE_SEC 5
+
 #define IMAGE_ROTATE_INTERVAL_SEC 3600
 
 // WiFi

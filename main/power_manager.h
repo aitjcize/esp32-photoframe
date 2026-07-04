@@ -27,6 +27,16 @@ void power_manager_reset_sleep_timer(void);
  */
 void power_manager_set_auto_sleep_timeout(uint32_t seconds);
 void power_manager_reset_rotate_timer(void);
+
+/**
+ * @brief Seconds remaining until the boundary this timer wake was targeting.
+ *
+ * Based on the current (possibly corrected) system time. If an external RTC
+ * restore or NTP sync pulled the clock backward, a positive value means the
+ * timer fired early due to RTC drift and the scheduled rotation time hasn't
+ * arrived yet. Returns 0 for non-timer wakes or once the boundary is reached.
+ */
+int power_manager_get_seconds_until_wake_target(void);
 wakeup_source_t power_manager_get_wakeup_source(void);
 void power_manager_set_deep_sleep_enabled(bool enabled);
 

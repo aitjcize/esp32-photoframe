@@ -163,15 +163,18 @@ TEST_F(CalculateNextWakeupIntervalTest, FifteenMinuteInterval)
     EXPECT_EQ(480, result) << "Should wake at 10:15 (8 minutes)";
 }
 
-// Test Case 11: Time drift - woke up 40 seconds early, should skip to next interval
-TEST_F(CalculateNextWakeupIntervalTest, TimeDriftWokeUpEarly)
+// Test Case 11: An imminent boundary is a legitimate wake-up target. Early
+// wakes never rotate (the caller re-sleeps until the boundary, see
+// EARLY_WAKE_TOLERANCE_SEC), so this is exactly the re-sleep computation:
+// woke 40s early, sleep another 40s and rotate at 17:00.
+TEST_F(CalculateNextWakeupIntervalTest, ImminentBoundaryHonored)
 {
     config.enabled = false;
     SetMockTime(16, 59, 20);
 
     int result = calculate_next_wakeup_interval(&timeinfo, 3600, true, &config);
 
-    EXPECT_EQ(3640, result) << "Should skip to 18:00 since 40s < 60s threshold";
+    EXPECT_EQ(40, result) << "Should wake at 17:00 (40 seconds)";
 }
 
 // New tests for Non-Aligned mode

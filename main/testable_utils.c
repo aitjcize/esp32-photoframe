@@ -11,13 +11,6 @@ int calculate_next_wakeup_interval(const struct tm *timeinfo, int rotate_interva
         int next_aligned_seconds =
             ((current_seconds_of_day / rotate_interval) + 1) * rotate_interval;
         seconds_until_next = next_aligned_seconds - current_seconds_of_day;
-
-        // If next wakeup is too soon (less than 60s), skip to the following interval.
-        // This prevents immediate re-wakeup due to time drift.
-        if (seconds_until_next < 60) {
-            next_aligned_seconds += rotate_interval;
-            seconds_until_next = next_aligned_seconds - current_seconds_of_day;
-        }
     } else {
         seconds_until_next = rotate_interval;
     }

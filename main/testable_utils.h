@@ -21,6 +21,9 @@ extern "C" {
 // - Clock alignment (if aligned=true, aligns to rotation interval boundaries)
 // - Sleep schedule (skips wake-ups that fall within sleep schedule)
 // - Overnight schedules (handles schedules that cross midnight)
+// Note: rotations never run before their boundary (the caller re-sleeps on
+// early wakes, see EARLY_WAKE_TOLERANCE_SEC), so an imminent boundary here
+// is always a legitimate wake-up target.
 int calculate_next_wakeup_interval(const struct tm *timeinfo, int rotate_interval, bool aligned,
                                    const sleep_schedule_config_t *sleep_schedule);
 

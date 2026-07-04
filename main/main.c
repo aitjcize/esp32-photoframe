@@ -214,6 +214,23 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     bool ha_configured = ha_is_configured();
     bool wifi_connected = false;
 
+    // Early-wake check before spending power on WiFi: on boards with an
+    // external RTC the corrected time is already restored at this point, so
+    // a wake that fired early due to RTC drift can go back to sleep for the
+    // remainder without a WiFi connection. Boards without an external RTC
+    // still believe they're on time here; for them the check repeats after
+    // NTP sync below. Only meaningful in clock-aligned mode; interval mode
+    // has no wall-clock target.
+    // Exception: ROTATE button press always rotates immediately.
+    int early_seconds = power_manager_get_seconds_until_wake_target();
+    if (!is_button_wake && config_manager_get_auto_rotate_aligned() &&
+        early_seconds > EARLY_WAKE_TOLERANCE_SEC) {
+        ESP_LOGI(TAG, "Woke %d seconds before scheduled rotation, going back to sleep",
+                 early_seconds);
+        power_manager_enter_sleep();
+        // Won't reach here after sleep
+    }
+
     // Initialize WiFi if needed (URL mode always needs it, SD card mode only if HA configured)
     if (rotation_mode == ROTATION_MODE_URL || ha_configured) {
         ESP_LOGI(TAG, "Initializing WiFi for %s",
@@ -234,6 +251,17 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
         // Check and run periodic tasks (OTA check, SNTP sync if due)
         ESP_LOGI(TAG, "Checking periodic tasks...");
         periodic_tasks_check_and_run();
+    }
+
+    // Re-check now that the clock is as corrected as it will get (NTP sync
+    // above may have pulled it backward on boards without an external RTC).
+    early_seconds = power_manager_get_seconds_until_wake_target();
+    if (!is_button_wake && config_manager_get_auto_rotate_aligned() &&
+        early_seconds > EARLY_WAKE_TOLERANCE_SEC) {
+        ESP_LOGI(TAG, "Woke %d seconds before scheduled rotation, going back to sleep",
+                 early_seconds);
+        power_manager_enter_sleep();
+        // Won't reach here after sleep
     }
 
     // Start HTTP server for 10 seconds to allow config modifications
