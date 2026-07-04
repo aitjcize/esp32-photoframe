@@ -9,7 +9,7 @@ CLANG_FORMAT := $(shell which clang-format-18 2>/dev/null || which /opt/homebrew
 # Exclude build/, managed_components/, etc.
 C_FILES := $(shell find main -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) 2>/dev/null) \
 	   $(shell find components -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) 2>/dev/null) \
-	   $(shell find host_tests -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) 2>/dev/null)
+	   $(shell find host_tests -type f -not -path "host_tests/build/*" \( -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) 2>/dev/null)
 
 # Find all Python files in the project root and docs/
 PY_FILES := $(shell find main -type f -name "*.py" 2>/dev/null) \
