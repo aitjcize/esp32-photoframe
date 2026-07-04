@@ -198,7 +198,7 @@ function rawValid(card) {
               density="compact"
               variant="outlined"
               divided
-              class="mb-3 flex-wrap"
+              class="mb-3 me-4 flex-wrap"
               @update:model-value="(v) => v && setDaysMode(card, v)"
             >
               <v-btn v-for="o in daysOptions" :key="o.value" :value="o.value" size="small">
