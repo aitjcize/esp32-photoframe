@@ -62,13 +62,6 @@ static void rotation_timer_task(void *arg)
 
         // Handle active rotation when device stays awake and auto-rotate enabled
         if (config_manager_get_auto_rotate()) {
-            // Check if we're in sleep schedule
-            if (config_manager_is_in_sleep_schedule()) {
-                // During sleep schedule, don't rotate
-                next_rotation_time = 0;  // Reset timer
-                continue;
-            }
-
             int64_t now = esp_timer_get_time();  // Get absolute time in microseconds
 
             if (next_rotation_time == 0) {

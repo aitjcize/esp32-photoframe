@@ -8,9 +8,9 @@ const minute = (e) => [...parseCron(e).minute].sort((a, b) => a - b);
 // Seconds until the first run, computed from a local wall-clock time. The delta
 // between two instants is timezone-independent, so these assertions don't
 // depend on the runner's TZ.
-function secsUntil(exprs, [y, mo, d, h, mi, s], sleep = null) {
+function secsUntil(exprs, [y, mo, d, h, mi, s]) {
   const from = new Date(y, mo - 1, d, h, mi, s);
-  const runs = nextRuns(exprs, from, 1, sleep);
+  const runs = nextRuns(exprs, from, 1);
   return runs.length ? Math.round((runs[0].getTime() - from.getTime()) / 1000) : null;
 }
 
@@ -72,17 +72,6 @@ describe("nextRuns", () => {
     expect(secsUntil(["0 * *"], [2026, 6, 27, 10, 0, 30])).toBe(3570));
   it("returns nothing for no rules", () =>
     expect(nextRuns([], new Date(2026, 5, 27, 10, 0, 0), 4)).toEqual([]));
-
-  const overnight = { enabled: true, start: 1380, end: 420 }; // 23:00-07:00
-  it("quiet hours overnight -> wakes at window end", () =>
-    expect(secsUntil(["0 * *"], [2026, 6, 27, 22, 30, 0], overnight)).toBe(30600));
-  const sameDay = { enabled: true, start: 780, end: 840 }; // 13:00-14:00
-  it("quiet hours same-day", () =>
-    expect(secsUntil(["0 * *"], [2026, 6, 27, 12, 30, 0], sameDay)).toBe(5400));
-  it("disabled quiet hours are ignored", () =>
-    expect(
-      secsUntil(["0 * *"], [2026, 6, 27, 22, 30, 0], { enabled: false, start: 1380, end: 420 })
-    ).toBe(1800));
 });
 
 describe("compileCard", () => {

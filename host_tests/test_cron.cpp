@@ -36,11 +36,10 @@ std::vector<cron_rule_t> compile(const std::vector<const char *> &exprs)
     return rules;
 }
 
-int seconds_until(const struct tm &now, const std::vector<const char *> &exprs,
-                  const sleep_schedule_config_t *sleep = nullptr)
+int seconds_until(const struct tm &now, const std::vector<const char *> &exprs)
 {
     auto rules = compile(exprs);
-    return cron_seconds_until_next(&now, rules.data(), (int) rules.size(), sleep);
+    return cron_seconds_until_next(&now, rules.data(), (int) rules.size());
 }
 
 class CronUtc : public ::testing::Test
@@ -116,26 +115,6 @@ TEST_F(CronUtc, ImminentMatchHonored)
     EXPECT_EQ(seconds_until(make_tm(2026, 6, 27, 10, 59, 30), {"0 * *"}), 30);
 }
 
-TEST_F(CronUtc, QuietHoursOvernight)
-{
-    sleep_schedule_config_t s = {true, 1380, 420};  // 23:00 - 07:00
-    // now 22:30 -> 23:00..06:00 masked -> next 07:00 = 30600s
-    EXPECT_EQ(seconds_until(make_tm(2026, 6, 27, 22, 30, 0), {"0 * *"}, &s), 30600);
-}
-
-TEST_F(CronUtc, QuietHoursSameDay)
-{
-    sleep_schedule_config_t s = {true, 780, 840};  // 13:00 - 14:00
-    // now 12:30 -> 13:00 masked -> next 14:00 = 5400s
-    EXPECT_EQ(seconds_until(make_tm(2026, 6, 27, 12, 30, 0), {"0 * *"}, &s), 5400);
-}
-
-TEST_F(CronUtc, QuietHoursDisabledIgnored)
-{
-    sleep_schedule_config_t s = {false, 1380, 420};
-    EXPECT_EQ(seconds_until(make_tm(2026, 6, 27, 22, 30, 0), {"0 * *"}, &s), 1800);
-}
-
 TEST_F(CronUtc, SpecificTimesDifferingMinutesSplitRules)
 {
     // 9:15 (passed) + 12:45 -> next 12:45 = 2h45m = 9900s
@@ -145,7 +124,7 @@ TEST_F(CronUtc, SpecificTimesDifferingMinutesSplitRules)
 TEST_F(CronUtc, EmptyRulesFallback)
 {
     struct tm now = make_tm(2026, 6, 27, 10, 0, 0);
-    EXPECT_EQ(cron_seconds_until_next(&now, nullptr, 0, nullptr), CRON_FALLBACK_SEC);
+    EXPECT_EQ(cron_seconds_until_next(&now, nullptr, 0), CRON_FALLBACK_SEC);
 }
 
 // ---- Parser validation ----
@@ -218,7 +197,7 @@ InstantFields next_instant(const struct tm &now, const std::vector<const char *>
     struct tm base = now;
     base.tm_isdst = -1;
     time_t t0 = mktime(&base);
-    int delta = cron_seconds_until_next(&now, rules.data(), (int) rules.size(), nullptr);
+    int delta = cron_seconds_until_next(&now, rules.data(), (int) rules.size());
     time_t target = t0 + delta;
     struct tm lt;
     localtime_r(&target, &lt);

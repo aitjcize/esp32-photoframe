@@ -14,8 +14,6 @@ import {
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
-  // Quiet-hours window for the preview: { enabled, start, end } (minutes).
-  sleep: { type: Object, default: null },
   disabled: { type: Boolean, default: false },
 });
 const emit = defineEmits(["update:modelValue"]);
@@ -52,18 +50,15 @@ watch(
 const totalRules = computed(() => compileCards(cards.value).length);
 const overBudget = computed(() => totalRules.value > 7);
 
-const upcoming = computed(() => {
-  const sleep = props.sleep?.enabled
-    ? { enabled: true, start: props.sleep.start, end: props.sleep.end }
-    : null;
-  return nextRuns(compileCards(cards.value), new Date(), 4, sleep).map((d) =>
+const upcoming = computed(() =>
+  nextRuns(compileCards(cards.value), new Date(), 4).map((d) =>
     d.toLocaleString([], {
       weekday: "short",
       hour: "2-digit",
       minute: "2-digit",
     })
-  );
-});
+  )
+);
 
 // Day chips shown Monday-first; values are cron dow (0 = Sunday).
 const dayChips = [1, 2, 3, 4, 5, 6, 0].map((v) => ({ value: v, label: DAY_LABELS[v] }));

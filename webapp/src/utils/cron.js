@@ -79,20 +79,11 @@ function matches(r, d) {
   return r.dow.has(d.getDay());
 }
 
-function inQuietWindow(d, sleep) {
-  if (!sleep || !sleep.enabled) return false;
-  const cur = d.getHours() * 60 + d.getMinutes();
-  const { start, end } = sleep; // minutes since midnight
-  if (start > end) return cur >= start || cur < end;
-  return cur >= start && cur < end;
-}
-
 const HORIZON_MIN = 8 * 24 * 60;
 
-// Next `count` rotation times from `from` (Date), across all cron rules, with an
-// optional quiet-hours mask {enabled,start,end}. Mirrors the firmware scan
-// (minute granularity).
-export function nextRuns(exprs, from = new Date(), count = 5, sleep = null) {
+// Next `count` rotation times from `from` (Date), across all cron rules.
+// Mirrors the firmware scan (minute granularity).
+export function nextRuns(exprs, from = new Date(), count = 5) {
   const rules = exprs.map(parseCron).filter(Boolean);
   if (!rules.length) return [];
   const t0 = from.getTime();
@@ -102,7 +93,6 @@ export function nextRuns(exprs, from = new Date(), count = 5, sleep = null) {
   for (let i = 0; i < HORIZON_MIN && runs.length < count; i++) {
     const d = new Date(startMs + i * 60000);
     if (!rules.some((r) => matches(r, d))) continue;
-    if (inQuietWindow(d, sleep)) continue;
     runs.push(d);
   }
   return runs;

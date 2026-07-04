@@ -17,21 +17,6 @@ const scheduleValid = computed(() => {
   return rules.length >= 1 && rules.length <= 7 && rules.every((r) => isValidCron(r));
 });
 
-// Quiet-hours window (minutes since midnight) passed to the schedule preview so
-// it skips rotations during sleep hours.
-const sleepPreviewWindow = computed(() => {
-  const ds = settingsStore.deviceSettings;
-  const toMin = (hhmm) => {
-    const [h, m] = (hhmm || "0:0").split(":").map(Number);
-    return (h || 0) * 60 + (m || 0);
-  };
-  return {
-    enabled: ds.sleepScheduleEnabled,
-    start: toMin(ds.sleepScheduleStart),
-    end: toMin(ds.sleepScheduleEnd),
-  };
-});
-
 // Device time state
 const deviceTime = ref("");
 const syncingTime = ref(false);
@@ -491,7 +476,6 @@ async function performFactoryReset() {
             <div class="ml-10">
               <RotationSchedule
                 v-model="settingsStore.deviceSettings.rotateCron"
-                :sleep="sleepPreviewWindow"
                 :disabled="!settingsStore.deviceSettings.autoRotate"
               />
 
@@ -616,42 +600,6 @@ async function performFactoryReset() {
                   </v-card-text>
                 </v-card>
               </v-expand-transition>
-            </div>
-
-            <v-divider class="my-4" />
-
-            <v-switch
-              v-model="settingsStore.deviceSettings.sleepScheduleEnabled"
-              label="Enable Sleep Schedule"
-              color="primary"
-              class="mb-2"
-              hide-details
-            />
-            <div class="ml-10">
-              <v-row>
-                <v-col cols="6" md="3">
-                  <v-text-field
-                    v-model="settingsStore.deviceSettings.sleepScheduleStart"
-                    label="From"
-                    type="time"
-                    variant="outlined"
-                    :disabled="!settingsStore.deviceSettings.sleepScheduleEnabled"
-                  />
-                </v-col>
-                <v-col cols="6" md="3">
-                  <v-text-field
-                    v-model="settingsStore.deviceSettings.sleepScheduleEnd"
-                    label="To"
-                    type="time"
-                    variant="outlined"
-                    :disabled="!settingsStore.deviceSettings.sleepScheduleEnabled"
-                  />
-                </v-col>
-              </v-row>
-
-              <v-alert type="info" variant="tonal" density="compact">
-                Images won't rotate during this period. Useful for night hours.
-              </v-alert>
             </div>
           </v-tabs-window-item>
 

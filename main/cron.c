@@ -167,23 +167,7 @@ bool cron_match(const cron_rule_t *r, const struct tm *t)
     return (r->dow & (1UL << t->tm_wday)) != 0;
 }
 
-// True if the local time `t` falls inside the quiet-hours window.
-static bool in_quiet_window(const struct tm *t, const sleep_schedule_config_t *sleep)
-{
-    if (!sleep || !sleep->enabled) {
-        return false;
-    }
-    int cur = t->tm_hour * 60 + t->tm_min;
-    if (sleep->start_minutes > sleep->end_minutes) {
-        // Crosses midnight (e.g. 23:00 - 07:00).
-        return cur >= sleep->start_minutes || cur < sleep->end_minutes;
-    }
-    // Same-day window (empty when start == end).
-    return cur >= sleep->start_minutes && cur < sleep->end_minutes;
-}
-
-int cron_seconds_until_next(const struct tm *now, const cron_rule_t *rules, int n_rules,
-                            const sleep_schedule_config_t *sleep)
+int cron_seconds_until_next(const struct tm *now, const cron_rule_t *rules, int n_rules)
 {
     if (!now || !rules || n_rules <= 0) {
         return CRON_FALLBACK_SEC;
@@ -203,21 +187,11 @@ int cron_seconds_until_next(const struct tm *now, const cron_rule_t *rules, int 
         struct tm cand;
         localtime_r(&t, &cand);
 
-        bool matched = false;
         for (int i = 0; i < n_rules; i++) {
             if (cron_match(&rules[i], &cand)) {
-                matched = true;
-                break;
+                return (int) (t - t0);
             }
         }
-        if (!matched) {
-            continue;
-        }
-        if (in_quiet_window(&cand, sleep)) {
-            continue;
-        }
-
-        return (int) (t - t0);
     }
 
     return CRON_FALLBACK_SEC;

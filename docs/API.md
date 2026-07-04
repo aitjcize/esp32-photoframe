@@ -116,9 +116,6 @@ Get current device configuration.
   "display_rotation_deg": 180,
   "auto_rotate": true,
   "rotate_cron": ["0 */12 *"],
-  "sleep_schedule_enabled": false,
-  "sleep_schedule_start": 1380,
-  "sleep_schedule_end": 420,
   "rotation_mode": "url",
   "sd_rotation_mode": "random",
   "image_url": "http://server:9607/image/immich",
@@ -149,11 +146,9 @@ Get current device configuration.
   and month are intentionally omitted.) Invalid expressions and empty arrays are
   rejected with `400` — turn `auto_rotate` off to stop rotating. For backward
   compatibility, `POST`/`PATCH` also accept a legacy `rotate_interval` (seconds)
-  and convert it to a single cron rule.
-- `sleep_schedule_enabled`: Enable the quiet-hours window (rotations are
-  suppressed inside it; applied as a mask on top of `rotate_cron`)
-- `sleep_schedule_start`: Quiet-hours start time in minutes since midnight
-- `sleep_schedule_end`: Quiet-hours end time in minutes since midnight
+  and convert it to a single cron rule. (To avoid rotating at night, bound the
+  active hours in the cron rules, e.g. `0 7-23/2 *`, or split overnight coverage
+  into two rules — there is no separate quiet-hours setting.)
 - `rotation_mode`: `"storage"` (local SD/flash) or `"url"` (fetch from URL)
 - `sd_rotation_mode`: `"random"` or `"sequential"`
 - `image_url`: URL to fetch images from (max 256 chars)

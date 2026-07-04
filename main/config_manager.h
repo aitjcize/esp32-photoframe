@@ -57,17 +57,6 @@ void config_manager_set_cron_rules_from_interval(int seconds);
 // written (<= max), skipping any rule that fails to parse.
 int config_manager_get_compiled_cron_rules(cron_rule_t *out, int max);
 
-void config_manager_set_sleep_schedule_enabled(bool enabled);
-bool config_manager_get_sleep_schedule_enabled(void);
-
-void config_manager_set_sleep_schedule_start(int minutes);
-int config_manager_get_sleep_schedule_start(void);
-
-void config_manager_set_sleep_schedule_end(int minutes);
-int config_manager_get_sleep_schedule_end(void);
-
-bool config_manager_is_in_sleep_schedule(void);
-
 void config_manager_set_rotation_mode(rotation_mode_t mode);
 rotation_mode_t config_manager_get_rotation_mode(void);
 

@@ -232,21 +232,6 @@ esp_err_t apply_config_from_json(cJSON *root)
         }
     }
 
-    item = cJSON_GetObjectItem(root, "sleep_schedule_enabled");
-    if (item && cJSON_IsBool(item)) {
-        config_manager_set_sleep_schedule_enabled(cJSON_IsTrue(item));
-    }
-
-    item = cJSON_GetObjectItem(root, "sleep_schedule_start");
-    if (item && cJSON_IsNumber(item)) {
-        config_manager_set_sleep_schedule_start(item->valueint);
-    }
-
-    item = cJSON_GetObjectItem(root, "sleep_schedule_end");
-    if (item && cJSON_IsNumber(item)) {
-        config_manager_set_sleep_schedule_end(item->valueint);
-    }
-
     item = cJSON_GetObjectItem(root, "rotation_mode");
     if (item && cJSON_IsString(item)) {
         const char *mode_str = cJSON_GetStringValue(item);
@@ -1092,13 +1077,7 @@ int get_seconds_until_next_wakeup(void)
         return CRON_FALLBACK_SEC;
     }
 
-    sleep_schedule_config_t sleep_schedule = {
-        .enabled = config_manager_get_sleep_schedule_enabled(),
-        .start_minutes = config_manager_get_sleep_schedule_start(),
-        .end_minutes = config_manager_get_sleep_schedule_end(),
-    };
-
-    return cron_seconds_until_next(&timeinfo, rules, n, &sleep_schedule);
+    return cron_seconds_until_next(&timeinfo, rules, n);
 }
 
 void sanitize_hostname(const char *device_name, char *hostname, size_t max_len)

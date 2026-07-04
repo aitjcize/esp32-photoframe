@@ -5,14 +5,6 @@
 #include <stdint.h>
 #include <time.h>
 
-// Quiet-hours window applied as a mask on top of the cron schedule: a matching
-// rotation time that falls inside [start_minutes, end_minutes) is suppressed.
-typedef struct {
-    bool enabled;
-    int start_minutes;  // Minutes since midnight
-    int end_minutes;    // Minutes since midnight
-} sleep_schedule_config_t;
-
 // ============================================================================
 // Cron-based rotation schedule engine (pure, host-testable)
 //
@@ -48,15 +40,12 @@ bool cron_parse(const char *expr, cron_rule_t *out);
 // Uses tm_min, tm_hour and tm_wday (0=Sunday).
 bool cron_match(const cron_rule_t *r, const struct tm *t);
 
-// Seconds from `now` until the next minute that matches any of the `rules`,
-// skipping any match that falls inside the quiet-hours window (`sleep` may be
-// NULL or disabled). Imminent matches are honored: rotations never run ahead
-// of their scheduled minute (early wakes re-sleep the remainder, see
-// EARLY_WAKE_TOLERANCE_SEC), so a match seconds away is a legitimate wake-up
-// target. Returns CRON_FALLBACK_SEC if no match is found within
-// CRON_MAX_HORIZON_SEC.
-int cron_seconds_until_next(const struct tm *now, const cron_rule_t *rules, int n_rules,
-                            const sleep_schedule_config_t *sleep);
+// Seconds from `now` until the next minute that matches any of the `rules`.
+// Imminent matches are honored: rotations never run ahead of their scheduled
+// minute (early wakes re-sleep the remainder, see EARLY_WAKE_TOLERANCE_SEC),
+// so a match seconds away is a legitimate wake-up target. Returns
+// CRON_FALLBACK_SEC if no match is found within CRON_MAX_HORIZON_SEC.
+int cron_seconds_until_next(const struct tm *now, const cron_rule_t *rules, int n_rules);
 
 #ifdef __cplusplus
 }

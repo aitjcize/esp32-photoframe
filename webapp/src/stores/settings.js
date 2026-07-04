@@ -29,9 +29,6 @@ export const useSettingsStore = defineStore("settings", () => {
     // Auto Rotate
     autoRotate: true,
     rotateCron: ["0 */12 *"],
-    sleepScheduleEnabled: false,
-    sleepScheduleStart: "23:00",
-    sleepScheduleEnd: "07:00",
     rotationMode: "storage",
     // Auto Rotate - SDCARD
     sdRotationMode: "random",
@@ -205,20 +202,6 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.aiCredentials.openaiApiKey = data.openai_api_key || "";
       deviceSettings.value.aiCredentials.googleApiKey = data.google_api_key || "";
 
-      // Sleep schedule
-      deviceSettings.value.sleepScheduleEnabled = data.sleep_schedule_enabled || false;
-
-      // Convert minutes to HH:MM format
-      const startMinutes = data.sleep_schedule_start ?? 1380; // Default 23:00
-      const startHours = Math.floor(startMinutes / 60);
-      const startMins = startMinutes % 60;
-      deviceSettings.value.sleepScheduleStart = `${String(startHours).padStart(2, "0")}:${String(startMins).padStart(2, "0")}`;
-
-      const endMinutes = data.sleep_schedule_end ?? 420; // Default 07:00
-      const endHours = Math.floor(endMinutes / 60);
-      const endMins = endMinutes % 60;
-      deviceSettings.value.sleepScheduleEnd = `${String(endHours).padStart(2, "0")}:${String(endMins).padStart(2, "0")}`;
-
       // Parse timezone from POSIX format (e.g., "UTC-8" -> 8)
       const timezone = data.timezone || "UTC0";
       let offset = 0;
@@ -236,13 +219,6 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   async function saveDeviceSettings() {
-    // Convert HH:MM to minutes since midnight
-    const [startHours, startMins] = deviceSettings.value.sleepScheduleStart.split(":").map(Number);
-    const sleepScheduleStart = startHours * 60 + startMins;
-
-    const [endHours, endMins] = deviceSettings.value.sleepScheduleEnd.split(":").map(Number);
-    const sleepScheduleEnd = endHours * 60 + endMins;
-
     // Convert UTC offset to POSIX timezone format
     const offsetValue = deviceSettings.value.timezoneOffset || 0;
     let timezone = "UTC0";
@@ -270,9 +246,6 @@ export const useSettingsStore = defineStore("settings", () => {
       deep_sleep_enabled: deviceSettings.value.deepSleepEnabled,
       save_downloaded_images: deviceSettings.value.saveDownloadedImages,
       display_orientation: deviceSettings.value.displayOrientation,
-      sleep_schedule_enabled: deviceSettings.value.sleepScheduleEnabled,
-      sleep_schedule_start: sleepScheduleStart,
-      sleep_schedule_end: sleepScheduleEnd,
       device_name: deviceSettings.value.deviceName,
       ntp_server: deviceSettings.value.ntpServer,
       timezone: timezone,

@@ -1609,12 +1609,6 @@ static esp_err_t config_handler(httpd_req_t *req)
             }
         }
         cJSON_AddItemToObject(root, "rotate_cron", cron_arr);
-        cJSON_AddBoolToObject(root, "sleep_schedule_enabled",
-                              config_manager_get_sleep_schedule_enabled());
-        cJSON_AddNumberToObject(root, "sleep_schedule_start",
-                                config_manager_get_sleep_schedule_start());
-        cJSON_AddNumberToObject(root, "sleep_schedule_end",
-                                config_manager_get_sleep_schedule_end());
         const char *rotation_mode_str = "storage";
         rotation_mode_t rm = config_manager_get_rotation_mode();
         if (rm == ROTATION_MODE_URL)

@@ -25,9 +25,6 @@ static char wifi_password[WIFI_PASS_MAX_LEN] = {0};
 static bool auto_rotate_enabled = false;
 static char cron_rules_store[MAX_CRON_RULES][CRON_RULE_MAX_LEN] = {{0}};
 static int cron_rule_count = 0;
-static bool sleep_schedule_enabled = false;
-static int sleep_schedule_start = 1380;  // Minutes since midnight (23:00 = 23*60)
-static int sleep_schedule_end = 420;     // Minutes since midnight (07:00 = 7*60)
 
 static rotation_mode_t rotation_mode =
     ROTATION_MODE_STORAGE;  // Default, will be validated during init
@@ -229,28 +226,6 @@ esp_err_t config_manager_init(void)
             seed_default_cron = false;
         }
 
-        uint8_t stored_sleep_sched_enabled = 0;
-        if (nvs_get_u8(nvs_handle, NVS_SLEEP_SCHEDULE_ENABLED_KEY, &stored_sleep_sched_enabled) ==
-            ESP_OK) {
-            sleep_schedule_enabled = (stored_sleep_sched_enabled != 0);
-            ESP_LOGI(TAG, "Loaded sleep schedule enabled from NVS: %s",
-                     sleep_schedule_enabled ? "yes" : "no");
-        }
-
-        int32_t stored_start = 1380;  // Default 23:00
-        if (nvs_get_i32(nvs_handle, NVS_SLEEP_SCHEDULE_START_KEY, &stored_start) == ESP_OK) {
-            sleep_schedule_start = stored_start;
-            ESP_LOGI(TAG, "Loaded sleep schedule start from NVS: %d minutes (%02d:%02d)",
-                     sleep_schedule_start, sleep_schedule_start / 60, sleep_schedule_start % 60);
-        }
-
-        int32_t stored_end = 420;  // Default 07:00
-        if (nvs_get_i32(nvs_handle, NVS_SLEEP_SCHEDULE_END_KEY, &stored_end) == ESP_OK) {
-            sleep_schedule_end = stored_end;
-            ESP_LOGI(TAG, "Loaded sleep schedule end from NVS: %d minutes (%02d:%02d)",
-                     sleep_schedule_end, sleep_schedule_end / 60, sleep_schedule_end % 60);
-        }
-
         uint8_t stored_mode = ROTATION_MODE_URL;  // Default fallback
         if (nvs_get_u8(nvs_handle, NVS_ROTATION_MODE_KEY, &stored_mode) == ESP_OK) {
             rotation_mode = (rotation_mode_t) stored_mode;
@@ -382,6 +357,31 @@ esp_err_t config_manager_init(void)
         // Fresh device: seed default in memory; persists on the first user save.
         cron_load_from_joined(DEFAULT_ROTATE_CRON);
         ESP_LOGI(TAG, "No rotation schedule in NVS, using default: %s", DEFAULT_ROTATE_CRON);
+    }
+
+    // Erase the legacy quiet-hours (sleep schedule) keys. That feature was
+    // replaced by cron rules that carry their own active-hours window; the
+    // firmware no longer reads these keys, so drop them from NVS.
+    {
+        nvs_handle_t erase_handle;
+        if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &erase_handle) == ESP_OK) {
+            bool erased = false;
+            const char *legacy_keys[] = {
+                NVS_SLEEP_SCHEDULE_ENABLED_KEY,
+                NVS_SLEEP_SCHEDULE_START_KEY,
+                NVS_SLEEP_SCHEDULE_END_KEY,
+            };
+            for (size_t i = 0; i < sizeof(legacy_keys) / sizeof(legacy_keys[0]); i++) {
+                if (nvs_erase_key(erase_handle, legacy_keys[i]) == ESP_OK) {
+                    erased = true;
+                }
+            }
+            if (erased) {
+                nvs_commit(erase_handle);
+                ESP_LOGI(TAG, "Erased legacy sleep-schedule keys from NVS");
+            }
+            nvs_close(erase_handle);
+        }
     }
 
     // Apply timezone setting
@@ -649,89 +649,6 @@ int config_manager_get_compiled_cron_rules(cron_rule_t *out, int max)
         }
     }
     return n;
-}
-
-void config_manager_set_sleep_schedule_enabled(bool enabled)
-{
-    sleep_schedule_enabled = enabled;
-
-    nvs_handle_t nvs_handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-        nvs_set_u8(nvs_handle, NVS_SLEEP_SCHEDULE_ENABLED_KEY, enabled ? 1 : 0);
-        nvs_commit(nvs_handle);
-        nvs_close(nvs_handle);
-    }
-
-    ESP_LOGI(TAG, "Sleep schedule %s", enabled ? "enabled" : "disabled");
-}
-
-bool config_manager_get_sleep_schedule_enabled(void)
-{
-    return sleep_schedule_enabled;
-}
-
-void config_manager_set_sleep_schedule_start(int minutes)
-{
-    sleep_schedule_start = minutes;
-
-    nvs_handle_t nvs_handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-        nvs_set_i32(nvs_handle, NVS_SLEEP_SCHEDULE_START_KEY, minutes);
-        nvs_commit(nvs_handle);
-        nvs_close(nvs_handle);
-    }
-
-    ESP_LOGI(TAG, "Sleep schedule start set to: %d minutes (%02d:%02d)", minutes, minutes / 60,
-             minutes % 60);
-}
-
-int config_manager_get_sleep_schedule_start(void)
-{
-    return sleep_schedule_start;
-}
-
-void config_manager_set_sleep_schedule_end(int minutes)
-{
-    sleep_schedule_end = minutes;
-
-    nvs_handle_t nvs_handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-        nvs_set_i32(nvs_handle, NVS_SLEEP_SCHEDULE_END_KEY, minutes);
-        nvs_commit(nvs_handle);
-        nvs_close(nvs_handle);
-    }
-
-    ESP_LOGI(TAG, "Sleep schedule end set to: %d minutes (%02d:%02d)", minutes, minutes / 60,
-             minutes % 60);
-}
-
-int config_manager_get_sleep_schedule_end(void)
-{
-    return sleep_schedule_end;
-}
-
-bool config_manager_is_in_sleep_schedule(void)
-{
-    if (!sleep_schedule_enabled) {
-        return false;
-    }
-
-    // Get current time
-    time_t now;
-    struct tm timeinfo;
-    time(&now);
-    localtime_r(&now, &timeinfo);
-
-    int current_minutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
-
-    // Handle overnight schedules (e.g., 23:00 - 07:00)
-    if (sleep_schedule_start > sleep_schedule_end) {
-        // Schedule crosses midnight
-        return current_minutes >= sleep_schedule_start || current_minutes < sleep_schedule_end;
-    } else {
-        // Schedule within same day
-        return current_minutes >= sleep_schedule_start && current_minutes < sleep_schedule_end;
-    }
 }
 
 void config_manager_set_rotation_mode(rotation_mode_t mode)
