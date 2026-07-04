@@ -43,8 +43,9 @@ const char *config_manager_get_wifi_password(void);
 void config_manager_set_auto_rotate(bool enabled);
 bool config_manager_get_auto_rotate(void);
 
-// Cron rotation schedule: an array of up to MAX_CRON_RULES standard 5-field
-// cron expressions. The next rotation is the earliest time matching any rule.
+// Cron rotation schedule: an array of up to MAX_CRON_RULES simplified 3-field
+// cron expressions ("minute hour day-of-week", see cron.h). The next rotation
+// is the earliest time matching any rule.
 int config_manager_get_cron_rule_count(void);
 const char *config_manager_get_cron_rule(int index);  // NULL if out of range
 // Replace the full rule set (caps at MAX_CRON_RULES, drops empty entries) and

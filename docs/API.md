@@ -142,13 +142,14 @@ Get current device configuration.
 - `display_orientation`: `"landscape"` or `"portrait"`
 - `display_rotation_deg`: Display rotation in degrees (0, 90, 180, 270)
 - `auto_rotate`: Enable automatic image rotation
-- `rotate_cron`: Array of up to 7 simplified 3-field cron expressions
+- `rotate_cron`: Array of 1 to 7 simplified 3-field cron expressions
   (`minute hour day-of-week`). The next rotation is the earliest time matching
   any rule. Supports `*`, `a`, `a-b`, `*/n`, `a-b/n` and comma lists; day-of-week
-  `0`/`7` = Sunday. (Day-of-month and month are intentionally omitted.) Invalid
-  expressions are rejected with `400`. For backward compatibility, `POST`/`PATCH`
-  also accept a legacy `rotate_interval` (seconds) and convert it to a single
-  cron rule.
+  `0`/`7` = Sunday (7 is also valid in ranges, e.g. `5-7` = Fri–Sun). (Day-of-month
+  and month are intentionally omitted.) Invalid expressions and empty arrays are
+  rejected with `400` — turn `auto_rotate` off to stop rotating. For backward
+  compatibility, `POST`/`PATCH` also accept a legacy `rotate_interval` (seconds)
+  and convert it to a single cron rule.
 - `sleep_schedule_enabled`: Enable the quiet-hours window (rotations are
   suppressed inside it; applied as a mask on top of `rotate_cron`)
 - `sleep_schedule_start`: Quiet-hours start time in minutes since midnight

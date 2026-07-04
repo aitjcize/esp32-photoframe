@@ -189,6 +189,13 @@ esp_err_t apply_config_from_json(cJSON *root)
             utils_set_config_error(msg);
             return ESP_FAIL;
         }
+        // An empty schedule is ambiguous (it would silently fall back to
+        // hourly rotation, and the empty set can't be restored after a
+        // reboot). Turning auto_rotate off is the way to stop rotating.
+        if (count == 0) {
+            utils_set_config_error("Schedule must contain at least one rule");
+            return ESP_FAIL;
+        }
         const char *rules[MAX_CRON_RULES];
         int n = 0;
         cJSON *el;
