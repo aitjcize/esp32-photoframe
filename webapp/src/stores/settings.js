@@ -324,7 +324,7 @@ export const useSettingsStore = defineStore("settings", () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(changedFields),
         });
-      } catch (_error) {
+      } catch (error) {
         // Expected - connection will reset when WiFi switches
         console.log("Connection reset during WiFi change (expected):", error.message);
       }
@@ -398,7 +398,7 @@ export const useSettingsStore = defineStore("settings", () => {
       } else {
         return { success: false, message: data.message || "Failed to save settings" };
       }
-    } catch (_error) {
+    } catch (error) {
       console.error("Error saving config:", error);
       return { success: false, message: "Error saving settings" };
     }
