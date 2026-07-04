@@ -73,13 +73,6 @@ static bool parse_field(const char *field, int lo, int hi, bool is_dow, uint64_t
             }
         }
 
-        if (is_dow && start == 7) {
-            start = 0;
-        }
-        if (is_dow && end == 7) {
-            end = 0;
-        }
-
         if (start < lo || end > hi || start > end) {
             return false;
         }
@@ -97,6 +90,12 @@ static bool parse_field(const char *field, int lo, int hi, bool is_dow, uint64_t
 
     if (*p != '\0') {
         return false;  // trailing garbage
+    }
+
+    // Day-of-week: 7 is an alias for Sunday (Vixie semantics), valid anywhere
+    // including range ends, so "5-7" = Fri-Sun and "0-7" = every day.
+    if (is_dow && (mask & (1ULL << 7))) {
+        mask = (mask | 1ULL) & 0x7F;
     }
 
     *mask_out = mask;
@@ -146,7 +145,7 @@ bool cron_parse(const char *expr, cron_rule_t *out)
     if (!parse_field(fields[1], 0, 23, false, &hour_mask)) {
         return false;
     }
-    if (!parse_field(fields[2], 0, 6, true, &dow_mask)) {
+    if (!parse_field(fields[2], 0, 7, true, &dow_mask)) {
         return false;
     }
 

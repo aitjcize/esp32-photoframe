@@ -8,7 +8,7 @@
 const FIELD_RANGES = [
   [0, 59], // minute
   [0, 23], // hour
-  [0, 6], // day of week
+  [0, 7], // day of week (0 and 7 both mean Sunday, as in Vixie cron)
 ];
 
 // Parse one field into a Set of integers, or return null if malformed.
@@ -34,12 +34,14 @@ function parseField(field, lo, hi, isDow) {
       step = parseInt(m[3], 10);
       if (step <= 0) return null;
     }
-    if (isDow) {
-      if (start === 7) start = 0;
-      if (end === 7) end = 0;
-    }
     if (start < lo || end > hi || start > end) return null;
     for (let v = start; v <= end; v += step) out.add(v);
+  }
+  // Day-of-week: 7 is an alias for Sunday (Vixie semantics), valid anywhere
+  // including range ends, so "5-7" = Fri-Sun and "0-7" = every day.
+  if (isDow && out.has(7)) {
+    out.delete(7);
+    out.add(0);
   }
   return out;
 }
@@ -186,8 +188,9 @@ function cronDowToDays(field) {
   if (field === "*") return "everyday";
   if (field === "1-5") return "weekdays";
   if (field === "0,6" || field === "6,0") return "weekends";
-  const set = parseField(field, 0, 6, true);
+  const set = parseField(field, 0, 7, true);
   if (!set) return "everyday";
+  if (set.size === 7) return "everyday";
   return [...set].sort((a, b) => a - b);
 }
 

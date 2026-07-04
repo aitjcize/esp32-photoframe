@@ -161,6 +161,20 @@ TEST(CronParse, ValidExpressions)
     EXPECT_TRUE(cron_parse("0 0 7", &r));         // 7 = Sunday alias
     EXPECT_TRUE(cron_parse("  0   *  *  ", &r));  // extra whitespace
     EXPECT_TRUE(cron_parse("5/10 * *", &r));      // step from bare value
+    EXPECT_TRUE(cron_parse("0 0 5-7", &r));       // Vixie: Fri-Sun
+    EXPECT_TRUE(cron_parse("0 0 0-7", &r));       // Vixie: every day
+}
+
+TEST(CronParse, SundayAliasInRanges)
+{
+    // Vixie semantics: 7 folds onto Sunday after the range expands.
+    cron_rule_t r;
+    ASSERT_TRUE(cron_parse("0 0 5-7", &r));
+    EXPECT_EQ(r.dow, (uint8_t) 0b1100001);  // Sun, Fri, Sat
+    ASSERT_TRUE(cron_parse("0 0 0-7", &r));
+    EXPECT_EQ(r.dow, (uint8_t) 0b1111111);  // every day
+    ASSERT_TRUE(cron_parse("0 0 7", &r));
+    EXPECT_EQ(r.dow, (uint8_t) 0b0000001);  // Sunday only
 }
 
 TEST(CronParse, InvalidExpressions)

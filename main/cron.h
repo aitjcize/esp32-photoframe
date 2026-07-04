@@ -19,7 +19,8 @@ typedef struct {
 // Uses a simplified 3-field cron expression: "minute hour day-of-week".
 //   minute       0-59
 //   hour         0-23
-//   day-of-week  0-6  (0 = Sunday; 7 accepted as alias for Sunday)
+//   day-of-week  0-7  (0 and 7 both mean Sunday, as in Vixie cron, so
+//                      "5-7" = Fri-Sun and "0-7" = every day)
 //
 // Per-field syntax: '*', 'a', 'a-b', '*/n', 'a-b/n', and comma lists of those.
 // (Day-of-month and month are intentionally omitted — a photo frame never needs
