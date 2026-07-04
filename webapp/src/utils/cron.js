@@ -221,28 +221,41 @@ export function cardFromCron(expr) {
 
   const stepMin = minF.match(/^\*\/(\d+)$/);
   const stepHour = hourF.match(/^(?:\*|(\d+)-(\d+))\/(\d+)$/);
+  const rangeHour = hourF.match(/^(\d+)-(\d+)$/);
 
-  if (stepMin && (hourF === "*" || /^\d+-\d+$/.test(hourF))) {
+  // Minutes interval: "*/n" (or plain "*" = every minute) with an hour window
+  if ((stepMin || minF === "*") && (hourF === "*" || rangeHour)) {
     card.mode = "interval";
     card.unit = "minutes";
-    card.every = parseInt(stepMin[1], 10);
-    if (hourF === "*") {
+    card.every = stepMin ? parseInt(stepMin[1], 10) : 1;
+    if (rangeHour) {
+      card.fromHour = parseInt(rangeHour[1], 10);
+      card.toHour = parseInt(rangeHour[2], 10);
+    } else {
       card.fromHour = 0;
       card.toHour = 23;
-    } else {
-      const [a, b] = hourF.split("-").map(Number);
-      card.fromHour = a;
-      card.toHour = b;
     }
     return card;
   }
 
-  if (minF === "0" && stepHour) {
+  // Hours interval: "0 * *" (hourly), "0 */n *", "0 a-b/n *" or "0 a-b *"
+  if (minF === "0" && (hourF === "*" || stepHour || rangeHour)) {
     card.mode = "interval";
     card.unit = "hours";
-    card.every = parseInt(stepHour[3], 10);
-    card.fromHour = stepHour[1] !== undefined ? parseInt(stepHour[1], 10) : 0;
-    card.toHour = stepHour[2] !== undefined ? parseInt(stepHour[2], 10) : 23;
+    if (stepHour) {
+      card.every = parseInt(stepHour[3], 10);
+      card.fromHour = stepHour[1] !== undefined ? parseInt(stepHour[1], 10) : 0;
+      card.toHour = stepHour[2] !== undefined ? parseInt(stepHour[2], 10) : 23;
+    } else {
+      card.every = 1;
+      if (rangeHour) {
+        card.fromHour = parseInt(rangeHour[1], 10);
+        card.toHour = parseInt(rangeHour[2], 10);
+      } else {
+        card.fromHour = 0;
+        card.toHour = 23;
+      }
+    }
     return card;
   }
 

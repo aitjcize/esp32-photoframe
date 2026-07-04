@@ -5,9 +5,17 @@ import PaletteCalibration from "./PaletteCalibration.vue";
 import GrayscaleCalibration from "./GrayscaleCalibration.vue";
 import ProcessingControls from "./ProcessingControls.vue";
 import RotationSchedule from "./RotationSchedule.vue";
+import { isValidCron } from "../utils/cron";
 
 const settingsStore = useSettingsStore();
 const appStore = useAppStore();
+
+// The device rejects the entire config request when any schedule rule is
+// invalid, empty or over the 7-rule budget — gate saving on the same checks.
+const scheduleValid = computed(() => {
+  const rules = settingsStore.deviceSettings.rotateCron || [];
+  return rules.length >= 1 && rules.length <= 7 && rules.every((r) => isValidCron(r));
+});
 
 // Quiet-hours window (minutes since midnight) passed to the schedule preview so
 // it skips rotations during sleep hours.
@@ -793,10 +801,25 @@ async function performFactoryReset() {
             {{ saveMessage || "Failed to save settings" }}
           </v-chip>
         </v-fade-transition>
-        <v-btn color="primary" :loading="saving" @click="saveSettings">
-          <v-icon icon="mdi-content-save" start />
-          Save Settings
-        </v-btn>
+        <v-tooltip
+          text="Fix the rotation schedule first (invalid or too many rules)"
+          location="top"
+          :disabled="scheduleValid"
+        >
+          <template #activator="{ props: tooltipProps }">
+            <span v-bind="tooltipProps">
+              <v-btn
+                color="primary"
+                :loading="saving"
+                :disabled="!scheduleValid"
+                @click="saveSettings"
+              >
+                <v-icon icon="mdi-content-save" start />
+                Save Settings
+              </v-btn>
+            </span>
+          </template>
+        </v-tooltip>
       </v-card-actions>
     </v-card>
 

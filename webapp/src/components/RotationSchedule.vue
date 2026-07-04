@@ -3,6 +3,7 @@ import { ref, computed, watch } from "vue";
 import {
   newCard,
   cardsFromCron,
+  cardFromCron,
   compileCards,
   compileCard,
   describeCard,
@@ -23,9 +24,17 @@ const cards = ref(cardsFromCron(props.modelValue));
 
 // Emit compiled cron whenever the cards change; re-derive cards when the bound
 // value changes externally (e.g. after loading config), guarding against loops.
+// The syncing flag swallows the watcher firing caused by that re-derivation, so
+// loading a non-canonical stored rule doesn't emit a normalized copy and flag
+// the settings as modified with zero user edits.
+let syncing = false;
 watch(
   cards,
   () => {
+    if (syncing) {
+      syncing = false;
+      return;
+    }
     emit("update:modelValue", compileCards(cards.value));
   },
   { deep: true }
@@ -34,6 +43,7 @@ watch(
   () => props.modelValue,
   (val) => {
     if (JSON.stringify(compileCards(cards.value)) !== JSON.stringify(val || [])) {
+      syncing = true;
       cards.value = cardsFromCron(val || []);
     }
   }
@@ -70,11 +80,21 @@ const hourItems = Array.from({ length: 24 }, (_, h) => ({
   title: `${String(h).padStart(2, "0")}:00`,
 }));
 
-function everyItems(unit) {
-  return (unit === "hours" ? [1, 2, 3, 4, 6, 8, 12] : [5, 10, 15, 20, 30]).map((v) => ({
-    value: v,
-    title: `${v}`,
-  }));
+// The device can't express an hour window that wraps past midnight, so "To"
+// never offers hours before "From" (use two schedules for overnight windows).
+function toHourItems(card) {
+  return hourItems.filter((h) => h.value >= card.fromHour);
+}
+function setFromHour(card, v) {
+  card.fromHour = v;
+  if (card.toHour < v) card.toHour = v;
+}
+
+function everyItems(unit, current) {
+  const base = unit === "hours" ? [1, 2, 3, 4, 6, 8, 12] : [5, 10, 15, 20, 30];
+  // A hand-entered rule may use a step that isn't a preset; keep it selectable.
+  const vals = base.includes(current) ? base : [...base, current].sort((a, b) => a - b);
+  return vals.map((v) => ({ value: v, title: `${v}` }));
 }
 
 function daysModel(card) {
@@ -86,8 +106,13 @@ function setDaysMode(card, mode) {
 function toggleDay(card, value) {
   if (!Array.isArray(card.days)) card.days = [];
   const i = card.days.indexOf(value);
-  if (i >= 0) card.days.splice(i, 1);
-  else card.days.push(value);
+  if (i >= 0) {
+    // Keep at least one day selected — an empty selection would compile to
+    // "every day", the opposite of what deselecting everything suggests.
+    if (card.days.length > 1) card.days.splice(i, 1);
+  } else {
+    card.days.push(value);
+  }
 }
 
 function addTime(card) {
@@ -109,9 +134,23 @@ function removeCard(idx) {
 // Advanced raw editing
 function toggleAdvanced(card) {
   if (card.raw === null) {
-    card.raw = compileCard(card)[0] || "0 */12 *";
+    const rules = compileCard(card);
+    card.raw = rules[0] || "0 */12 *";
+    // A times card with several distinct minutes compiles to several rules;
+    // split the extras into their own advanced cards so none are lost.
+    if (rules.length > 1) {
+      const idx = cards.value.indexOf(card);
+      const extras = rules.slice(1).map((r) => {
+        const c = newCard();
+        c.raw = r;
+        return c;
+      });
+      cards.value.splice(idx + 1, 0, ...extras);
+    }
   } else {
-    card.raw = null;
+    // Re-derive the builder state from the edited expression when possible;
+    // unmappable or invalid expressions stay in advanced mode.
+    Object.assign(card, cardFromCron(card.raw));
   }
 }
 function rawValid(card) {
@@ -200,7 +239,7 @@ function rawValid(card) {
               <v-col cols="6" sm="2">
                 <v-select
                   v-model="card.every"
-                  :items="everyItems(card.unit)"
+                  :items="everyItems(card.unit, card.every)"
                   label="Every"
                   variant="outlined"
                   density="compact"
@@ -222,18 +261,19 @@ function rawValid(card) {
               </v-col>
               <v-col cols="6" sm="3">
                 <v-select
-                  v-model="card.fromHour"
+                  :model-value="card.fromHour"
                   :items="hourItems"
                   label="From"
                   variant="outlined"
                   density="compact"
                   hide-details
+                  @update:model-value="(v) => setFromHour(card, v)"
                 />
               </v-col>
               <v-col cols="6" sm="3">
                 <v-select
                   v-model="card.toHour"
-                  :items="hourItems"
+                  :items="toHourItems(card)"
                   label="To"
                   variant="outlined"
                   density="compact"
@@ -294,6 +334,9 @@ function rawValid(card) {
         <v-chip v-for="(r, i) in upcoming" :key="i" size="small" class="mr-1 mb-1" variant="tonal">
           {{ r }}
         </v-chip>
+        <div class="text-caption text-disabled mt-1">
+          Times shown in this browser's timezone; the device follows its own timezone setting.
+        </div>
       </template>
       <div v-else class="text-caption text-disabled">No upcoming rotations for this schedule.</div>
     </div>
