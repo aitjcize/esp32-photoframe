@@ -601,7 +601,7 @@ function scrollTo(id) {
                 </div>
               </a>
               <a
-                href="https://github.com/aitjcize/esp32-photoframe/discussions/86"
+                href="https://play.google.com/store/apps/details?id=com.aitjcize.espframe"
                 target="_blank"
                 rel="noopener"
                 class="store"
@@ -609,7 +609,7 @@ function scrollTo(id) {
                 <v-icon icon="mdi-google-play" size="28" />
                 <div>
                   <span class="store-os">Google Play</span>
-                  <span class="store-track">Internal testing</span>
+                  <span class="store-track">Free</span>
                 </div>
               </a>
             </div>

@@ -23,7 +23,7 @@ This project has companion tools for different use cases:
 |---------|-------------|
 | [**ha-esp32-photoframe**](https://github.com/aitjcize/ha-esp32-photoframe) | Home Assistant integration for control, monitoring, and automation |
 | [**esp32-photoframe-server**](https://github.com/aitjcize/esp32-photoframe-server) | Image server aggregating many photo sources — Gallery uploads, Google Photos, Immich, Synology Photos, Unsplash, Pexels, Telegram bot, URL proxy, and AI generation (OpenAI/Gemini) — with date/time & weather overlays and smart collage. Can be run as a Home Assistant add-on. |
-| [**esp32-photoframe-app**](https://github.com/aitjcize/esp32-photoframe-app) | Mobile companion app for WiFi provisioning and device control. iOS: [App Store](https://apps.apple.com/tw/app/esp-frame/id6762510995?l=en-GB) (USD 2.99, to offset Apple's USD 99/yr developer fee). Android: still in closed testing — join the [testers Google Group](https://groups.google.com/g/esp32-photoframe-app-testers) first, then install via [Google Play](https://play.google.com/store/apps/details?id=com.aitjcize.espframe). |
+| [**esp32-photoframe-app**](https://github.com/aitjcize/esp32-photoframe-app) | Mobile companion app for WiFi provisioning and device control. iOS: [App Store](https://apps.apple.com/tw/app/esp-frame/id6762510995?l=en-GB) (USD 2.99, to offset Apple's USD 99/yr developer fee). Android: [Google Play](https://play.google.com/store/apps/details?id=com.aitjcize.espframe) (free); join the [beta testers Google Group](https://groups.google.com/g/esp32-photoframe-app-testers) for early access to new features. |
 | [**epaper-image-convert**](https://github.com/aitjcize/epaper-image-convert) | CLI tool & npm library for e-paper image conversion with advanced dithering |
 
 ## Third Party Integrations
@@ -221,7 +221,7 @@ The device supports two methods for WiFi provisioning:
 
 1. Install the ESP Frame companion app:
    - **iOS**: [App Store](https://apps.apple.com/tw/app/esp-frame/id6762510995?l=en-GB)
-   - **Android**: join the [testers Google Group](https://groups.google.com/g/esp32-photoframe-app-testers) (closed testing), then install from [Google Play](https://play.google.com/store/apps/details?id=com.aitjcize.espframe)
+   - **Android**: install from [Google Play](https://play.google.com/store/apps/details?id=com.aitjcize.espframe) (free); for early access to new features, join the [beta testers Google Group](https://groups.google.com/g/esp32-photoframe-app-testers)
 2. Tap the "+" button on the home screen
 3. The app scans for PhotoFrame setup hotspots, connects automatically, and guides you through WiFi configuration
 
