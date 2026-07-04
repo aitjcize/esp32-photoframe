@@ -228,13 +228,17 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
         }
     }
 
-    // Start HTTP server for 10 seconds to allow config modifications
-    if (wifi_connected && ha_configured) {
+    if (wifi_connected) {
         power_manager_reset_sleep_timer();
 
         // Check and run periodic tasks (OTA check, SNTP sync if due)
         ESP_LOGI(TAG, "Checking periodic tasks...");
         periodic_tasks_check_and_run();
+    }
+
+    // Start HTTP server for 10 seconds to allow config modifications
+    if (wifi_connected && ha_configured) {
+        power_manager_reset_sleep_timer();
 
         // After time sync, check if we're still in sleep schedule.
         // RTC drift during long sleeps can cause early wakeup (e.g., wake at 7:55
@@ -260,8 +264,8 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     }
 
     // After time sync (or if no WiFi needed), also check sleep schedule.
-    // This handles the case where WiFi/HA is not configured but time was
-    // restored from external RTC.
+    // This handles wakes that skip the HA branch above (HA not configured,
+    // or no WiFi at all with time restored from external RTC).
     // Exception: ROTATE button press always rotates, even during sleep schedule.
     if (!is_button_wake && config_manager_is_in_sleep_schedule()) {
         ESP_LOGI(TAG, "Still in sleep schedule after time sync, skipping update");
