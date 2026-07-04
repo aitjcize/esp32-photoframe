@@ -13,15 +13,18 @@ const FIELD_RANGES = [
 
 // Parse one field into a Set of integers, or return null if malformed.
 function parseField(field, lo, hi, isDow) {
-  if (field === "") return null;
+  // The firmware caps each field at 31 chars (cron.c fields[3][32]).
+  if (field === "" || field.length > 31) return null;
   const out = new Set();
   for (const term of field.split(",")) {
-    const m = term.match(/^(\*|\d+)(?:-(\d+))?(?:\/(\d+))?$/);
+    // A range may only follow a number, never '*' (the firmware rejects "*-5").
+    const m = term.match(/^(?:\*|(\d+)(?:-(\d+))?)(?:\/(\d+))?$/);
     if (!m) return null;
     let start;
     let end;
     let step = 1;
-    if (m[1] === "*") {
+    if (m[1] === undefined) {
+      // '*'
       start = lo;
       end = hi;
     } else {
@@ -50,7 +53,11 @@ function parseField(field, lo, hi, isDow) {
 // field sets, or null if invalid.
 export function parseCron(expr) {
   if (typeof expr !== "string") return null;
-  const fields = expr.trim().split(/\s+/);
+  // The firmware rejects rules of 64+ chars (CRON_RULE_MAX_LEN) and splits
+  // fields only on spaces/tabs — mirror both so "valid here" means "valid
+  // on the device".
+  if (expr.length >= 64) return null;
+  const fields = expr.replace(/^[ \t]+|[ \t]+$/g, "").split(/[ \t]+/);
   if (fields.length !== 3) return null;
   const sets = [];
   for (let i = 0; i < 3; i++) {
@@ -141,7 +148,9 @@ function hourRange(fromHour, toHour) {
 
 // Compile a single card to an array of cron strings.
 export function compileCard(card) {
-  if (card.raw) return [card.raw.trim()];
+  // Advanced mode owns the card whenever raw is non-null — an emptied field
+  // must compile to an (invalid) empty rule, not the hidden builder state.
+  if (card.raw !== null) return [card.raw.trim()];
   const dow = daysToCron(card.days);
 
   if (card.mode === "interval") {
@@ -149,13 +158,14 @@ export function compileCard(card) {
       const min = card.every > 1 ? `*/${card.every}` : "*";
       return [`${min} ${hourRange(card.fromHour, card.toHour)} ${dow}`];
     }
-    // hours
+    // hours — always emit an explicit "a-b/n" range with a step: a bare
+    // "8/2" means "8 through 23 step 2" to cron, not the single hour 8.
     const hr =
       card.fromHour <= 0 && card.toHour >= 23
         ? card.every > 1
           ? `*/${card.every}`
           : "*"
-        : `${hourRange(card.fromHour, card.toHour)}/${card.every}`;
+        : `${card.fromHour}-${card.toHour}/${card.every}`;
     return [`0 ${hr} ${dow}`];
   }
 
@@ -163,7 +173,10 @@ export function compileCard(card) {
   const byMinute = new Map();
   for (const t of card.times) {
     const [h, m] = t.split(":").map(Number);
-    if (Number.isNaN(h) || Number.isNaN(m)) continue;
+    // Guard against cleared/half-typed time inputs ("" or "12" leave m
+    // undefined, and Number.isNaN(undefined) is false).
+    if (!Number.isInteger(h) || !Number.isInteger(m)) continue;
+    if (h < 0 || h > 23 || m < 0 || m > 59) continue;
     if (!byMinute.has(m)) byMinute.set(m, []);
     byMinute.get(m).push(h);
   }
