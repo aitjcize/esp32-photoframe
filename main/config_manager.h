@@ -43,18 +43,18 @@ const char *config_manager_get_wifi_password(void);
 void config_manager_set_auto_rotate(bool enabled);
 bool config_manager_get_auto_rotate(void);
 
-// Cron rotation schedule: an array of up to MAX_CRON_RULES simplified 3-field
-// cron expressions ("minute hour day-of-week", see cron.h). The next rotation
-// is the earliest time matching any rule.
 int config_manager_get_cron_rule_count(void);
-const char *config_manager_get_cron_rule(int index);  // NULL if out of range
-// Replace the full rule set (caps at MAX_CRON_RULES, drops empty entries) and
-// persist to NVS. Callers should validate expressions with cron_parse() first.
+
+// Returns NULL if index is out of range.
+const char *config_manager_get_cron_rule(int index);
+
+// Replaces the rule set (caps at MAX_CRON_RULES, drops empty/over-long entries);
+// caller should validate expressions with cron_parse() first.
 void config_manager_set_cron_rules(const char *const *rules, int count);
-// Replace the schedule with a single rule derived from a legacy interval (s).
 void config_manager_set_cron_rules_from_interval(int seconds);
-// Parse the stored rules into compiled form for the engine; returns count
-// written (<= max), skipping any rule that fails to parse.
+
+// Compiles the stored rules into `out`; returns the count written (<= max),
+// skipping any that fail to parse.
 int config_manager_get_compiled_cron_rules(cron_rule_t *out, int max);
 
 void config_manager_set_rotation_mode(rotation_mode_t mode);
@@ -127,6 +127,6 @@ bool config_manager_get_deep_sleep_enabled(void);
 
 void config_manager_set_config_last_updated(int64_t timestamp);
 int64_t config_manager_get_config_last_updated(void);
-void config_manager_touch_config(void);  // Set last_updated to current time
+void config_manager_touch_config(void);
 
 #endif
