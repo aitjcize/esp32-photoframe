@@ -87,6 +87,16 @@ const char *utils_get_last_fetch_error(void)
     return last_fetch_error;
 }
 
+// Seconds the server asked us to stay awake after rotating (X-Post-Rotate-Wait-Sec
+// on the image response) so it can pull our config. Set by the image fetch's HTTP
+// event handler, read by the wake flow. Reset at the start of each fetch.
+static int post_rotate_wait_sec = 0;
+
+int utils_get_post_rotate_wait_sec(void)
+{
+    return post_rotate_wait_sec;
+}
+
 // Last cert pin error (transient, consumed by HTTP handler on failure response)
 static char last_cert_pin_error[256] = {0};
 
@@ -408,6 +418,17 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
                 ctx->config_payload[2047] = '\0';
                 ESP_LOGI(TAG, "Config payload received from server");
             }
+        } else if (strcasecmp(evt->header_key, "X-Post-Rotate-Wait-Sec") == 0) {
+            // Server wants us to stay awake after rotating so it can pull our
+            // config. Clamp to our own maximum regardless of what it asks for.
+            int wait = atoi(evt->header_value);
+            if (wait < 0) {
+                wait = 0;
+            } else if (wait > POST_ROTATE_WAIT_MAX_SEC) {
+                wait = POST_ROTATE_WAIT_MAX_SEC;
+            }
+            post_rotate_wait_sec = wait;
+            ESP_LOGI(TAG, "Server requested post-rotate wait: %d s", wait);
         } else if (strcasecmp(evt->header_key, "ETag") == 0) {
             if (ctx->etag) {
                 strncpy(ctx->etag, evt->header_value, HTTP_ETAG_MAX_LEN - 1);
@@ -429,6 +450,10 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
     if (not_modified) {
         *not_modified = false;
     }
+
+    // Reset per-fetch; the HTTP event handler sets it if the server sends the
+    // X-Post-Rotate-Wait-Sec header (on either a 200 or a 304 response).
+    post_rotate_wait_sec = 0;
 
     // Use fixed paths for current image and upload
     const char *temp_jpg_path = CURRENT_JPG_PATH;

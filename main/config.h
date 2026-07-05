@@ -74,6 +74,16 @@ typedef enum {
 // re-firing the one that was just serviced.
 #define EARLY_WAKE_TOLERANCE_SEC 5
 
+// Upper bound on how long a server may ask us to stay awake after rotating (via
+// the X-Post-Rotate-Wait-Sec image-response header) so it can pull our config.
+// Caps a misbehaving/hostile server from keeping the frame awake and draining
+// the battery.
+#define POST_ROTATE_WAIT_MAX_SEC 30
+
+// How long HA-configured frames keep the HTTP server up after rotating so a
+// late config push can land. A server-requested post-rotate wait can extend it.
+#define HA_CONFIG_WINDOW_SEC 10
+
 // Default rotation schedule for fresh / factory-reset devices: every 12 hours.
 // Simplified 3-field cron: "minute hour day-of-week".
 #define DEFAULT_ROTATE_CRON "0 */12 *"

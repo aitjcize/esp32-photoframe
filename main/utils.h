@@ -18,6 +18,10 @@ esp_err_t apply_config_from_json(cJSON *root);
 void utils_set_last_fetch_error(const char *error);
 const char *utils_get_last_fetch_error(void);
 
+// Seconds the server asked us to stay awake after the last image fetch (via the
+// X-Post-Rotate-Wait-Sec response header) so it can pull our config. 0 if none.
+int utils_get_post_rotate_wait_sec(void);
+
 // Last cert pin error (transient). set: stash a message after a failed pin.
 // consume: read and clear; returns "" if empty. Used by the config HTTP handler
 // to surface why apply_config_from_json returned ESP_FAIL.

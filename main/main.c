@@ -206,6 +206,24 @@ static void button_task(void *arg)
     }
 }
 
+// Bring up mDNS + the HTTP config server exactly once per wake. Idempotent so
+// both the pre-rotation HA path and the post-rotation config-sync window can
+// call it freely without tracking who started it. (Deep sleep reboots the app,
+// so the guard resets each wake.)
+static void ensure_http_server_running(void)
+{
+    static bool started = false;
+    if (started) {
+        return;
+    }
+    // Start mDNS so HA / the LAN can resolve photoframe.local.
+    ESP_ERROR_CHECK(mdns_service_init());
+    ESP_ERROR_CHECK(http_server_init());
+    http_server_set_ready();
+    started = true;
+    ESP_LOGI(TAG, "HTTP server started");
+}
+
 void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 {
     bool is_button_wake = (wakeup_src == WAKEUP_SOURCE_ROTATE_BUTTON);
@@ -265,17 +283,11 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     // scheduled rotation (e.g. nobody home / night) via the notify response.
     bool should_rotate = true;
 
-    // Start HTTP server for 10 seconds to allow config modifications
+    // Bring the config server up before rotating so HA can reach us and the
+    // notify response can carry the rotation decision.
     if (wifi_connected && ha_configured) {
         power_manager_reset_sleep_timer();
-
-        // Start mDNS service so HA can resolve photoframe.local
-        ESP_ERROR_CHECK(mdns_service_init());
-
-        ESP_ERROR_CHECK(http_server_init());
-        http_server_set_ready();
-
-        ESP_LOGI(TAG, "Started HTTP server");
+        ensure_http_server_running();
 
         // Piggyback the rotation decision on the online notification. The gate
         // is moot for a ROTATE button press (that always rotates), so don't ask
@@ -304,11 +316,22 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     // Notify HA that data has been updated (after both OTA check and rotation)
     if (wifi_connected && ha_configured) {
         ha_notify_update();
+    }
 
-        // Keep server running for 10 seconds
-        ESP_LOGI(TAG, "HTTP server available for config changes");
-        vTaskDelay(pdMS_TO_TICKS(10000));
-
+    // Keep the HTTP server up briefly so a late config change — or a server-side
+    // config pull — can reach us. HA frames always get a short window; a server
+    // that asked us to wait (X-Post-Rotate-Wait-Sec, meaning it wants to pull our
+    // config) extends it, and gets a window even without HA — URL-mode frames
+    // don't start the server before rotating, so we start it on demand here.
+    int hold_sec = (wifi_connected && ha_configured) ? HA_CONFIG_WINDOW_SEC : 0;
+    int server_wait = utils_get_post_rotate_wait_sec();
+    if (server_wait > hold_sec) {
+        hold_sec = server_wait;
+    }
+    if (wifi_connected && hold_sec > 0) {
+        ensure_http_server_running();  // no-op if the HA path already started it
+        ESP_LOGI(TAG, "HTTP server available for config sync (%d s)", hold_sec);
+        vTaskDelay(pdMS_TO_TICKS(hold_sec * 1000));
         ESP_LOGI(TAG, "HTTP server window closed");
     }
 
