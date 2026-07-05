@@ -106,7 +106,6 @@ esp_err_t display_manager_init(void)
     display_manager_initialize_paint();
 
     ESP_LOGI(TAG, "Display manager initialized");
-    ESP_LOGI(TAG, "Auto-rotate uses timer-based wake-up (only works during sleep cycles)");
     return ESP_OK;
 }
 
