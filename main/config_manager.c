@@ -912,6 +912,14 @@ void config_manager_set_ha_url(const char *url)
         strncpy(ha_url, url, HA_URL_MAX_LEN - 1);
         ha_url[HA_URL_MAX_LEN - 1] = '\0';
 
+        // Strip trailing slashes so callers can safely append "/api/...".
+        // A doubled slash ("host//api/...") is a different path to Home
+        // Assistant's router and returns 404.
+        size_t len = strlen(ha_url);
+        while (len > 0 && ha_url[len - 1] == '/') {
+            ha_url[--len] = '\0';
+        }
+
         nvs_handle_t nvs_handle;
         if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
             nvs_set_str(nvs_handle, NVS_HA_URL_KEY, ha_url);
