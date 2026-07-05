@@ -44,54 +44,69 @@
 
 static const char *TAG = "main";
 
+// Set (from the lwIP task) when SNTP actually applies a fresh time. The
+// periodic sync below waits on this rather than on "is the clock already set",
+// because on a timer wake the retained RTC clock is already a valid (but
+// drifted) time — so it would otherwise return before the correction lands.
+static volatile bool s_sntp_time_applied = false;
+
+static void sntp_time_sync_notification(struct timeval *tv)
+{
+    s_sntp_time_applied = true;
+}
+
 // Periodic callback for SNTP sync
 static esp_err_t sntp_sync_periodic_callback(void)
 {
     ESP_LOGI(TAG, "Periodic SNTP sync triggered");
+
+    s_sntp_time_applied = false;
 
     // Force SNTP to sync again (timezone is already set by config_manager)
     esp_sntp_stop();
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, config_manager_get_ntp_server());
     esp_sntp_setservername(1, "time.google.com");
+    sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
+    sntp_set_time_sync_notification_cb(sntp_time_sync_notification);
     esp_sntp_init();
 
-    // Wait briefly for sync (non-blocking approach)
-    time_t now = 0;
-    struct tm timeinfo = {0};
-    int retry = 0;
-    const int retry_count = 5;  // Shorter timeout for periodic sync
-
-    while (timeinfo.tm_year < (2025 - 1900) && ++retry < retry_count) {
+    // Wait for the server response to actually be APPLIED (settimeofday from the
+    // lwIP task), not merely for the clock to read a valid year. Downstream, the
+    // early-wake re-check re-reads the clock and depends on the corrected time
+    // being in place before it decides whether the timer fired early.
+    const int retry_count = 10;  // up to ~10 seconds
+    for (int i = 0; i < retry_count && !s_sntp_time_applied; i++) {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        time(&now);
-        localtime_r(&now, &timeinfo);
     }
 
-    if (timeinfo.tm_year >= (2025 - 1900)) {
-        char strftime_buf[64];
-        strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-        ESP_LOGI(TAG, "SNTP sync successful: %s", strftime_buf);
-
-        // Update external RTC with synced time
-        time(&now);
-        if (board_hal_rtc_is_available()) {
-            esp_err_t ret = board_hal_rtc_set_time(now);
-            if (ret == ESP_OK) {
-                ESP_LOGI(TAG, "Updated external RTC with SNTP time");
-            } else {
-                ESP_LOGW(TAG, "Failed to update external RTC: %s", esp_err_to_name(ret));
-            }
-        }
-
-        // Reset rotate timer
-        power_manager_reset_rotate_timer();
-
-        return ESP_OK;
-    } else {
+    if (!s_sntp_time_applied) {
         ESP_LOGW(TAG, "SNTP sync timeout, will retry next period");
         return ESP_ERR_TIMEOUT;
     }
+
+    time_t now = 0;
+    struct tm timeinfo = {0};
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    char strftime_buf[64];
+    strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+    ESP_LOGI(TAG, "SNTP sync successful: %s", strftime_buf);
+
+    // Update external RTC with synced time
+    if (board_hal_rtc_is_available()) {
+        esp_err_t ret = board_hal_rtc_set_time(now);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "Updated external RTC with SNTP time");
+        } else {
+            ESP_LOGW(TAG, "Failed to update external RTC: %s", esp_err_to_name(ret));
+        }
+    }
+
+    // Reset rotate timer now that the clock is corrected
+    power_manager_reset_rotate_timer();
+
+    return ESP_OK;
 }
 
 // Helper function to connect to WiFi with timeout
