@@ -20,6 +20,7 @@
 #include "esp_mac.h"
 #include "image_processor.h"
 #include "mdns_service.h"
+#include "nvs.h"
 #include "periodic_tasks.h"
 #include "power_manager.h"
 #include "processing_settings.h"
@@ -28,21 +29,61 @@
 
 static const char *TAG = "utils";
 
-// Last image fetch error (transient, not persisted)
+// Last image fetch error, shown on the auto-rotate UI. Persisted to NVS so it
+// survives deep sleep — a fetch fails right before the device sleeps again, and
+// the in-memory copy would otherwise be lost by the next boot.
 static char last_fetch_error[256] = {0};
+static bool last_fetch_error_loaded = false;
+
+static void last_fetch_error_load(void)
+{
+    if (last_fetch_error_loaded) {
+        return;
+    }
+    last_fetch_error_loaded = true;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {
+        size_t len = sizeof(last_fetch_error);
+        if (nvs_get_str(nvs_handle, NVS_LAST_FETCH_ERROR_KEY, last_fetch_error, &len) != ESP_OK) {
+            last_fetch_error[0] = '\0';
+        }
+        nvs_close(nvs_handle);
+    }
+}
 
 void utils_set_last_fetch_error(const char *error)
 {
+    last_fetch_error_load();  // make sure the current value is known before diffing
+
+    char next[sizeof(last_fetch_error)];
     if (error) {
-        strncpy(last_fetch_error, error, sizeof(last_fetch_error) - 1);
-        last_fetch_error[sizeof(last_fetch_error) - 1] = '\0';
+        strncpy(next, error, sizeof(next) - 1);
+        next[sizeof(next) - 1] = '\0';
     } else {
-        last_fetch_error[0] = '\0';
+        next[0] = '\0';
+    }
+
+    if (strcmp(next, last_fetch_error) == 0) {
+        return;  // unchanged — avoid a redundant NVS write on every rotation
+    }
+    strcpy(last_fetch_error, next);
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        if (last_fetch_error[0] != '\0') {
+            nvs_set_str(nvs_handle, NVS_LAST_FETCH_ERROR_KEY, last_fetch_error);
+        } else {
+            nvs_erase_key(nvs_handle, NVS_LAST_FETCH_ERROR_KEY);
+        }
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
     }
 }
 
 const char *utils_get_last_fetch_error(void)
 {
+    last_fetch_error_load();
     return last_fetch_error;
 }
 

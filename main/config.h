@@ -115,6 +115,7 @@ typedef enum {
 #define NVS_HTTP_HEADER_VALUE_KEY "http_hdr_val"
 #define NVS_SAVE_DOWNLOADED_KEY "save_dl"
 #define NVS_IMAGE_ETAG_KEY "image_etag"
+#define NVS_LAST_FETCH_ERROR_KEY "last_fetch_err"
 
 // Power
 #define NVS_DEEP_SLEEP_KEY "deep_sleep"
