@@ -261,11 +261,12 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
         // Won't reach here after sleep
     }
 
+    // Whether this wake should actually rotate. Home Assistant can veto a
+    // scheduled rotation (e.g. nobody home / night) via the notify response.
+    bool should_rotate = true;
+
     // Start HTTP server for 10 seconds to allow config modifications
     if (wifi_connected && ha_configured) {
-        power_manager_reset_sleep_timer();
-
-        ESP_LOGI(TAG, "Starting HTTP server for 10 seconds before sleep");
         power_manager_reset_sleep_timer();
 
         // Start mDNS service so HA can resolve photoframe.local
@@ -274,7 +275,26 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
         ESP_ERROR_CHECK(http_server_init());
         http_server_set_ready();
 
-        ha_notify_online();
+        ESP_LOGI(TAG, "Started HTTP server");
+
+        // Piggyback the rotation decision on the online notification. The gate
+        // is moot for a ROTATE button press (that always rotates), so don't ask
+        // for or act on the decision there. Strictly fail-closed otherwise: WiFi
+        // is up but we couldn't ask HA, so don't rotate. (A total WiFi failure
+        // never reaches here, so it rotates as normal.)
+        esp_err_t notify_err = ha_notify_online(is_button_wake ? NULL : &should_rotate);
+        if (!is_button_wake && notify_err != ESP_OK) {
+            ESP_LOGW(TAG, "Could not reach Home Assistant to check rotation; skipping");
+            utils_set_last_fetch_error("Could not reach Home Assistant to check rotation");
+            should_rotate = false;
+        }
+    }
+
+    // Honor an HA veto (timer wakes only — a ROTATE button press always rotates).
+    if (!is_button_wake && !should_rotate) {
+        ESP_LOGI(TAG, "Rotation skipped by Home Assistant, going back to sleep");
+        power_manager_enter_sleep();
+        // Won't reach here after sleep
     }
 
     // Trigger rotation
@@ -599,9 +619,11 @@ void app_main(void)
         }
     }
 
-    // Notify HA that device is online (HA will poll for all data via REST API)
+    // Notify HA that device is online (HA will poll for all data via REST API).
+    // This is the always-on / cold-boot path, so the rotation-gate response
+    // isn't used here.
     ESP_LOGI(TAG, "Sending online notification to Home Assistant");
-    ha_notify_online();
+    ha_notify_online(NULL);
 
     ESP_LOGI(TAG, "PhotoFrame started successfully");
 

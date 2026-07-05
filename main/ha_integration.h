@@ -15,9 +15,14 @@ bool ha_is_configured(void);
 /**
  * @brief Notify Home Assistant that device is online (triggers HA to poll all data via REST API)
  *
- * @return ESP_OK on success, ESP_FAIL on error
+ * The response may carry a rotation decision computed by the HA integration.
+ *
+ * @param out_should_rotate If non-NULL, set to whether this wake should rotate
+ *        the image (defaults to true; set to false when HA vetoes the rotation).
+ *        Only meaningful when the call returns ESP_OK.
+ * @return ESP_OK on success, ESP_FAIL / esp_err_t on error
  */
-esp_err_t ha_notify_online(void);
+esp_err_t ha_notify_online(bool *out_should_rotate);
 
 /**
  * @brief Notify Home Assistant that device is going offline (entering deep sleep)
