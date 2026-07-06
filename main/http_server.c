@@ -1580,7 +1580,8 @@ static esp_err_t config_handler(httpd_req_t *req)
         // General
         const char *device_name = config_manager_get_device_name();
         cJSON_AddStringToObject(root, "device_name", device_name ? device_name : "PhotoFrame");
-        cJSON_AddStringToObject(root, "device_id", get_device_id());
+        // device_id is intentionally omitted here — it's reported by
+        // /api/system-info, which is what all clients read.
 
         const char *timezone = config_manager_get_timezone();
         cJSON_AddStringToObject(root, "timezone", timezone ? timezone : "UTC0");
