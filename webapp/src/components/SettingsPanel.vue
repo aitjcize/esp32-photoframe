@@ -6,6 +6,7 @@ import GrayscaleCalibration from "./GrayscaleCalibration.vue";
 import ProcessingControls from "./ProcessingControls.vue";
 import RotationSchedule from "./RotationSchedule.vue";
 import { isValidCron } from "../utils/cron";
+import { wideEdit } from "../utils/uiPrefs";
 
 const settingsStore = useSettingsStore();
 const appStore = useAppStore();
@@ -640,7 +641,12 @@ async function performFactoryReset() {
           <!-- Processing Tab -->
           <v-tabs-window-item value="processing">
             <div class="pa-4">
+              <v-alert v-if="wideEdit" type="info" variant="tonal" density="compact">
+                Processing controls are shown next to the preview in wide-edit mode. Turn wide edit
+                off (the split icon on the Upload card) to edit them here.
+              </v-alert>
               <ProcessingControls
+                v-else
                 :params="settingsStore.params"
                 :preset="settingsStore.preset"
                 @update:params="onParamsUpdate"

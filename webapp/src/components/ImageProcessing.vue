@@ -16,6 +16,12 @@ const props = defineProps({
     type: Object,
     default: null,
   },
+  // CSS selector to teleport the Tone Curve card into (e.g. the controls column
+  // in wide-edit mode). null keeps it inline below the preview.
+  toneCurveTeleport: {
+    type: String,
+    default: null,
+  },
 });
 
 const emit = defineEmits(["processed"]);
@@ -597,18 +603,22 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Tone Curve -->
-          <v-card variant="outlined" class="tone-curve-card">
-            <v-card-subtitle class="pt-2"> Tone Curve </v-card-subtitle>
-            <div class="d-flex justify-center pa-4">
-              <ToneCurve
-                :params="params"
-                :palette="effectivePalette"
-                :histogram="histogram"
-                class="curve-canvas"
-              />
-            </div>
-          </v-card>
+          <!-- Tone Curve. In wide-edit mode it teleports to the top of the
+               controls column; otherwise it stays inline below the preview.
+               `defer` lets the target (rendered later in the tree) resolve. -->
+          <Teleport defer :to="toneCurveTeleport" :disabled="!toneCurveTeleport">
+            <v-card variant="outlined" class="tone-curve-card">
+              <v-card-subtitle class="pt-2"> Tone Curve </v-card-subtitle>
+              <div class="d-flex justify-center pa-4">
+                <ToneCurve
+                  :params="params"
+                  :palette="effectivePalette"
+                  :histogram="histogram"
+                  class="curve-canvas"
+                />
+              </div>
+            </v-card>
+          </Teleport>
         </div>
 
         <v-progress-linear v-if="processing" indeterminate color="primary" class="mt-2" />

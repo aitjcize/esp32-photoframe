@@ -2,9 +2,28 @@
 import { ref, onMounted, computed, watch } from "vue";
 import { useAppStore, useSettingsStore } from "../stores";
 import ImageProcessing from "./ImageProcessing.vue";
+import ProcessingControls from "./ProcessingControls.vue";
+import { wideEdit } from "../utils/uiPrefs";
 
 const appStore = useAppStore();
 const settingsStore = useSettingsStore();
+
+function toggleWideEdit() {
+  wideEdit.value = !wideEdit.value;
+}
+
+// In wide-edit mode the processing controls render next to the preview (as well
+// as in Settings > Processing); both bind the same store, so these mirror the
+// handlers there.
+function onParamsUpdate(newParams) {
+  Object.assign(settingsStore.params, newParams);
+}
+
+function onPresetChange(preset) {
+  if (preset !== "custom") {
+    settingsStore.applyPreset(preset);
+  }
+}
 
 const fileInput = ref(null);
 const uploading = ref(false);
@@ -461,11 +480,21 @@ async function generateAiImage() {
 </script>
 
 <template>
-  <v-card class="mt-4">
+  <v-card class="mt-4" :class="{ 'wide-edit-card': wideEdit && showPreview }">
     <v-card-title class="d-flex align-center">
       <v-icon icon="mdi-upload" class="mr-2" />
       Upload Image
       <v-spacer />
+      <v-btn
+        v-if="showPreview"
+        :icon="wideEdit ? 'mdi-arrow-collapse-horizontal' : 'mdi-arrow-split-vertical'"
+        size="small"
+        variant="text"
+        :color="wideEdit ? 'primary' : undefined"
+        :title="wideEdit ? 'Exit wide edit' : 'Wide edit — controls beside the preview'"
+        class="mr-1"
+        @click="toggleWideEdit"
+      />
       <template v-if="canSaveToAlbum && appStore.systemInfo.storage_total > 0">
         <v-icon
           :icon="appStore.systemInfo.sdcard_inserted ? 'mdi-sd' : 'mdi-database'"
@@ -523,15 +552,30 @@ async function generateAiImage() {
         </v-btn>
       </v-sheet>
 
-      <!-- Preview Area with Processing -->
-      <div v-else>
-        <ImageProcessing
-          ref="imageProcessingRef"
-          :image-file="selectedFile"
-          :params="settingsStore.params"
-          :palette="settingsStore.palette"
-          @processed="processedResult = $event"
-        />
+      <!-- Preview Area with Processing. In wide-edit mode the processing
+           controls render beside the preview instead of in the Settings tab. -->
+      <div v-else :class="{ 'edit-split': wideEdit }">
+        <div class="edit-preview">
+          <ImageProcessing
+            ref="imageProcessingRef"
+            :image-file="selectedFile"
+            :params="settingsStore.params"
+            :palette="settingsStore.palette"
+            :tone-curve-teleport="wideEdit ? '#tone-curve-slot' : null"
+            @processed="processedResult = $event"
+          />
+        </div>
+        <div v-if="wideEdit" class="edit-controls">
+          <!-- ImageProcessing teleports the Tone Curve card in here -->
+          <div id="tone-curve-slot" class="mb-4"></div>
+          <ProcessingControls
+            :params="settingsStore.params"
+            :preset="settingsStore.preset"
+            @update:params="onParamsUpdate"
+            @update:preset="settingsStore.preset = $event"
+            @preset-change="onPresetChange"
+          />
+        </div>
       </div>
     </v-card-text>
 
@@ -642,5 +686,44 @@ async function generateAiImage() {
 }
 .upload-zone:hover {
   background-color: rgba(0, 0, 0, 0.04);
+}
+
+/* Wide-edit mode: break the card out of the page column to ~80vw (centered),
+   and lay out the preview and processing controls side by side. */
+.wide-edit-card {
+  width: min(80vw, 1560px);
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.edit-split {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  justify-content: center;
+}
+/* Preview: just enough for the image (the tone curve now lives with the
+   controls). Controls: capped so the 3-across rows stay compact instead of
+   sprawling across the whole card. */
+.edit-preview {
+  flex: 0 1 760px;
+  min-width: 0;
+}
+.edit-controls {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 900px;
+}
+/* Not enough room for two columns — stack them (card is still wide). */
+@media (max-width: 960px) {
+  .edit-split {
+    flex-direction: column;
+  }
+  .edit-preview,
+  .edit-controls {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: none;
+  }
 }
 </style>
