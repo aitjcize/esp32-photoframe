@@ -153,6 +153,7 @@ esp_err_t apply_config_from_json(cJSON *root)
         if (strcmp(new_name, current_name) != 0) {
             config_manager_set_device_name(new_name);
             mdns_service_update_hostname();
+            wifi_manager_update_hostname();
         }
     }
 
@@ -1182,6 +1183,29 @@ void sanitize_hostname(const char *device_name, char *hostname, size_t max_len)
     // If result is empty, use default
     if (j == 0) {
         strncpy(hostname, "photoframe", max_len - 1);
+        hostname[max_len - 1] = '\0';
+    }
+}
+
+void sanitize_dhcp_hostname(const char *device_name, char *hostname, size_t max_len)
+{
+    size_t i = 0, j = 0;
+
+    while (device_name[i] != '\0' && j < max_len - 1) {
+        char c = device_name[i];
+
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+            hostname[j++] = c;
+        }
+
+        i++;
+    }
+
+    hostname[j] = '\0';
+
+    // If result is empty, use default
+    if (j == 0) {
+        strncpy(hostname, "PhotoFrame", max_len - 1);
         hostname[max_len - 1] = '\0';
     }
 }

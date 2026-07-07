@@ -65,6 +65,12 @@ int get_seconds_until_next_wakeup(void);
 // hostname buffer must be at least max_len bytes
 void sanitize_hostname(const char *device_name, char *hostname, size_t max_len);
 
+// Sanitize device name to create a DHCP hostname (shown in router device lists)
+// Preserves case, drops spaces and special chars (CamelCase)
+// Example: "Living Room PhotoFrame" -> "LivingRoomPhotoFrame"
+// hostname buffer must be at least max_len bytes
+void sanitize_dhcp_hostname(const char *device_name, char *hostname, size_t max_len);
+
 // Get unique device ID (MAC address in hex)
 // Returns pointer to static buffer containing ID
 // Buffer is at least 13 bytes (12 chars + null)
