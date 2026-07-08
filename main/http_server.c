@@ -16,6 +16,7 @@
 #include "color_palette.h"
 #include "config.h"
 #include "config_manager.h"
+#include "debug_log.h"
 #include "display_manager.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
@@ -1567,6 +1568,55 @@ static esp_err_t current_image_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// Stream the debug log (previous generation first, then current) as a single
+// text download.
+static esp_err_t debug_log_download_handler(httpd_req_t *req)
+{
+    const char *paths[] = {debug_log_old_path(), debug_log_current_path()};
+
+    struct stat st;
+    bool any = false;
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+        if (stat(paths[i], &st) == 0) {
+            any = true;
+        }
+    }
+    if (!any) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No debug logs available");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"debug.log\"");
+
+    // Hold the debug log lock so the writer task doesn't rotate the files out
+    // from under us mid-stream.
+    debug_log_lock();
+    esp_err_t ret = ESP_OK;
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]) && ret == ESP_OK; i++) {
+        FILE *fp = fopen(paths[i], "r");
+        if (!fp) {
+            continue;
+        }
+        char buffer[1024];
+        size_t read_bytes;
+        while ((read_bytes = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
+            if (httpd_resp_send_chunk(req, buffer, read_bytes) != ESP_OK) {
+                ret = ESP_FAIL;
+                break;
+            }
+        }
+        fclose(fp);
+    }
+    debug_log_unlock();
+
+    if (ret != ESP_OK) {
+        return ESP_FAIL;
+    }
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
+}
+
 static esp_err_t config_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -1660,6 +1710,7 @@ static esp_err_t config_handler(httpd_req_t *req)
 
         // Other
         cJSON_AddBoolToObject(root, "deep_sleep_enabled", config_manager_get_deep_sleep_enabled());
+        cJSON_AddBoolToObject(root, "debug_log_enabled", config_manager_get_debug_log_enabled());
 
         char *json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");
@@ -2621,6 +2672,12 @@ esp_err_t http_server_init(void)
                                         .handler = config_handler,
                                         .user_ctx = NULL};
         httpd_register_uri_handler(server, &config_patch_uri);
+
+        httpd_uri_t debug_log_uri = {.uri = "/api/debug/log",
+                                     .method = HTTP_GET,
+                                     .handler = debug_log_download_handler,
+                                     .user_ctx = NULL};
+        httpd_register_uri_handler(server, &debug_log_uri);
 
         httpd_uri_t battery_uri = {.uri = "/api/battery",
                                    .method = HTTP_GET,

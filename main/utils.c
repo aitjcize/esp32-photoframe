@@ -13,6 +13,7 @@
 #include "config.h"
 #include "config_manager.h"
 #include "cron.h"
+#include "debug_log.h"
 #include "display_manager.h"
 #include "esp_app_desc.h"
 #include "esp_http_client.h"
@@ -375,6 +376,12 @@ esp_err_t apply_config_from_json(cJSON *root)
     item = cJSON_GetObjectItem(root, "deep_sleep_enabled");
     if (item && cJSON_IsBool(item)) {
         power_manager_set_deep_sleep_enabled(cJSON_IsTrue(item));
+    }
+
+    // Debugging
+    item = cJSON_GetObjectItem(root, "debug_log_enabled");
+    if (item && cJSON_IsBool(item)) {
+        debug_log_set_enabled(cJSON_IsTrue(item));
     }
 
     return ESP_OK;

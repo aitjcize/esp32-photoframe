@@ -122,6 +122,13 @@ void config_manager_set_deep_sleep_enabled(bool enabled);
 bool config_manager_get_deep_sleep_enabled(void);
 
 // ============================================================================
+// Debugging
+// ============================================================================
+
+void config_manager_set_debug_log_enabled(bool enabled);
+bool config_manager_get_debug_log_enabled(void);
+
+// ============================================================================
 // Config Sync
 // ============================================================================
 

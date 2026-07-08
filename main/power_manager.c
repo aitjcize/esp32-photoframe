@@ -20,6 +20,7 @@
 #include "board_hal.h"
 #include "config.h"
 #include "config_manager.h"
+#include "debug_log.h"
 #include "ha_integration.h"
 #include "periodic_tasks.h"
 #include "storage.h"
@@ -362,6 +363,10 @@ void power_manager_enter_sleep(void)
 
     ESP_LOGI(TAG, "Configuring Board HAL for deep sleep");
     board_hal_prepare_for_sleep();
+
+    // Flush buffered debug log lines and close the file before storage goes
+    // away. Capture resumes automatically on the next boot.
+    debug_log_flush();
 
     // Unmount LittleFS and force flash power domain off to prevent
     // VDD_SPI from staying active during deep sleep (~1-2mA drain).

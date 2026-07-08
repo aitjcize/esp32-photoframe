@@ -200,6 +200,36 @@ async function exportConfig() {
   }
 }
 
+const downloadingLog = ref(false);
+
+async function downloadDebugLog() {
+  downloadingLog.value = true;
+  try {
+    const response = await fetch("/api/debug/log");
+    if (!response.ok) {
+      saveError.value = true;
+      saveMessage.value = "No debug logs available";
+      setTimeout(() => (saveError.value = false), 5000);
+      return;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const deviceName = settingsStore.deviceSettings.deviceName || "photoframe";
+    a.download = `${deviceName.toLowerCase().replace(/\s+/g, "-")}-debug.log`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error("Failed to download debug log:", error);
+    saveError.value = true;
+    saveMessage.value = "Failed to download debug logs";
+    setTimeout(() => (saveError.value = false), 5000);
+  } finally {
+    downloadingLog.value = false;
+  }
+}
+
 function onImportFileSelected(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -725,6 +755,37 @@ async function performFactoryReset() {
                   style="display: none"
                   @change="onImportFileSelected"
                 />
+              </v-col>
+            </v-row>
+
+            <v-divider class="my-6" />
+
+            <div class="text-subtitle-1 mb-4">Debug Logging</div>
+            <v-row>
+              <v-col cols="12">
+                <v-switch
+                  v-model="settingsStore.deviceSettings.debugLogEnabled"
+                  label="Save console logs to storage"
+                  color="primary"
+                  hide-details
+                  class="mb-2"
+                />
+                <v-expand-transition>
+                  <v-alert
+                    v-if="settingsStore.deviceSettings.debugLogEnabled"
+                    type="info"
+                    variant="tonal"
+                    density="compact"
+                    class="mb-4"
+                  >
+                    Serial console output is mirrored to the SD card, keeping only the most recent
+                    lines. Takes effect after saving.
+                  </v-alert>
+                </v-expand-transition>
+                <v-btn variant="outlined" :loading="downloadingLog" @click="downloadDebugLog">
+                  <v-icon start>mdi-download</v-icon>
+                  Download Logs
+                </v-btn>
               </v-col>
             </v-row>
 

@@ -10,6 +10,7 @@
 #include "color_palette.h"
 #include "config.h"
 #include "config_manager.h"
+#include "debug_log.h"
 #include "display_manager.h"
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
@@ -431,6 +432,9 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     ESP_ERROR_CHECK(config_manager_init());
+
+    // Start mirroring console logs to storage if debug logging is enabled.
+    debug_log_init();
 
     // Always restore time from external RTC (internal RTC is inaccurate)
     ESP_LOGI(TAG, "Checking external RTC for time restoration...");

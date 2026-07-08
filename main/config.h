@@ -130,6 +130,9 @@ typedef enum {
 // Power
 #define NVS_DEEP_SLEEP_KEY "deep_sleep"
 
+// Debugging
+#define NVS_DEBUG_LOG_KEY "debug_log"
+
 // Home Assistant
 #define NVS_HA_URL_KEY "ha_url"
 

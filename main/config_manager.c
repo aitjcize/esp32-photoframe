@@ -53,6 +53,9 @@ static char google_api_key[AI_API_KEY_MAX_LEN] = {0};
 // Power
 static bool deep_sleep_enabled = true;  // Enabled by default
 
+// Debugging
+static bool debug_log_enabled = false;
+
 // Config sync
 static int64_t config_last_updated = 0;
 
@@ -336,6 +339,14 @@ esp_err_t config_manager_init(void)
             deep_sleep_enabled = (deep_sleep_val != 0);
             ESP_LOGI(TAG, "Loaded deep sleep setting from NVS: %s",
                      deep_sleep_enabled ? "enabled" : "disabled");
+        }
+
+        // Debugging
+        uint8_t debug_log_val = 0;
+        if (nvs_get_u8(nvs_handle, NVS_DEBUG_LOG_KEY, &debug_log_val) == ESP_OK) {
+            debug_log_enabled = (debug_log_val != 0);
+            ESP_LOGI(TAG, "Loaded debug log setting from NVS: %s",
+                     debug_log_enabled ? "enabled" : "disabled");
         }
 
         // Config sync timestamp
@@ -1004,6 +1015,25 @@ void config_manager_set_deep_sleep_enabled(bool enabled)
 bool config_manager_get_deep_sleep_enabled(void)
 {
     return deep_sleep_enabled;
+}
+
+void config_manager_set_debug_log_enabled(bool enabled)
+{
+    debug_log_enabled = enabled;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_DEBUG_LOG_KEY, enabled ? 1 : 0);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Debug log %s", enabled ? "enabled" : "disabled");
+}
+
+bool config_manager_get_debug_log_enabled(void)
+{
+    return debug_log_enabled;
 }
 
 void config_manager_set_config_last_updated(int64_t timestamp)
