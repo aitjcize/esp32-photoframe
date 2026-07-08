@@ -25,6 +25,7 @@
 #include "periodic_tasks.h"
 #include "storage.h"
 #include "utils.h"
+#include "wifi_manager.h"
 
 // RTC memory to store expected wakeup time (persists across deep sleep)
 RTC_DATA_ATTR static time_t expected_wakeup_time = 0;
@@ -318,7 +319,15 @@ void power_manager_enter_sleep(void)
 
     ESP_LOGI(TAG, "Preparing to enter deep sleep mode");
 
-    ha_notify_offline();
+    // Only notify HA offline when the network is actually up. The early-wake
+    // re-sleep (deep_sleep_wake_main check #1) calls enter_sleep before WiFi /
+    // esp_netif is initialized; issuing the HTTP notify there crashes on the
+    // uninitialized network stack, resetting the device into normal-init with no
+    // rotation (#105). wifi_manager_is_connected() reads a static bool, so it is
+    // safe to call before WiFi init.
+    if (wifi_manager_is_connected()) {
+        ha_notify_offline();
+    }
 
     // Turn off LEDs before sleep
     board_hal_led_set(BOARD_HAL_LED_POWER, false);
