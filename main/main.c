@@ -13,6 +13,7 @@
 #include "debug_log.h"
 #include "display_manager.h"
 #include "driver/gpio.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
@@ -454,6 +455,11 @@ void app_main(void)
 
     // Start mirroring console logs to storage if debug logging is enabled.
     debug_log_init();
+
+    // Record the running build up front so every captured boot log is
+    // self-identifying (which firmware/board produced these wakes).
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+    ESP_LOGI(TAG, "Firmware: %s (board %s)", app_desc->version, BOARD_HAL_NAME);
 
     // Always restore time from external RTC (internal RTC is inaccurate)
     ESP_LOGI(TAG, "Checking external RTC for time restoration...");
