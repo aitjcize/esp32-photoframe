@@ -411,8 +411,7 @@ void app_main(void)
         reset_reason_str = "Unknown";
         break;
     }
-    ESP_LOGI(TAG, "PhotoFrame starting... (Reset reason: %s)", reset_reason_str);
-    ESP_LOGI(TAG, "Board type: %s", BOARD_HAL_NAME);
+    ESP_LOGI(TAG, "PhotoFrame starting...");
 
     // Log initial memory state
     ESP_LOGI(TAG, "Free heap: %lu bytes, Largest free block: %lu bytes", esp_get_free_heap_size(),
@@ -421,29 +420,15 @@ void app_main(void)
     // Initialize Board HAL
     ESP_LOGI(TAG, "Initializing Board HAL...");
     ESP_ERROR_CHECK(board_hal_init());
-    ESP_LOGI(TAG, "Board HAL initialized");
 
     // Initialize the storage subsystem (handles SD, LittleFS, MemFS fallbacks)
     ESP_LOGI(TAG, "Initializing storage subsystem...");
     ESP_ERROR_CHECK(storage_init());
 
-    // Initialize external RTC (via HAL)
-    ESP_LOGI(TAG, "Initializing RTC...");
-    esp_err_t rtc_ret = board_hal_rtc_init();
-    if (rtc_ret == ESP_OK) {
-        ESP_LOGI(TAG, "RTC initialized successfully");
-    } else if (rtc_ret == ESP_ERR_NOT_SUPPORTED) {
-        ESP_LOGI(TAG, "External RTC not supported on this board");
-    } else {
-        ESP_LOGW(TAG, "RTC initialization failed: %s", esp_err_to_name(rtc_ret));
-    }
-
-    // Wait for power rails to stabilize after AXP2101 initialization
-    // The AXP2101 enables DC1, ALDO3, ALDO4 at 3.3V which power the SD card (if present)
-    // Increase delay to ensure power is fully stable
-    ESP_LOGI(TAG, "Waiting for power rails to stabilize...");
-    vTaskDelay(pdMS_TO_TICKS(500));  // Increased from 200ms to 500ms
-
+    // Bring up NVS, config, and debug-log capture as early as possible — before
+    // the external-RTC / I2C init below — so the persistent log covers the RTC
+    // path and the wake decision, where a crash-then-reset is suspected (#105).
+    // None of these depend on the RTC or the AXP2101 power-rail delay.
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -460,6 +445,28 @@ void app_main(void)
     // self-identifying (which firmware/board produced these wakes).
     const esp_app_desc_t *app_desc = esp_app_get_description();
     ESP_LOGI(TAG, "Firmware: %s (board %s)", app_desc->version, BOARD_HAL_NAME);
+    // Capture the reset reason in the persistent log: a scheduled wake that
+    // comes up as anything other than a clean deep-sleep wake (brownout, panic,
+    // watchdog, power-on) lands in normal-init instead of the rotation path.
+    ESP_LOGI(TAG, "Reset reason: %s", reset_reason_str);
+
+    // Initialize external RTC (via HAL). Kept after debug_log_init so this — the
+    // suspected #105 crash site — is captured in the persistent log.
+    ESP_LOGI(TAG, "Initializing RTC...");
+    esp_err_t rtc_ret = board_hal_rtc_init();
+    if (rtc_ret == ESP_OK) {
+        ESP_LOGI(TAG, "RTC initialized successfully");
+    } else if (rtc_ret == ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGI(TAG, "External RTC not supported on this board");
+    } else {
+        ESP_LOGW(TAG, "RTC initialization failed: %s", esp_err_to_name(rtc_ret));
+    }
+
+    // Wait for power rails to stabilize after AXP2101 initialization
+    // The AXP2101 enables DC1, ALDO3, ALDO4 at 3.3V which power the SD card (if present)
+    // Increase delay to ensure power is fully stable
+    ESP_LOGI(TAG, "Waiting for power rails to stabilize...");
+    vTaskDelay(pdMS_TO_TICKS(500));  // Increased from 200ms to 500ms
 
     // Always restore time from external RTC (internal RTC is inaccurate)
     ESP_LOGI(TAG, "Checking external RTC for time restoration...");
