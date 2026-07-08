@@ -1617,6 +1617,14 @@ static esp_err_t debug_log_download_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t debug_log_clear_handler(httpd_req_t *req)
+{
+    debug_log_clear();
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"success\"}");
+    return ESP_OK;
+}
+
 static esp_err_t config_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -2678,6 +2686,12 @@ esp_err_t http_server_init(void)
                                      .handler = debug_log_download_handler,
                                      .user_ctx = NULL};
         httpd_register_uri_handler(server, &debug_log_uri);
+
+        httpd_uri_t debug_log_clear_uri = {.uri = "/api/debug/log",
+                                           .method = HTTP_DELETE,
+                                           .handler = debug_log_clear_handler,
+                                           .user_ctx = NULL};
+        httpd_register_uri_handler(server, &debug_log_clear_uri);
 
         httpd_uri_t battery_uri = {.uri = "/api/battery",
                                    .method = HTTP_GET,

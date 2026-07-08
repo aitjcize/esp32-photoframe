@@ -340,6 +340,33 @@ bool debug_log_get_enabled(void)
     return config_manager_get_debug_log_enabled();
 }
 
+void debug_log_clear(void)
+{
+    if (!s_file_mutex) {
+        return;
+    }
+    xSemaphoreTake(s_file_mutex, portMAX_DELAY);
+    // Discard anything still buffered in RAM along with the files.
+    portENTER_CRITICAL(&s_ring_lock);
+    s_ring_tail = s_ring_head;
+    s_ring_dropped = 0;
+    portEXIT_CRITICAL(&s_ring_lock);
+    if (s_fp) {
+        fclose(s_fp);
+        s_fp = NULL;
+    }
+    remove(DEBUG_LOG_PATH);
+    remove(DEBUG_LOG_OLD_PATH);
+    if (s_capture) {
+        s_fp = fopen(DEBUG_LOG_PATH, "w");
+    }
+    s_line_count = 0;
+    s_lines_since_sync = 0;
+    xSemaphoreGive(s_file_mutex);
+
+    ESP_LOGI(TAG, "Debug logs cleared");
+}
+
 void debug_log_flush(void)
 {
     // Stops capture and closes the file so a following storage unmount /

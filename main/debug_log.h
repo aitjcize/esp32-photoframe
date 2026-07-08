@@ -21,6 +21,9 @@ bool debug_log_get_enabled(void);
 // sleep / storage unmount. Capture resumes on the next boot.
 void debug_log_flush(void);
 
+// Delete both log generations. Capture (if active) restarts on an empty file.
+void debug_log_clear(void);
+
 // Paths of the rotated log generations (oldest first ordering is
 // debug_log_old_path() then debug_log_current_path()).
 const char *debug_log_current_path(void);

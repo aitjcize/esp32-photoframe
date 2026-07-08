@@ -230,6 +230,28 @@ async function downloadDebugLog() {
   }
 }
 
+const clearingLog = ref(false);
+
+async function clearDebugLog() {
+  clearingLog.value = true;
+  try {
+    const response = await fetch("/api/debug/log", { method: "DELETE" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    saveSuccess.value = true;
+    saveMessage.value = "Debug logs cleared";
+    setTimeout(() => (saveSuccess.value = false), 3000);
+  } catch (error) {
+    console.error("Failed to clear debug logs:", error);
+    saveError.value = true;
+    saveMessage.value = "Failed to clear debug logs";
+    setTimeout(() => (saveError.value = false), 5000);
+  } finally {
+    clearingLog.value = false;
+  }
+}
+
 function onImportFileSelected(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -782,9 +804,18 @@ async function performFactoryReset() {
                     lines. Takes effect after saving.
                   </v-alert>
                 </v-expand-transition>
-                <v-btn variant="outlined" :loading="downloadingLog" @click="downloadDebugLog">
+                <v-btn
+                  variant="outlined"
+                  class="mr-2"
+                  :loading="downloadingLog"
+                  @click="downloadDebugLog"
+                >
                   <v-icon start>mdi-download</v-icon>
                   Download Logs
+                </v-btn>
+                <v-btn variant="outlined" :loading="clearingLog" @click="clearDebugLog">
+                  <v-icon start>mdi-delete</v-icon>
+                  Clear Logs
                 </v-btn>
               </v-col>
             </v-row>
