@@ -45,6 +45,10 @@
 
 static const char *TAG = "main";
 
+// Log the current wall-clock (defined below; forward-declared so the SNTP
+// callback above the definition can use it too).
+static void log_wall_clock(const char *label);
+
 // Set (from the lwIP task) when SNTP actually applies a fresh time. The
 // periodic sync below waits on this rather than on "is the clock already set",
 // because on a timer wake the retained RTC clock is already a valid (but
@@ -87,12 +91,8 @@ static esp_err_t sntp_sync_periodic_callback(void)
     }
 
     time_t now = 0;
-    struct tm timeinfo = {0};
     time(&now);
-    localtime_r(&now, &timeinfo);
-    char strftime_buf[64];
-    strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-    ESP_LOGI(TAG, "SNTP sync successful: %s", strftime_buf);
+    log_wall_clock("SNTP sync");
 
     // Update external RTC with synced time
     if (board_hal_rtc_is_available()) {
@@ -240,6 +240,23 @@ static void ensure_http_server_running(void)
     ESP_LOGI(TAG, "HTTP server started");
 }
 
+// Log the current wall-clock in a uniform, greppable format:
+//   Wall-clock (<label>): <YYYY-MM-DD HH:MM:SS> (epoch <n>)
+// The ESP_LOG "I (ms)" prefixes reset every boot, so each wake needs a real-time
+// anchor to correlate against the server / HA logs. Logged at boot (from the
+// external RTC, or the internal clock when there's no RTC) and again from the
+// SNTP callback — the "SNTP sync" line is the trustworthy time on RTC-less boards.
+static void log_wall_clock(const char *label)
+{
+    time_t now;
+    time(&now);
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+    char buf[32];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    ESP_LOGI(TAG, "Wall-clock (%s): %s (epoch %ld)", label, buf, (long) now);
+}
+
 void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 {
     bool is_button_wake = (wakeup_src == WAKEUP_SOURCE_ROTATE_BUTTON);
@@ -280,7 +297,9 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     if (wifi_connected) {
         power_manager_reset_sleep_timer();
 
-        // Check and run periodic tasks (OTA check, SNTP sync if due)
+        // Check and run periodic tasks (OTA check, SNTP sync if due). When SNTP
+        // actually corrects the clock it logs a "Wall-clock (SNTP sync)" line —
+        // the trustworthy anchor on RTC-less boards.
         ESP_LOGI(TAG, "Checking periodic tasks...");
         periodic_tasks_check_and_run();
     }
@@ -451,10 +470,6 @@ void app_main(void)
                 // External RTC has valid time, restore it
                 struct timeval tv = {.tv_sec = external_time, .tv_usec = 0};
                 settimeofday(&tv, NULL);
-                ESP_LOGI(TAG, "Restored time from external RTC: %04d-%02d-%02d %02d:%02d:%02d",
-                         external_timeinfo.tm_year + 1900, external_timeinfo.tm_mon + 1,
-                         external_timeinfo.tm_mday, external_timeinfo.tm_hour,
-                         external_timeinfo.tm_min, external_timeinfo.tm_sec);
                 time_restored = true;
             } else {
                 ESP_LOGW(TAG, "External RTC time invalid (year %d)",
@@ -474,6 +489,12 @@ void app_main(void)
         // Force SNTP sync to run on next periodic_tasks_check_and_run()
         periodic_tasks_force_run(SNTP_TASK_NAME);
     }
+
+    // One boot-time anchor for log correlation, whatever the source. On
+    // external-RTC boards this is the true wake time; on RTC-less boards it's the
+    // internal clock's (untrusted) estimate — corrected by the "SNTP sync" line
+    // once NTP runs.
+    log_wall_clock(time_restored ? "external RTC" : "internal, pre-sync");
 
     // Initialize periodic tasks system
     ESP_LOGI(TAG, "Initializing periodic tasks...");
