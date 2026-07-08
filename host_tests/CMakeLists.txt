@@ -38,6 +38,26 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/../main
 )
 
+# Wake-schedule simulation (early-wake re-sleep loop vs. the real cron engine)
+add_executable(
+  wake_schedule_test
+  test_wake_schedule.cpp
+  ../main/cron.c
+)
+
+target_link_libraries(
+  wake_schedule_test
+  GTest::gtest_main
+)
+
+target_include_directories(
+  wake_schedule_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
 # Discover tests
 include(GoogleTest)
 gtest_discover_tests(cron_test)
+gtest_discover_tests(wake_schedule_test)
