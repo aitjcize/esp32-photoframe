@@ -1,0 +1,13 @@
+# Dev-only overlay — layered in via `build.py --dev`. NEVER used for release
+# builds: it enables core-dump-to-flash, which requires a dedicated `coredump`
+# partition (added by scripts/generate_partitions.py when this is present), so
+# it changes the partition table and must not be shipped to users.
+#
+# On a panic the crash context is written to the coredump partition and survives
+# the reset; main.c logs the crashed task + backtrace at the next boot (gated on
+# CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH). Resolve the addresses offline with:
+#   xtensa-esp32s3-elf-addr2line -e build/esp32-photoframe.elf <pc> <bt...>
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y

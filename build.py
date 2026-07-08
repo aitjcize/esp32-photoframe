@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import subprocess
 import sys
-import os
 
 # Add scripts to sys.path to import boards
 sys.path.append(os.path.join(os.path.dirname(__file__), "scripts"))
@@ -23,7 +23,9 @@ def build_webapp():
         print(f"  ✗ Webapp build failed with exit code {e.returncode}")
         sys.exit(e.returncode)
     except FileNotFoundError:
-        print("  ✗ 'npm' not found. Please ensure Node.js is installed and in your PATH.")
+        print(
+            "  ✗ 'npm' not found. Please ensure Node.js is installed and in your PATH."
+        )
         sys.exit(1)
 
 
@@ -54,10 +56,15 @@ def generate_splash(board):
         sys.exit(e.returncode)
 
 
-def build_firmware(board, extra_args):
+def build_firmware(board, extra_args, dev=False):
     """Build firmware with idf.py."""
-    print(f"\n=== Building firmware for {board} ===")
+    print(f"\n=== Building firmware for {board}{' [dev]' if dev else ''} ===")
     sdkconfig_defaults = f"sdkconfig.defaults;boards/sdkconfig.defaults.{board}"
+    if dev:
+        # Dev-only overlay: core-dump-to-flash capture (+ the coredump partition
+        # from generate_partitions.py). Changes the partition table — never used
+        # for release builds.
+        sdkconfig_defaults += ";sdkconfig.defaults.dev"
 
     idf_base = [
         "idf.py",
@@ -76,7 +83,9 @@ def build_firmware(board, extra_args):
         print(f"Build failed with exit code {e.returncode}")
         sys.exit(e.returncode)
     except FileNotFoundError:
-        print("Error: 'idf.py' not found. Please ensure ESP-IDF is correctly installed and activated.")
+        print(
+            "Error: 'idf.py' not found. Please ensure ESP-IDF is correctly installed and activated."
+        )
         sys.exit(1)
 
     # Run post-build commands (flash, monitor, etc.)
@@ -104,11 +113,17 @@ def main():
         help="Remove sdkconfig and run idf.py fullclean before building",
     )
     parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="Dev build: enable core-dump-to-flash capture. Changes the "
+        "partition table (adds a coredump partition) — do not ship to users.",
+    )
+    parser.add_argument(
         "--step",
         choices=STEPS,
         action="append",
         help="Run only specific step(s). Can be specified multiple times. "
-             "If omitted, all steps run.",
+        "If omitted, all steps run.",
     )
     # Allow passing extra arguments to idf.py
     args, extra_args = parser.parse_known_args()
@@ -118,6 +133,7 @@ def main():
     if args.fullclean:
         print("Performing full clean...")
         import shutil
+
         for f in ["sdkconfig", "partitions.csv"]:
             if os.path.exists(f):
                 os.remove(f)
@@ -133,7 +149,7 @@ def main():
         generate_splash(args.board)
 
     if "firmware" in steps:
-        build_firmware(args.board, extra_args)
+        build_firmware(args.board, extra_args, dev=args.dev)
 
 
 if __name__ == "__main__":

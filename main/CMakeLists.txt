@@ -52,6 +52,7 @@ set(PRIV_REQUIRES
     memfs
     nvs_flash
     sdcard
+    espcoredump
 )
 
 idf_component_register(

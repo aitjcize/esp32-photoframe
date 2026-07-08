@@ -29,9 +29,17 @@ phy_init, data, phy,     0x11000, 0x1000,
 """
 
 
+# Dev-only core-dump partition, added when CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+# is layered in (build.py --dev). 64 KiB is enough for an ELF core-dump summary
+# / backtrace of the crashed task. Prod builds never enable it, so the prod
+# partition layout — and thus users' flash — is untouched.
+COREDUMP_SIZE = 0x10000
+
+
 def parse_config_files(paths):
     use_internal_flash = False
     flash_size_mb = 16  # default
+    coredump = False
 
     for path in paths:
         try:
@@ -40,35 +48,42 @@ def parse_config_files(paths):
                     line = line.strip()
                     if line == "CONFIG_USE_INTERNAL_FLASH_STORAGE=y":
                         use_internal_flash = True
+                    elif line == "CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y":
+                        coredump = True
                     elif line in FLASH_SIZE_MAP:
                         flash_size_mb = FLASH_SIZE_MAP[line]
         except FileNotFoundError:
             print(f"Warning: config file not found: {path}", file=sys.stderr)
 
-    return use_internal_flash, flash_size_mb
+    return use_internal_flash, flash_size_mb, coredump
 
 
-def generate_csv(use_internal_flash, flash_size_mb):
+def generate_csv(use_internal_flash, flash_size_mb, coredump=False):
     csv = HEADER
+    cd_size = COREDUMP_SIZE if coredump else 0
 
     if use_internal_flash:
         if flash_size_mb == 8:
-            stg_size = 8 * 1024 * 1024 - 0x520000
+            stg_offset = 0x520000
             csv += (
                 f"ota_0,    app,  ota_0,   0x20000,  0x280000,\n"
                 f"ota_1,    app,  ota_1,   0x2A0000, 0x280000,\n"
-                f"storage,  data, littlefs,0x520000, {stg_size:#010x},\n"
             )
+            stg_size = 8 * 1024 * 1024 - stg_offset - cd_size
         else:
-            stg_size = (flash_size_mb - 8) * 1024 * 1024
+            stg_offset = 0x720000
             csv += (
                 f"ota_0,    app,  ota_0,   0x20000,  0x380000,\n"
                 f"ota_1,    app,  ota_1,   0x3A0000, 0x380000,\n"
-                f"storage,  data, littlefs,0x720000, {stg_size:#010x},\n"
             )
+            stg_size = (flash_size_mb - 8) * 1024 * 1024 - cd_size
+        csv += f"storage,  data, littlefs,{stg_offset:#08x}, {stg_size:#010x},\n"
+        if coredump:
+            csv += f"coredump, data, coredump,{stg_offset + stg_size:#08x}, {cd_size:#010x},\n"
         print(
             f"Partition table: internal flash storage enabled "
-            f"({flash_size_mb}MB flash, storage size: {stg_size:#010x})",
+            f"({flash_size_mb}MB flash, storage size: {stg_size:#010x}"
+            f"{', +coredump' if coredump else ''})",
             file=sys.stderr,
         )
     else:
@@ -79,9 +94,12 @@ def generate_csv(use_internal_flash, flash_size_mb):
             f"ota_0,    app,  ota_0,   0x20000,  {ota_size:#010x},\n"
             f"ota_1,    app,  ota_1,   {ota_1_offset:#010x},{ota_size:#010x},\n"
         )
+        if coredump:
+            csv += f"coredump, data, coredump,{ota_1_offset + ota_size:#010x},{cd_size:#010x},\n"
         print(
             f"Partition table: no internal flash storage "
-            f"({flash_size_mb}MB flash, OTA size: {ota_size:#010x})",
+            f"({flash_size_mb}MB flash, OTA size: {ota_size:#010x}"
+            f"{', +coredump' if coredump else ''})",
             file=sys.stderr,
         )
 
@@ -101,8 +119,8 @@ def main():
     parser.add_argument("--output", required=True, help="Path to write partitions.csv")
     args = parser.parse_args()
 
-    use_internal_flash, flash_size_mb = parse_config_files(args.sdkconfig)
-    csv = generate_csv(use_internal_flash, flash_size_mb)
+    use_internal_flash, flash_size_mb, coredump = parse_config_files(args.sdkconfig)
+    csv = generate_csv(use_internal_flash, flash_size_mb, coredump)
 
     with open(args.output, "w") as f:
         f.write(csv)
