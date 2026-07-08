@@ -411,14 +411,8 @@ function loadImage(file) {
   });
 }
 
-// Pointer event handlers (mouse + touch + pen). Pointer Events unify the input
-// types so the comparison slider and custom pan work on touch devices too —
-// plain mouse events never fire on a touch drag, which left the slider stuck
-// on mobile Safari.
-function onPointerDown(event) {
-  // Capture so drags that stray outside the element keep updating (and don't
-  // get interrupted the way the old mouseleave handler did).
-  event.currentTarget.setPointerCapture?.(event.pointerId);
+// Mouse event handlers
+function onMouseDown(event) {
   if (scaleMode.value === "custom") {
     isPanning.value = true;
     panStartX = event.clientX;
@@ -432,7 +426,7 @@ function onPointerDown(event) {
   }
 }
 
-function onPointerMove(event) {
+function onMouseMove(event) {
   if (isPanning.value && scaleMode.value === "custom") {
     const scale = getPreviewScale();
     const dx = (event.clientX - panStartX) / scale;
@@ -446,7 +440,7 @@ function onPointerMove(event) {
   }
 }
 
-function onPointerUp() {
+function onMouseUp() {
   if (isPanning.value) {
     isPanning.value = false;
     if (processDebounceTimer) {
@@ -559,28 +553,21 @@ onUnmounted(() => {
           <div
             class="comparison-container"
             :class="{ 'custom-mode': scaleMode === 'custom' }"
-            @pointerdown="onPointerDown"
-            @pointermove="onPointerMove"
-            @pointerup="onPointerUp"
-            @pointercancel="onPointerUp"
+            @mousedown="onMouseDown"
+            @mousemove="onMouseMove"
+            @mouseup="onMouseUp"
+            @mouseleave="onMouseUp"
             @wheel="onWheel"
           >
             <div class="canvas-wrapper">
               <canvas ref="originalCanvasRef" class="preview-canvas" />
-              <!-- Processed layer revealed by an overflow:hidden wrapper rather
-                   than clip-path on the canvas — iOS Safari renders clip-path on
-                   a GPU-composited <canvas> unreliably. In custom mode it spans
-                   the full width (no comparison slider). -->
-              <div
-                class="processed-clip"
-                :style="
-                  scaleMode !== 'custom'
-                    ? { left: `${sliderPosition}%`, width: `${100 - sliderPosition}%` }
-                    : { left: '0', width: '100%' }
-                "
-              >
-                <canvas ref="processedCanvasRef" class="preview-canvas processed" />
-              </div>
+              <canvas
+                ref="processedCanvasRef"
+                class="preview-canvas processed"
+                :style="{
+                  clipPath: scaleMode !== 'custom' ? `inset(0 0 0 ${sliderPosition}%)` : 'none',
+                }"
+              />
               <!-- Comparison slider (hidden in custom mode) -->
               <div
                 v-if="scaleMode !== 'custom'"
@@ -632,8 +619,6 @@ onUnmounted(() => {
   position: relative;
   cursor: ew-resize;
   user-select: none;
-  /* Let pointer drags control the slider/pan instead of scrolling the page. */
-  touch-action: none;
 }
 
 .comparison-container.custom-mode {
@@ -658,24 +643,11 @@ onUnmounted(() => {
   height: auto;
 }
 
-/* Clips the processed layer to the right of the slider via overflow (reliable
-   on iOS Safari, unlike clip-path on the canvas). */
-.processed-clip {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  overflow: hidden;
-  z-index: 1;
-}
-
 .preview-canvas.processed {
   position: absolute;
   top: 0;
-  /* Anchored to the right edge so, inside the narrower clip wrapper, it stays
-     pixel-aligned with the original canvas underneath. max-width:none stops the
-     inherited max-width:100% from shrinking it to the clip's width. */
-  right: 0;
-  max-width: none;
+  left: 0;
+  z-index: 1;
 }
 
 .slider-line {
