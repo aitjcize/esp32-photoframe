@@ -251,12 +251,12 @@ jobs:
               echo "Successfully downloaded legacy stable firmware for $board"
               mv "demo/$board/photoframe-firmware-merged.bin" "demo/$board/photoframe-firmware-$board-merged.bin"
             else
-              echo "Warning: Could not download stable firmware for $board, using dev build as fallback"
-              cp "demo/$board/photoframe-firmware-$board-dev.bin" "demo/$board/photoframe-firmware-$board-merged.bin"
+              echo "::warning::No stable release asset for $board at ${STABLE_TAG} (release build may still be uploading). Omitting the stable option — NOT falling back to the dev build."
+              rm -f "demo/$board/photoframe-firmware-$board-merged.bin"
             fi
           else
-            echo "Warning: No published release found, using dev build as stable for $board"
-            cp "demo/$board/photoframe-firmware-$board-dev.bin" "demo/$board/photoframe-firmware-$board-merged.bin"
+            echo "::warning::No published release found; omitting the stable option for $board — NOT falling back to the dev build."
+            rm -f "demo/$board/photoframe-firmware-$board-merged.bin"
           fi
 
           # Generate manifests for this board (pass stable version to match the firmware)
@@ -265,7 +265,8 @@ jobs:
         done
 
         # Link a default manifest at the root of demo for backward compatibility or default view
-        cp demo/waveshare_photopainter_73/manifest.json demo/
+        # (the stable manifest may be absent if no release asset was available)
+        [ -f demo/waveshare_photopainter_73/manifest.json ] && cp demo/waveshare_photopainter_73/manifest.json demo/
         cp demo/waveshare_photopainter_73/manifest-dev.json demo/
       env:
         GH_TOKEN: ${{ github.token }}

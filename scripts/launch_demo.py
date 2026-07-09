@@ -151,6 +151,10 @@ def download_stable_firmware(demo_dir, project_root):
                     except Exception as e2:
                         pass
 
+                # Don't leave a partial/failed download in the stable slot; a
+                # missing merged.bin just omits the stable option for this board
+                # (better than serving a corrupt or wrong "stable" firmware).
+                output_file.unlink(missing_ok=True)
                 print(
                     f"  ⚠ Warning: Could not download stable firmware for {board}: {e}"
                 )
@@ -472,14 +476,17 @@ def main():
                     capture_output=True,
                 )
 
-                # Copy merged firmware as dev version
+                # Move (not copy) the local build to the dev slot. The merged.bin
+                # name is reserved for the stable release download below; leaving
+                # the local build there would make it the "stable" firmware if the
+                # download later fails — i.e. selecting stable would flash dev.
                 src_firmware = board_dir / f"photoframe-firmware-{board}-merged.bin"
                 dst_firmware = board_dir / f"photoframe-firmware-{board}-dev.bin"
                 if src_firmware.exists():
-                    shutil.copy2(src_firmware, dst_firmware)
-                    print(f"  ✓ Copied dev firmware for {board}")
+                    shutil.move(str(src_firmware), str(dst_firmware))
+                    print(f"  ✓ Prepared dev firmware for {board}")
             except Exception as e:
-                print(f"  ⚠ Warning: Could not copy dev firmware for {board}: {e}")
+                print(f"  ⚠ Warning: Could not prepare dev firmware for {board}: {e}")
 
     # Download stable firmware (process ALL boards so demo works)
     if not args.skip_download:

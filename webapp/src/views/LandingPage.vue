@@ -14,6 +14,9 @@ settingsStore.deviceSettings.displayOrientation = "landscape";
 const stableVersion = ref("—");
 const devVersion = ref("loading…");
 const selectedVersion = ref("stable");
+// Whether the selected board actually has a stable build deployed (its stable
+// manifest exists). New boards released between tags may only have a dev build.
+const stableAvailable = ref(true);
 const selectedBoard = ref("waveshare_photopainter_73");
 const baseUrl = import.meta.env.BASE_URL;
 
@@ -182,6 +185,18 @@ async function loadVersionInfo() {
   } catch (error) {
     console.error("Error fetching version info:", error);
     stableVersion.value = "unknown";
+  }
+
+  // A stable build exists for this board only if its stable manifest is present.
+  // (CI omits it rather than shipping the dev build under the stable label.)
+  try {
+    const stableManifest = await fetch(baseUrl + selectedBoard.value + "/manifest.json");
+    stableAvailable.value = stableManifest.ok;
+  } catch {
+    stableAvailable.value = false;
+  }
+  if (!stableAvailable.value && selectedVersion.value === "stable") {
+    selectedVersion.value = "dev";
   }
 }
 
@@ -500,12 +515,19 @@ function scrollTo(id) {
             <div class="flash-row">
               <label class="flash-label">Release</label>
               <div class="radio-row">
-                <label class="radio">
-                  <input v-model="selectedVersion" type="radio" value="stable" />
+                <label class="radio" :class="{ 'radio-disabled': !stableAvailable }">
+                  <input
+                    v-model="selectedVersion"
+                    type="radio"
+                    value="stable"
+                    :disabled="!stableAvailable"
+                  />
                   <span class="radio-dot"></span>
                   <span class="radio-text">
                     <strong>Stable</strong>
-                    <em class="radio-tag">{{ stableVersion }}</em>
+                    <em class="radio-tag">{{
+                      stableAvailable ? stableVersion : "none for this board yet"
+                    }}</em>
                   </span>
                 </label>
                 <label class="radio">
@@ -1411,6 +1433,13 @@ em.wonk {
 }
 .radio:hover {
   border-color: var(--ink-3);
+}
+.radio-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.radio-disabled:hover {
+  border-color: var(--rule);
 }
 .radio input {
   display: none;
