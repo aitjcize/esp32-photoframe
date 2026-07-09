@@ -56,15 +56,15 @@ def generate_splash(board):
         sys.exit(e.returncode)
 
 
-def build_firmware(board, extra_args, dev=False):
+def build_firmware(board, extra_args, debug=False):
     """Build firmware with idf.py."""
-    print(f"\n=== Building firmware for {board}{' [dev]' if dev else ''} ===")
+    print(f"\n=== Building firmware for {board}{' [debug]' if debug else ''} ===")
     sdkconfig_defaults = f"sdkconfig.defaults;boards/sdkconfig.defaults.{board}"
-    if dev:
-        # Dev-only overlay: core-dump-to-flash capture (+ the coredump partition
+    if debug:
+        # Debug-only overlay: core-dump-to-flash capture (+ the coredump partition
         # from generate_partitions.py). Changes the partition table — never used
-        # for release builds.
-        sdkconfig_defaults += ";sdkconfig.defaults.dev"
+        # for release or demo builds.
+        sdkconfig_defaults += ";sdkconfig.defaults.debug"
 
     idf_base = [
         "idf.py",
@@ -113,9 +113,9 @@ def main():
         help="Remove sdkconfig and run idf.py fullclean before building",
     )
     parser.add_argument(
-        "--dev",
+        "--debug",
         action="store_true",
-        help="Dev build: enable core-dump-to-flash capture. Changes the "
+        help="Debug build: enable core-dump-to-flash capture. Changes the "
         "partition table (adds a coredump partition) — do not ship to users.",
     )
     parser.add_argument(
@@ -149,7 +149,7 @@ def main():
         generate_splash(args.board)
 
     if "firmware" in steps:
-        build_firmware(args.board, extra_args, dev=args.dev)
+        build_firmware(args.board, extra_args, debug=args.debug)
 
 
 if __name__ == "__main__":

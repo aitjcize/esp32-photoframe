@@ -29,8 +29,8 @@ phy_init, data, phy,     0x11000, 0x1000,
 """
 
 
-# Dev-only core-dump partition, added when CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
-# is layered in (build.py --dev). 64 KiB is enough for an ELF core-dump summary
+# Debug-only core-dump partition, added when CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+# is layered in (build.py --debug). 64 KiB is enough for an ELF core-dump summary
 # / backtrace of the crashed task. Prod builds never enable it, so the prod
 # partition layout — and thus users' flash — is untouched.
 COREDUMP_SIZE = 0x10000
