@@ -432,6 +432,14 @@ void epaper_display(uint8_t *image)
     // (which it can't transmit from directly).
     const size_t row_words = row_bytes / 2;
     wait_ready();
+    // Hold the SPI bus exclusively for the whole CS-low image stream. CS stays
+    // low across every row transmit below (toggling it mid-load resets the
+    // write pointer), and the SD card shares this SPI2_HOST bus. Without the
+    // lock an SD transaction (e.g. a thumbnail being written) could win the bus
+    // in a gap between row transmits and clock its bytes into the IT8951 while
+    // CS is low, desyncing the image (broken rows + everything after shifted).
+    // Released after cs_high so the SD is free again for the refresh wait.
+    spi_device_acquire_bus(s_spi, portMAX_DELAY);
     cs_low();
     spi_write16(IT8951_PRE_WR_DATA);
     for (uint16_t y = 0; y < h; y++) {
@@ -444,6 +452,7 @@ void epaper_display(uint8_t *image)
         spi_tx(s_dma_buf, row_bytes);
     }
     cs_high();
+    spi_device_release_bus(s_spi);
 
     it8951_write_cmd(IT8951_TCON_LD_IMG_END);
 

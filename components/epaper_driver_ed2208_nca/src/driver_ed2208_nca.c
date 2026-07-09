@@ -291,6 +291,16 @@ void epaper_display(uint8_t *image)
         goto out;
     }
 
+    // Hold the SPI bus exclusively for the whole pixel transfer. CS/CS1 stay LOW
+    // across every per-row transmit below, so any other transaction on this
+    // shared bus (the SD card is on the same SPI2_HOST — e.g. a thumbnail being
+    // written, or the debug-log writer task) would be clocked into the panel too,
+    // desyncing the pixel stream: broken rows at the injection point and every
+    // row after it shifted. Acquiring the bus makes those SD accesses wait their
+    // turn instead of corrupting the frame. Released right after the transfer so
+    // the (multi-second) refresh wait below doesn't block the SD.
+    spi_device_acquire_bus(spi, portMAX_DELAY);
+
     // --- Phase 1: CS (Left half) ---
     gpio_set_level(g_cfg.pin_cs, 0);
 
@@ -332,6 +342,8 @@ void epaper_display(uint8_t *image)
         spi_device_transmit(spi, &t_line);
     }
     gpio_set_level(g_cfg.pin_cs1, 1);
+
+    spi_device_release_bus(spi);
 
     free(line_buf);
 
