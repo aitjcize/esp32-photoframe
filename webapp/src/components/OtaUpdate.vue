@@ -176,9 +176,6 @@ onUnmounted(() => {
               <span :class="{ 'text-success': updateAvailable }">
                 {{ latestVersion }}
               </span>
-              <v-chip v-if="updateAvailable" color="success" size="small" class="ml-2">
-                Update Available
-              </v-chip>
             </v-list-item-subtitle>
           </v-list-item>
         </v-col>
