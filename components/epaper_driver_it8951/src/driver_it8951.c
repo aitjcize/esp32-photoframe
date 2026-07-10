@@ -28,6 +28,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#ifdef CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
+
 static const char *TAG = "it8951";
 
 // ---- IT8951 commands ----
@@ -102,6 +106,14 @@ static uint32_t s_img_addr = 0;
 static int8_t s_temp_c = IT8951_DEFAULT_TEMP_C;  // panel temperature for waveform select
 // Default to the ED103TC2 geometry until GetSystemInfo reports the real values.
 static it8951_dev_info_t s_dev = {.panel_w = 1872, .panel_h = 1404};
+
+#ifdef CONFIG_PM_ENABLE
+// Block automatic light sleep during a display update: light sleep isolates the
+// GPIOs mid-transaction and would corrupt the SPI image stream. Matches the
+// ed2208 drivers. (The board using this driver already disables auto light sleep
+// globally, so this is belt-and-suspenders and keeps the drivers consistent.)
+static esp_pm_lock_handle_t pm_lock = NULL;
+#endif
 
 // ---- Low-level SPI helpers (manual CS, MSB-first 16-bit words) ----
 
@@ -361,6 +373,13 @@ void epaper_init(const epaper_config_t *cfg)
         return;
     }
 
+#ifdef CONFIG_PM_ENABLE
+    esp_err_t pm_ret = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "epd_update", &pm_lock);
+    if (pm_ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create PM lock: %s", esp_err_to_name(pm_ret));
+    }
+#endif
+
     // DMA-capable internal-RAM bounce buffer for streaming the PSRAM framebuffer.
     s_dma_buf = heap_caps_malloc(IT8951_SPI_CHUNK, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (!s_dma_buf) {
@@ -407,6 +426,11 @@ void epaper_display(uint8_t *image)
     if (!s_spi || !image || !s_dma_buf) {
         return;
     }
+#ifdef CONFIG_PM_ENABLE
+    if (pm_lock) {
+        esp_pm_lock_acquire(pm_lock);
+    }
+#endif
     const uint16_t w = s_dev.panel_w;
     const uint16_t h = s_dev.panel_h;
     const size_t row_bytes = (size_t) w / 2;  // 4bpp = 2 px/byte
@@ -466,6 +490,12 @@ void epaper_display(uint8_t *image)
 
     it8951_display_area(0, 0, w, h, IT8951_MODE_GC16);
     it8951_wait_display_ready();
+
+#ifdef CONFIG_PM_ENABLE
+    if (pm_lock) {
+        esp_pm_lock_release(pm_lock);
+    }
+#endif
 }
 
 void epaper_clear(uint8_t *image, uint8_t color)
@@ -483,6 +513,11 @@ void epaper_clear(uint8_t *image, uint8_t color)
 
 void epaper_enter_deepsleep(void)
 {
+#ifdef CONFIG_PM_ENABLE
+    if (pm_lock) {
+        esp_pm_lock_acquire(pm_lock);
+    }
+#endif
     if (s_spi) {
         it8951_write_cmd(IT8951_TCON_SLEEP);
     }
@@ -490,6 +525,11 @@ void epaper_enter_deepsleep(void)
     if (s_pin_enable >= 0) {
         gpio_set_level(s_pin_enable, 0);
     }
+#ifdef CONFIG_PM_ENABLE
+    if (pm_lock) {
+        esp_pm_lock_release(pm_lock);
+    }
+#endif
 }
 
 uint16_t epaper_get_width(void)
