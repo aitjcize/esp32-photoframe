@@ -138,8 +138,17 @@ int board_hal_get_battery_percent(void)
 
 bool board_hal_is_charging(void)
 {
-    // TODO: Read BQ24070 charging status from its CHRG GPIO pin.
-    return false;
+    // On BQ24070 revisions (schematic <= v1.1) the STAT charge-status outputs
+    // only drive the onboard LEDs — not routed to any XIAO GPIO — so the real
+    // charge state cannot be read; USB presence is the best available proxy
+    // (the charger charges whenever USB power is present, until done).
+    // Limitations: stays true while plugged in even after the charge completes,
+    // and reads false on data-less wall adapters (USB-serial-JTAG detection
+    // needs a USB host).
+    // TODO: schematic v1.2 (2025-10) replaced the charger with an SY6974B on
+    // I2C — probing it (like the reTerminal e1003/e1004 drivers do) would give
+    // the real charge state on those boards.
+    return usb_serial_jtag_is_connected();
 }
 
 bool board_hal_is_usb_connected(void)

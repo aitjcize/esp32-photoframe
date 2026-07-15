@@ -146,9 +146,14 @@ int board_hal_get_battery_percent(void)
 
 bool board_hal_is_charging(void)
 {
-    // TODO: Need specific GPIO for CHG status if available.
-    // Return false for now to be safe.
-    return false;
+    // The BQ24070's STAT1/STAT2 charge-status outputs only drive the onboard
+    // LEDs — they are not routed to any XIAO GPIO (EE02 schematic v1.0), so the
+    // real charge state cannot be read. The charger charges whenever USB power
+    // is present (until done), so USB presence is the best available proxy.
+    // Limitations: stays true while plugged in even after the charge completes,
+    // and reads false on data-less wall adapters (USB-serial-JTAG detection
+    // needs a USB host).
+    return usb_serial_jtag_is_connected();
 }
 
 bool board_hal_is_usb_connected(void)
