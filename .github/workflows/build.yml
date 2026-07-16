@@ -281,17 +281,40 @@ jobs:
       uses: actions/configure-pages@v4
 
     - name: Upload Pages artifact
+      id: upload
       uses: actions/upload-pages-artifact@v3
       with:
         path: demo
 
     - name: Deploy to GitHub Pages
-      uses: actions/deploy-pages@v4
+      shell: bash
       env:
-        # deploy-pages uses GITHUB_SHA as the pages_build_version, and Pages
-        # ignores a deployment whose build version is already live. A release
-        # tag usually points at the commit main just deployed, so the tag
-        # run's deployment — carrying the updated stable manifests — was
-        # silently dropped and the flasher kept serving the previous stable
-        # (#108). Suffix the run id so every run deploys a distinct version.
-        GITHUB_SHA: ${{ github.sha }}-${{ github.run_id }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # actions/deploy-pages derives pages_build_version from GITHUB_SHA
+        # (reserved env, not overridable), and Pages silently drops a
+        # deployment whose build version is already live. A release tag points
+        # at the commit main just deployed, so tag/release deployments — the
+        # ones carrying the updated stable manifests — were no-ops and the
+        # flasher kept serving the previous stable (#108). Deploy through the
+        # Pages API directly with a unique per-run build version instead.
+        oidc_token=$(curl -sSf -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api.github.com" | jq -r '.value')
+        gh api --method POST "repos/${GITHUB_REPOSITORY}/pages/deployments" \
+          -F "artifact_id=${{ steps.upload.outputs.artifact_id }}" \
+          -f "pages_build_version=${GITHUB_SHA}-run${GITHUB_RUN_ID}" \
+          -f "environment=github-pages" \
+          -f "oidc_token=${oidc_token}" > deployment.json
+        status_url=$(jq -r '.status_url' deployment.json)
+        echo "Deployment created: $(jq -r '.id' deployment.json)"
+        for i in $(seq 1 60); do
+          status=$(gh api "${status_url}" --jq '.status' 2>/dev/null || echo unknown)
+          echo "Pages deployment status: ${status}"
+          case "${status}" in
+            succeed) exit 0 ;;
+            deployment_failed|deployment_content_failed|deployment_cancelled|deployment_lost) exit 1 ;;
+          esac
+          sleep 5
+        done
+        echo "Timed out waiting for Pages deployment"
+        exit 1
