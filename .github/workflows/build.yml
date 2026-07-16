@@ -173,9 +173,8 @@ jobs:
       group: deploy-pages
       cancel-in-progress: false
     permissions:
-      contents: read
-      pages: write
-      id-token: write
+      # Pages is served from the gh-pages branch; deploying = pushing to it.
+      contents: write
 
     steps:
     - name: Checkout repository
@@ -277,14 +276,22 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
 
-    - name: Setup Pages
-      uses: actions/configure-pages@v4
-
-    - name: Upload Pages artifact
-      id: upload
-      uses: actions/upload-pages-artifact@v3
-      with:
-        path: demo
-
-    - name: Deploy to GitHub Pages
-      uses: actions/deploy-pages@v4
+    - name: Deploy to GitHub Pages (gh-pages branch)
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # Pages is served from the gh-pages branch ("deploy from a branch").
+        # Each deploy force-pushes a fresh single-commit history. Workflow-based
+        # Pages deployments are keyed to the workflow's commit SHA and Pages
+        # silently drops a deployment whose SHA is already live — which broke
+        # every release: the tag points at the commit main just deployed, so
+        # the tag run's refreshed stable manifests never went live (#108).
+        # A branch push always creates a new commit, so it always deploys.
+        touch demo/.nojekyll
+        cd demo
+        git init -b gh-pages
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add -A
+        git commit -q -m "Deploy demo site from ${GITHUB_SHA} (${GITHUB_REF_NAME}, run ${GITHUB_RUN_ID})"
+        git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
