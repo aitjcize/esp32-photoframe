@@ -287,46 +287,46 @@ jobs:
         path: demo
 
     - name: Deploy to GitHub Pages
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        # actions/deploy-pages derives pages_build_version from GITHUB_SHA
-        # (reserved env, not overridable), and Pages silently drops a
-        # deployment whose build version is already live. A release tag points
-        # at the commit main just deployed, so tag/release deployments — the
-        # ones carrying the updated stable manifests — were no-ops and the
-        # flasher kept serving the previous stable (#108). Deploy through the
-        # Pages API directly with a unique per-run build version instead.
-        # No audience parameter: Pages validates the OIDC token's aud claim
-        # against the default audience (the repo owner URL), exactly like
-        # actions/deploy-pages' core.getIDToken().
-        oidc_token=$(curl -sSf -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-          "${ACTIONS_ID_TOKEN_REQUEST_URL}" | jq -r '.value')
-        echo "oidc token length: ${#oidc_token}"
-        set +e
-        gh api --method POST "repos/${GITHUB_REPOSITORY}/pages/deployments" \
-          -F "artifact_id=${{ steps.upload.outputs.artifact_id }}" \
-          -f "pages_build_version=${GITHUB_SHA}-run${GITHUB_RUN_ID}" \
-          -f "oidc_token=${oidc_token}" > deployment.json 2> gh_err.txt
-        rc=$?
-        set -e
-        if [ "$rc" -ne 0 ]; then
-          echo "Create deployment failed (rc=$rc)"
-          echo "--- gh stderr ---"; cat gh_err.txt
-          echo "--- response body ---"; cat deployment.json
-          exit 1
-        fi
-        status_url=$(jq -r '.status_url' deployment.json)
-        echo "Deployment created: $(jq -r '.id' deployment.json)"
-        for i in $(seq 1 60); do
-          status=$(gh api "${status_url}" --jq '.status' 2>/dev/null || echo unknown)
-          echo "Pages deployment status: ${status}"
-          case "${status}" in
-            succeed) exit 0 ;;
-            deployment_failed|deployment_content_failed|deployment_cancelled|deployment_lost) exit 1 ;;
-          esac
-          sleep 5
-        done
-        echo "Timed out waiting for Pages deployment"
-        exit 1
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // actions/deploy-pages derives pages_build_version from GITHUB_SHA
+          // (reserved env, not overridable), and Pages silently drops a
+          // deployment whose build version is already live. A release tag
+          // points at the commit main just deployed, so tag/release
+          // deployments — the ones carrying the updated stable manifests —
+          // were no-ops and the flasher kept serving the previous stable
+          // (#108). Make the same API call the action makes, but with a
+          // unique per-run build version.
+          const idToken = await core.getIDToken()
+          const { data: deployment } = await github.request(
+            'POST /repos/{owner}/{repo}/pages/deployments',
+            {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: ${{ steps.upload.outputs.artifact_id }},
+              pages_build_version: `${context.sha}-run${context.runId}`,
+              oidc_token: idToken,
+            }
+          )
+          core.info(`Deployment created: ${deployment.id}`)
+
+          const terminal = [
+            'deployment_failed',
+            'deployment_content_failed',
+            'deployment_cancelled',
+            'deployment_lost',
+          ]
+          for (let i = 0; i < 60; i++) {
+            await new Promise(resolve => setTimeout(resolve, 5000))
+            const { data: status } = await github.request(
+              `GET ${deployment.status_url}`
+            )
+            core.info(`Pages deployment status: ${status.status}`)
+            if (status.status === 'succeed') return
+            if (terminal.includes(status.status)) {
+              core.setFailed(`Pages deployment failed: ${status.status}`)
+              return
+            }
+          }
+          core.setFailed('Timed out waiting for Pages deployment')
