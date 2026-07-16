@@ -150,7 +150,27 @@ bool board_hal_is_battery_connected(void)
 
 int board_hal_get_battery_percent(void)
 {
-    return axp2101_get_battery_percent();
+    // Don't use the AXP2101's fuel gauge: sleep preparation disables battery
+    // detection/monitoring (matching the stock firmware), so with the frame
+    // asleep almost all the time the gauge never observes the discharge and
+    // its SOC output stays frozen (#107 — stuck at a constant percentage).
+    // Derive the percentage from the battery voltage instead, like the other
+    // boards (simple linear approximation: 4.2V = 100%, 3.3V = 0%).
+    if (!axp2101_is_battery_connected()) {
+        return -1;
+    }
+
+    int voltage = axp2101_get_battery_voltage();
+    if (voltage <= 0) {
+        return -1;
+    }
+    if (voltage >= 4200) {
+        return 100;
+    }
+    if (voltage <= 3300) {
+        return 0;
+    }
+    return (voltage - 3300) * 100 / (4200 - 3300);
 }
 
 int board_hal_get_battery_voltage(void)
