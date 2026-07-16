@@ -167,13 +167,41 @@ onMounted(async () => {
 watch(selectedBoard, () => loadVersionInfo());
 
 async function loadVersionInfo() {
+  // The stable version label MUST come from the deployed manifest — that is
+  // the exact firmware the flasher installs. The GitHub releases API can be
+  // ahead of the deployed site (a release published before the Pages content
+  // refreshes), which made the page advertise a version it wasn't actually
+  // serving (#108). Fall back to the API only when no stable manifest is
+  // deployed for this board.
+  let manifestVersion = null;
   try {
-    const stableResponse = await fetch(
-      "https://api.github.com/repos/aitjcize/esp32-photoframe/releases/latest"
-    );
-    const stableData = await stableResponse.json();
-    stableVersion.value = stableData.tag_name;
+    const stableManifest = await fetch(baseUrl + selectedBoard.value + "/manifest.json");
+    stableAvailable.value = stableManifest.ok;
+    if (stableManifest.ok) {
+      manifestVersion = (await stableManifest.json()).version || null;
+    }
+  } catch {
+    stableAvailable.value = false;
+  }
+  if (!stableAvailable.value && selectedVersion.value === "stable") {
+    selectedVersion.value = "dev";
+  }
 
+  if (manifestVersion) {
+    stableVersion.value = manifestVersion;
+  } else {
+    try {
+      const stableResponse = await fetch(
+        "https://api.github.com/repos/aitjcize/esp32-photoframe/releases/latest"
+      );
+      stableVersion.value = (await stableResponse.json()).tag_name;
+    } catch (error) {
+      console.error("Error fetching stable version:", error);
+      stableVersion.value = "unknown";
+    }
+  }
+
+  try {
     let devResponse = await fetch(baseUrl + selectedBoard.value + "/manifest-dev.json");
     if (!devResponse.ok) {
       devResponse = await fetch(baseUrl + "manifest-dev.json");
@@ -183,20 +211,7 @@ async function loadVersionInfo() {
       devVersion.value = devData.version || "dev";
     }
   } catch (error) {
-    console.error("Error fetching version info:", error);
-    stableVersion.value = "unknown";
-  }
-
-  // A stable build exists for this board only if its stable manifest is present.
-  // (CI omits it rather than shipping the dev build under the stable label.)
-  try {
-    const stableManifest = await fetch(baseUrl + selectedBoard.value + "/manifest.json");
-    stableAvailable.value = stableManifest.ok;
-  } catch {
-    stableAvailable.value = false;
-  }
-  if (!stableAvailable.value && selectedVersion.value === "stable") {
-    selectedVersion.value = "dev";
+    console.error("Error fetching dev version:", error);
   }
 }
 
