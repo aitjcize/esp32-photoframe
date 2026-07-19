@@ -55,6 +55,7 @@ esp_err_t board_hal_init(void)
         .pin_busy = BOARD_HAL_EPD_BUSY_PIN,
         .pin_cs1 = -1,
         .pin_enable = BOARD_HAL_EPD_ENABLE_PIN,
+        .btst2 = BOARD_HAL_EPD_BTST2,
     };
     epaper_init(&ep_cfg);
 

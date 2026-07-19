@@ -30,6 +30,7 @@ typedef struct {
     int pin_busy;
     int pin_cs1;     // For 13.3" Dual CS
     int pin_enable;  // Optional power enable
+    uint8_t btst2[4];  // Booster Soft Start Phase 2 register values
 } epaper_config_t;
 
 /**
