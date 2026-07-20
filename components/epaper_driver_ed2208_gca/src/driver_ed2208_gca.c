@@ -230,7 +230,7 @@ static void send_init_sequence(void)
     cmd_data(0x00, (uint8_t[]){0x5F, 0x69}, 2);                          // PSR
     cmd_data(0x03, (uint8_t[]){0x00, 0x54, 0x00, 0x44}, 4);              // POFS
     cmd_data(0x05, (uint8_t[]){0x40, 0x1F, 0x1F, 0x2C}, 4);              // BTST1
-    cmd_data(0x06, (uint8_t[]){0x6F, 0x1F, 0x17, 0x49}, 4);              // BTST2
+    cmd_data(0x06, (uint8_t[]){0x6F, 0x1F, 0x16, 0x25}, 4);              // BTST2 (Seeed_GFX tuned)
     cmd_data(0x08, (uint8_t[]){0x6F, 0x1F, 0x1F, 0x22}, 4);              // BTST3
     cmd_data(0x30, (uint8_t[]){0x03}, 1);                                // PLL
     cmd_data(0x50, (uint8_t[]){0x3F}, 1);                                // CDI
