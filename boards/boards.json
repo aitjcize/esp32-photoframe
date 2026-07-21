@@ -24,6 +24,15 @@
     "url": "https://www.seeedstudio.com/XIAO-ePaper-EE04-DIY-Bundle-Kit.html"
   },
   {
+    "id": "seeedstudio_xiao_ee03",
+    "label": "Seeed Studio XIAO EE03",
+    "display": "10.3\" 16-level grayscale",
+    "resolution": [1872, 1404],
+    "display_type": "gc16",
+    "storage": "Internal flash",
+    "url": "https://wiki.seeedstudio.com/getting_started_with_ee03/"
+  },
+  {
     "id": "seeedstudio_reterminal_e1002",
     "label": "Seeed Studio reTerminal E1002",
     "display": "7.3\" 6-color",
