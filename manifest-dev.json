@@ -1,0 +1,18 @@
+{
+  "name": "ESP32 PhotoFrame Waveshare ESP32-S3-PhotoPainter (7.3\" 6-color) (Development)",
+  "version": "dev-3a687aa",
+  "home_assistant_domain": "esphome",
+  "new_install_prompt_erase": true,
+  "new_install_improv_wait_time": 15,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        {
+          "path": "photoframe-firmware-waveshare_photopainter_73-dev.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}

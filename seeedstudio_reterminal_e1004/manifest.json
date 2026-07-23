@@ -1,0 +1,18 @@
+{
+  "name": "ESP32 PhotoFrame Seeed Studio reTerminal E1004 (13.3\" 6-color)",
+  "version": "v2.14.0",
+  "home_assistant_domain": "esphome",
+  "new_install_prompt_erase": true,
+  "new_install_improv_wait_time": 15,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        {
+          "path": "photoframe-firmware-seeedstudio_reterminal_e1004-merged.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}

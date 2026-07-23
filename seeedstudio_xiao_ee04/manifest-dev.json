@@ -1,0 +1,18 @@
+{
+  "name": "ESP32 PhotoFrame Seeed Studio XIAO EE04 (7.3\" 6-color) (Development)",
+  "version": "dev-3a687aa",
+  "home_assistant_domain": "esphome",
+  "new_install_prompt_erase": true,
+  "new_install_improv_wait_time": 15,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        {
+          "path": "photoframe-firmware-seeedstudio_xiao_ee04-dev.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}
