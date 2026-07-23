@@ -61,6 +61,30 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
     }
 }
 
+esp_err_t wifi_manager_set_performance_mode(bool enable)
+{
+    // Modem power save adds ~100ms+ of latency to every round trip, which
+    // throttles the web UI hard: bulk transfer speed is roughly one TCP send
+    // buffer (~5.7KB) per round trip, i.e. ~45KB/s at 130ms RTT. Full RX
+    // (WIFI_PS_NONE) costs ~60-70mA extra while the radio is up, so it is only
+    // enabled when someone may actually be using the UI — the policy lives in
+    // power_manager's sleep_timer_task.
+    static bool applied = false;
+    static bool current = false;
+    if (applied && current == enable) {
+        return ESP_OK;
+    }
+
+    esp_err_t err = esp_wifi_set_ps(enable ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM);
+    if (err == ESP_OK) {
+        applied = true;
+        current = enable;
+        ESP_LOGI(TAG, "WiFi power save %s (%s mode)", enable ? "disabled" : "enabled",
+                 enable ? "performance" : "power-save");
+    }
+    return err;
+}
+
 esp_err_t wifi_manager_update_hostname(void)
 {
     if (!s_sta_netif) {

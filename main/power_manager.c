@@ -105,9 +105,25 @@ static void sleep_timer_task(void *arg)
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
 
+        // Tiered WiFi power-save policy: disable modem power save (full RX,
+        // low latency, fast web UI) only when a user may actually be looking —
+        // an interactive wake on a deep-sleep frame (BOOT button or cold
+        // boot/power-on, both bounded by the auto-sleep timeout), or whenever
+        // external power is present. Automated wakes (timer/rotate/clear) and
+        // always-on-battery operation keep power save: nobody is browsing, and
+        // full RX costs ~60-70mA extra.
+        bool usb_powered = board_hal_is_usb_connected();
+        bool interactive_wake =
+            (wakeup_source == WAKEUP_SOURCE_BOOT_BUTTON || wakeup_source == WAKEUP_SOURCE_NONE);
+        if (config_manager_get_deep_sleep_enabled()) {
+            wifi_manager_set_performance_mode(interactive_wake || usb_powered);
+        } else {
+            wifi_manager_set_performance_mode(usb_powered);
+        }
+
 #ifndef DEBUG_DEEP_SLEEP_WAKE
         // Skip auto-sleep when USB is connected
-        if (board_hal_is_usb_connected()) {
+        if (usb_powered) {
             // Reset timer so it doesn't trigger immediately when USB is unplugged
             next_sleep_time = 0;
             continue;
