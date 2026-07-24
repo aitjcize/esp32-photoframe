@@ -32,7 +32,20 @@
 #define BOARD_HAL_EPD_CS1_PIN (-1)            // unused (single panel)
 #define BOARD_HAL_EPD_RST_PIN GPIO_NUM_38     // TFT_RST
 #define BOARD_HAL_EPD_BUSY_PIN GPIO_NUM_4     // TFT_BUSY / HRDY
-#define BOARD_HAL_EPD_ENABLE_PIN GPIO_NUM_43  // TFT_ENABLE (EPD bias rail)
+// PWR_EN is the board-wide peripheral power enable (XIAO pin 7 / U0TXD / GPIO43,
+// labeled PWR_EN on the EE03 V1.0 schematic; == Seeed_GFX TFT_ENABLE). It gates
+// essentially everything on the driver board except the XIAO module itself:
+//   - U13 (TPS631000) -> VCC_3V3, which powers the SHT40 sensor, the GT30L32
+//     font ROM, and the SPI NOR flash;
+//   - U18 (TPS22916)  -> EDP_Drive (the TPS65185 EPD bias PMIC);
+//   - VD_1V8 (ETA3410) and VCC_ITE_3V3 (U19) for the IT8951 T-CON cascade from
+//     VCC_3V3.
+// The IT8951 driver drives this pin HIGH to power the subsystem and LOW to cut
+// it. It MUST be held low through deep sleep, or the whole rail stays up and
+// drains the battery (the IT8951 T-CON alone draws several mA). Because the
+// SHT40 sits on this rail, board_hal_init() powers PWR_EN (via epaper_init)
+// before initializing the sensor.
+#define BOARD_HAL_PWR_EN_PIN GPIO_NUM_43  // PWR_EN: master peripheral power
 
 // I2C Pins (SHT40 temperature/humidity sensor at 0x44). Confirmed from the EE03
 // V1.0 schematic (XIAO_ePaper_Display_Board_EE03_V1.0_SCH_251217): SCL on GPIO41

@@ -48,9 +48,10 @@ esp_err_t board_hal_init(void)
     ESP_LOGI(TAG, "Initializing XIAO EE03 (10.3\" IT8951) Board HAL");
 
     // Release any pad hold latched by the previous deep-sleep cycle so we can
-    // reconfigure the load-switch enable and LED pins during init.
+    // reconfigure the battery load-switch, LED, and PWR_EN pins.
     gpio_hold_dis(VBAT_ADC_ENABLE_PIN);
     gpio_hold_dis(BOARD_HAL_LED_PIN);
+    gpio_hold_dis(BOARD_HAL_PWR_EN_PIN);
 
     // --- SPI bus (IT8951 only; no microSD on this board) ---
     // MISO must be wired: the IT8951 is read back (GetSystemInfo / registers).
@@ -67,9 +68,10 @@ esp_err_t board_hal_init(void)
     ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &bus_cfg, SPI_DMA_CH_AUTO));
 
     // --- E-Paper Display (IT8951) ---
-    // epaper_init() drives RST + ENABLE (EPD bias) high, waits for the rails to
-    // settle, then resets and reads device info, so no separate core-power pin
-    // sequencing is needed here.
+    // epaper_init() drives RST + the enable pin (here PWR_EN / GPIO43, the
+    // board-wide peripheral power) high, waits for the rails to settle, then
+    // resets and reads device info. Powering PWR_EN here also brings up VCC_3V3,
+    // so the SHT40 below is powered by the time we init it.
     epaper_config_t ep_cfg = {
         .spi_host = SPI2_HOST,
         .pin_cs = BOARD_HAL_EPD_CS_PIN,
@@ -77,7 +79,7 @@ esp_err_t board_hal_init(void)
         .pin_rst = BOARD_HAL_EPD_RST_PIN,
         .pin_busy = BOARD_HAL_EPD_BUSY_PIN,      // HRDY
         .pin_cs1 = BOARD_HAL_EPD_CS1_PIN,        // unused (single panel)
-        .pin_enable = BOARD_HAL_EPD_ENABLE_PIN,  // EPD bias enable
+        .pin_enable = BOARD_HAL_PWR_EN_PIN,      // PWR_EN: master peripheral power
     };
     epaper_init(&ep_cfg);
 
@@ -113,8 +115,10 @@ esp_err_t board_hal_init(void)
     board_hal_led_set(BOARD_HAL_LED_ACTIVITY, false);
 
     // --- I2C bus (SHT40 temperature/humidity sensor at 0x44) ---
-    // Feeding the live panel temperature to the IT8951 lets it pick the right
-    // grayscale waveform (better tone, less ghosting than the fixed default).
+    // The SHT40 is powered from VCC_3V3, which is gated by PWR_EN (enabled above
+    // via epaper_init), so it is powered by now. Feeding the live panel
+    // temperature to the IT8951 lets it pick the right grayscale waveform
+    // (better tone, less ghosting than the fixed default).
     i2c_master_bus_config_t i2c_bus_config = {
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .i2c_port = 0,
@@ -153,8 +157,10 @@ esp_err_t board_hal_prepare_for_sleep(void)
 
     board_hal_led_set(BOARD_HAL_LED_ACTIVITY, false);
 
-    // Put the IT8951 to sleep and drop the EPD bias rail (epaper_enter_deepsleep
-    // cuts EPD_ENABLE).
+    // Put the IT8951 to sleep, then cut the whole peripheral power domain:
+    // epaper_enter_deepsleep drives PWR_EN (GPIO43) low, which gates VCC_3V3 +
+    // VD_1V8 + VCC_ITE_3V3 + the EPD bias (IT8951 T-CON, SHT40, font ROM, flash).
+    // Without this the subsystem keeps drawing several mA in deep sleep.
     epaper_enter_deepsleep();
 
     // Drive the battery load-switch enable LOW and latch the pad so it can't
@@ -165,6 +171,9 @@ esp_err_t board_hal_prepare_for_sleep(void)
     gpio_hold_en(VBAT_ADC_ENABLE_PIN);
     // Latch the LED OFF through deep sleep so the pad can't float and glow.
     gpio_hold_en(BOARD_HAL_LED_PIN);
+    // Latch PWR_EN (GPIO43) LOW so the whole peripheral domain stays off in deep
+    // sleep. This is the main sleep-current fix on the EE03.
+    gpio_hold_en(BOARD_HAL_PWR_EN_PIN);
     gpio_deep_sleep_hold_en();
 
     // Release the ADC + calibration to save power.
