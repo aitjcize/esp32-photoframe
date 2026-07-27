@@ -3,8 +3,10 @@
 #include <esp_log.h>
 #include <png.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "GUI_Paint.h"
+#include "board_hal.h"
 
 static const char *TAG = "GUI_PNGfile";
 
@@ -116,6 +118,20 @@ UBYTE GUI_ReadPng_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
     // Process image row by row
     ESP_LOGI(TAG, "PNG decoded successfully");
 
+    // Paint_SetPixel packs whatever value it's given directly as a 4-bit
+    // pixel nibble with no board-specific translation. The color/index
+    // scheme below (0=Black, 1=White, ...) is correct as-is for a 6-color
+    // Spectra panel, where small integers are genuine hardware ink-color
+    // indices. On a native grayscale panel (GC16/IT8951) those same nibbles
+    // are linear intensity 0..15 (0=black, 15=white per the IT8951 driver),
+    // so passing index 1 for "white" renders as near-black instead. Only
+    // White needs correcting: Black is 0 in both schemes, and the other
+    // four colors have no meaningful grayscale equivalent (a pure grayscale
+    // panel can't render them) and are not expected to appear in content
+    // authored for a grayscale board.
+    bool is_grayscale_board = (strcmp(BOARD_HAL_DISPLAY_TYPE, "gc16") == 0);
+    UBYTE white = is_grayscale_board ? 15 : 1;
+
     for (int y = 0; y < height; y++) {
         png_read_row(png_ptr, (png_bytep) rgb_buffer, NULL);
 
@@ -134,7 +150,7 @@ UBYTE GUI_ReadPng_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
             if (r == 0 && g == 0 && b == 0) {
                 color = 0;  // Black
             } else if (r == 255 && g == 255 && b == 255) {
-                color = 1;  // White
+                color = white;  // White
             } else if (r == 255 && g == 255 && b == 0) {
                 color = 2;  // Yellow
             } else if (r == 255 && g == 0 && b == 0) {
@@ -144,7 +160,7 @@ UBYTE GUI_ReadPng_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
             } else if (r == 0 && g == 255 && b == 0) {
                 color = 6;  // Green
             } else {
-                color = 1;  // Default to white for unknown colors
+                color = white;  // Default to white for unknown colors
             }
 
             // Paint pixel directly (Paint rotation system handles coordinate transformations)
