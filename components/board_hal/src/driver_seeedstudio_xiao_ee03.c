@@ -48,10 +48,14 @@ esp_err_t board_hal_init(void)
     ESP_LOGI(TAG, "Initializing XIAO EE03 (10.3\" IT8951) Board HAL");
 
     // Release any pad hold latched by the previous deep-sleep cycle so we can
-    // reconfigure the battery load-switch, LED, and PWR_EN pins.
+    // reconfigure the battery load-switch, LED, PWR_EN, and IT8951 bus pins.
     gpio_hold_dis(VBAT_ADC_ENABLE_PIN);
     gpio_hold_dis(BOARD_HAL_LED_PIN);
     gpio_hold_dis(BOARD_HAL_PWR_EN_PIN);
+    gpio_hold_dis(BOARD_HAL_EPD_CS_PIN);
+    gpio_hold_dis(BOARD_HAL_SPI_SCLK_PIN);
+    gpio_hold_dis(BOARD_HAL_SPI_MOSI_PIN);
+    gpio_hold_dis(BOARD_HAL_EPD_RST_PIN);
 
     // --- SPI bus (IT8951 only; no microSD on this board) ---
     // MISO must be wired: the IT8951 is read back (GetSystemInfo / registers).
@@ -162,6 +166,22 @@ esp_err_t board_hal_prepare_for_sleep(void)
     // VD_1V8 + VCC_ITE_3V3 + the EPD bias (IT8951 T-CON, SHT40, font ROM, flash).
     // Without this the subsystem keeps drawing several mA in deep sleep.
     epaper_enter_deepsleep();
+
+    // Prevent back-powering the now-dead IT8951 through the pins we drive toward
+    // it: a GPIO left HIGH leaks through the T-CON's input clamp diodes into the
+    // unpowered VCC_ITE_3V3 rail. Drive those lines LOW and latch them for deep
+    // sleep so they source no current while the rail is off.
+    static const gpio_num_t itcon_pins[] = {
+        BOARD_HAL_EPD_CS_PIN,
+        BOARD_HAL_SPI_SCLK_PIN,
+        BOARD_HAL_SPI_MOSI_PIN,
+        BOARD_HAL_EPD_RST_PIN,
+    };
+    for (size_t i = 0; i < sizeof(itcon_pins) / sizeof(itcon_pins[0]); i++) {
+        gpio_set_direction(itcon_pins[i], GPIO_MODE_OUTPUT);
+        gpio_set_level(itcon_pins[i], 0);
+        gpio_hold_en(itcon_pins[i]);
+    }
 
     // Drive the battery load-switch enable LOW and latch the pad so it can't
     // float, re-enable the switch, and drain the 100k+100k divider through deep
