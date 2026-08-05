@@ -530,7 +530,7 @@ UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
             int px = rotate_cw ? x_off + y : x_off + x;
             int py = rotate_cw ? y_off + x : y_off + display_y;
             if (px >= Paint.Width || py >= Paint.Height) {
-                continue;
+                break;
             }
 
             int offset = x * 3;
