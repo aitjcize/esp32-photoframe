@@ -519,7 +519,9 @@ UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
     for (int y = 0; y < height; y++) {
         if (fread(row_data, 1, row_padded, fp) != row_padded) {
             ESP_LOGE(TAG, "Get Bmpdata Failure");
-            break;
+            heap_caps_free(row_data);
+            fclose(fp);
+            return 1;
         }
 
         int display_y = height - 1 - y;
