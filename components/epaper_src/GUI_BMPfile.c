@@ -504,6 +504,16 @@ UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
 
     fseek(fp, bmpFileHeader.bOffset, SEEK_SET);
 
+    // An aspect-mismatched BMP (e.g. Waveshare's 480x800 portrait output on an
+    // 800x480 panel) was generated for a rotated mounting: draw it 90° CW.
+    bool rotate_cw = (height > width) != (Paint.Height > Paint.Width);
+
+    // Center smaller-than-panel images; pre-dithered pixels can't be rescaled.
+    int drawn_w = rotate_cw ? height : width;
+    int drawn_h = rotate_cw ? width : height;
+    int x_off = Xstart + (drawn_w < Paint.Width ? (Paint.Width - drawn_w) / 2 : 0);
+    int y_off = Ystart + (drawn_h < Paint.Height ? (Paint.Height - drawn_h) / 2 : 0);
+
     // BMP stores lines from bottom to top
     // So current file row 'y' corresponds to display row 'height - 1 - y'
     for (int y = 0; y < height; y++) {
@@ -513,13 +523,12 @@ UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
         }
 
         int display_y = height - 1 - y;
-        if (Ystart + display_y >= Paint.Height) {
-            continue;
-        }
 
         for (int x = 0; x < width; x++) {
-            if (Xstart + x >= Paint.Width) {
-                break;
+            int px = rotate_cw ? x_off + y : x_off + x;
+            int py = rotate_cw ? y_off + x : y_off + display_y;
+            if (px >= Paint.Width || py >= Paint.Height) {
+                continue;
             }
 
             int offset = x * 3;
@@ -546,7 +555,7 @@ UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
             }
 
             // Paint pixel directly
-            Paint_SetPixel(Xstart + x, Ystart + display_y, color);
+            Paint_SetPixel(px, py, color);
         }
     }
 

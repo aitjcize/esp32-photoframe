@@ -222,7 +222,9 @@ curl -X POST \
 
 **Processing:**
 - JPEG/PNG: decoded, dithered to e-paper palette, displayed
-- BMP: displayed directly (must be pre-processed)
+- BMP: displayed directly (must be pre-processed). Portrait BMPs on a
+  landscape panel (and vice versa) are drawn rotated 90°; BMPs smaller than
+  the panel are centered.
 - EPDGZ: decompressed and displayed directly (4bpp gzipped raw data)
 
 ### `POST /api/rotate`
