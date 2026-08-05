@@ -44,7 +44,7 @@
 #define BOARD_HAL_LED_INVERTED false
 
 // Display Configuration
-#define BOARD_HAL_DISPLAY_ROTATION_DEG 0
+#define BOARD_HAL_DISPLAY_MOUNT_FLIPPED 0
 
 // The 13.3" panel and the microSD card share the SPI bus, and the SD's MISO
 // (GPIO8) carries the extra load of the panel's SPLD1 FPC stub. Automatic

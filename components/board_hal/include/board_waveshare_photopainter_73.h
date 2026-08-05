@@ -44,6 +44,8 @@
 #define BOARD_HAL_LED_GREEN_PIN GPIO_NUM_42
 
 // Display Configuration
-#define BOARD_HAL_DISPLAY_ROTATION_DEG 180
+// Panel is mounted upside-down in this enclosure; every frame needs a 180 turn
+// (stock Waveshare firmware applies the same rotation before each refresh).
+#define BOARD_HAL_DISPLAY_MOUNT_FLIPPED 1
 
 #endif  // BOARD_WAVESHARE_PHOTOPAINTER_73_H

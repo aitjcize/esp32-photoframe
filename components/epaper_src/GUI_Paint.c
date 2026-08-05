@@ -98,7 +98,7 @@ parameter:
     Height  :   The height of the picture
     Color   :   Whether the picture is inverted
 ******************************************************************************/
-void Paint_NewImage(UBYTE* image, UWORD Width, UWORD Height, UWORD Rotate, UWORD Color)
+void Paint_NewImage(UBYTE* image, UWORD Width, UWORD Height, UWORD Color)
 {
     Paint.Image = NULL;
     Paint.Image = image;
@@ -112,16 +112,10 @@ void Paint_NewImage(UBYTE* image, UWORD Width, UWORD Height, UWORD Rotate, UWORD
     //    printf("WidthByte = %d, HeightByte = %d\r\n", Paint.WidthByte, Paint.HeightByte);
     //    printf(" EPD_WIDTH / 8 = %d\r\n",  122 / 8);
 
-    Paint.Rotate = Rotate;
     Paint.Mirror = MIRROR_NONE;
 
-    if (Rotate == ROTATE_0 || Rotate == ROTATE_180) {
-        Paint.Width = Width;
-        Paint.Height = Height;
-    } else {
-        Paint.Width = Height;
-        Paint.Height = Width;
-    }
+    Paint.Width = Width;
+    Paint.Height = Height;
 }
 
 /******************************************************************************
@@ -132,21 +126,6 @@ parameter:
 void Paint_SelectImage(UBYTE* image)
 {
     Paint.Image = image;
-}
-
-/******************************************************************************
-function: Select Image Rotate
-parameter:
-    Rotate : 0,90,180,270
-******************************************************************************/
-void Paint_SetRotate(UWORD Rotate)
-{
-    if (Rotate == ROTATE_0 || Rotate == ROTATE_90 || Rotate == ROTATE_180 || Rotate == ROTATE_270) {
-        ESP_LOGI(TAG, "Set image Rotate %d", Rotate);
-        Paint.Rotate = Rotate;
-    } else {
-        ESP_LOGI(TAG, "rotate = 0, 90, 180, 270");
-    }
 }
 
 /******************************************************************************
@@ -203,27 +182,8 @@ void Paint_SetPixel(UWORD Xpoint, UWORD Ypoint, UWORD Color)
         ESP_LOGI(TAG, "Exceeding display boundaries");
         return;
     }
-    UWORD X, Y;
-    switch (Paint.Rotate) {
-    case 0:
-        X = Xpoint;
-        Y = Ypoint;
-        break;
-    case 90:
-        X = Paint.WidthMemory - Ypoint - 1;
-        Y = Xpoint;
-        break;
-    case 180:
-        X = Paint.WidthMemory - Xpoint - 1;
-        Y = Paint.HeightMemory - Ypoint - 1;
-        break;
-    case 270:
-        X = Ypoint;
-        Y = Paint.HeightMemory - Xpoint - 1;
-        break;
-    default:
-        return;
-    }
+    UWORD X = Xpoint;
+    UWORD Y = Ypoint;
 
     switch (Paint.Mirror) {
     case MIRROR_NONE:

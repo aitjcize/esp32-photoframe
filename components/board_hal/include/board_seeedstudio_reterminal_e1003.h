@@ -53,7 +53,7 @@
 #define BOARD_HAL_LED_INVERTED true
 
 // Display Configuration (panel is native landscape 1872x1404; IT8951 reports it)
-#define BOARD_HAL_DISPLAY_ROTATION_DEG 0
+#define BOARD_HAL_DISPLAY_MOUNT_FLIPPED 0
 
 // The IT8951 and the microSD card share the SPI bus; auto light sleep isolates
 // GPIOs mid-transaction and breaks SD reads (see E1004 note). Disable it here.
