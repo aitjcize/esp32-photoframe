@@ -16,7 +16,6 @@ static const char *TAG = "config_manager";
 static char device_name[DEVICE_NAME_MAX_LEN] = {0};
 static char tz_string[TIMEZONE_MAX_LEN] = {0};
 static display_orientation_t display_orientation = DISPLAY_ORIENTATION_LANDSCAPE;
-static int display_rotation_deg = BOARD_HAL_DISPLAY_ROTATION_DEG;
 static char wifi_ssid[WIFI_SSID_MAX_LEN] = {0};
 static char wifi_password[WIFI_PASS_MAX_LEN] = {0};
 
@@ -210,13 +209,6 @@ esp_err_t config_manager_init(void)
             ESP_LOGI(
                 TAG, "Loaded display orientation from NVS: %s",
                 display_orientation == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape" : "portrait");
-        }
-
-        int32_t stored_display_rotation_deg = 0;
-        if (nvs_get_i32(nvs_handle, NVS_DISPLAY_ROTATION_DEG_KEY, &stored_display_rotation_deg) ==
-            ESP_OK) {
-            display_rotation_deg = stored_display_rotation_deg;
-            ESP_LOGI(TAG, "Loaded display rotation from NVS: %d degrees", display_rotation_deg);
         }
 
         size_t wifi_ssid_len = WIFI_SSID_MAX_LEN;
@@ -627,25 +619,6 @@ void config_manager_set_display_orientation(display_orientation_t orientation)
 display_orientation_t config_manager_get_display_orientation(void)
 {
     return display_orientation;
-}
-
-void config_manager_set_display_rotation_deg(int rotation_deg)
-{
-    display_rotation_deg = rotation_deg;
-
-    nvs_handle_t nvs_handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-        nvs_set_i32(nvs_handle, NVS_DISPLAY_ROTATION_DEG_KEY, rotation_deg);
-        nvs_commit(nvs_handle);
-        nvs_close(nvs_handle);
-    }
-
-    ESP_LOGI(TAG, "Display rotation set to %d degrees", rotation_deg);
-}
-
-int config_manager_get_display_rotation_deg(void)
-{
-    return display_rotation_deg;
 }
 
 void config_manager_set_wifi_ssid(const char *ssid)

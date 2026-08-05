@@ -126,13 +126,6 @@ const orientationOptions = computed(() => {
   ];
 });
 
-const rotationOptions = [
-  { title: "0°", value: 0 },
-  { title: "90°", value: 90 },
-  { title: "180°", value: 180 },
-  { title: "270°", value: 270 },
-];
-
 const rotationModeOptions = computed(() => {
   const options = [{ title: "URL - Fetch image from URL", value: "url" }];
   if (appStore.systemInfo.sdcard_inserted || appStore.systemInfo.has_flash_storage) {
@@ -450,16 +443,6 @@ async function performFactoryReset() {
                   item-title="title"
                   item-value="value"
                   label="Display Orientation"
-                  variant="outlined"
-                />
-              </v-col>
-              <v-col cols="12" md="6">
-                <v-select
-                  v-model="settingsStore.deviceSettings.displayRotationDeg"
-                  :items="rotationOptions"
-                  item-title="title"
-                  item-value="value"
-                  label="Display Rotation (deg)"
                   variant="outlined"
                 />
               </v-col>

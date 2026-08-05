@@ -106,7 +106,6 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 #define NVS_DEVICE_NAME_KEY "device_name"
 #define NVS_TIMEZONE_KEY "timezone"
 #define NVS_DISPLAY_ORIENTATION_KEY "disp_orient"
-#define NVS_DISPLAY_ROTATION_DEG_KEY "disp_rot_deg"
 
 // Advanced network settings (collapsed section in the UI): custom NTP server,
 // static IP instead of DHCP, and DNS override (#43)

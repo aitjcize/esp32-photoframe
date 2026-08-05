@@ -113,7 +113,6 @@ Get current device configuration.
   "ntp_server": "pool.ntp.org",
   "wifi_ssid": "MyNetwork",
   "display_orientation": "landscape",
-  "display_rotation_deg": 180,
   "auto_rotate": true,
   "rotate_cron": ["0 */12 *"],
   "rotation_mode": "url",
@@ -137,7 +136,6 @@ Get current device configuration.
 - `timezone`: POSIX timezone string (e.g., `UTC-8` for PST)
 - `ntp_server`: NTP server address
 - `display_orientation`: `"landscape"` or `"portrait"`
-- `display_rotation_deg`: Display rotation in degrees (0, 90, 180, 270)
 - `auto_rotate`: Enable automatic image rotation
 - `rotate_cron`: Array of 1 to 7 simplified 3-field cron expressions
   (`minute hour day-of-week`). The next rotation is the earliest time matching

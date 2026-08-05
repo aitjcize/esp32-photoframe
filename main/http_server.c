@@ -1661,8 +1661,6 @@ static esp_err_t config_handler(httpd_req_t *req)
             root, "display_orientation",
             config_manager_get_display_orientation() == DISPLAY_ORIENTATION_LANDSCAPE ? "landscape"
                                                                                       : "portrait");
-        cJSON_AddNumberToObject(root, "display_rotation_deg",
-                                config_manager_get_display_rotation_deg());
 
         // Auto Rotate
         cJSON_AddBoolToObject(root, "auto_rotate", config_manager_get_auto_rotate());

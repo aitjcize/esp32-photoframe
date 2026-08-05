@@ -287,12 +287,6 @@ esp_err_t apply_config_from_json(cJSON *root)
         }
     }
 
-    item = cJSON_GetObjectItem(root, "display_rotation_deg");
-    if (item && cJSON_IsNumber(item)) {
-        config_manager_set_display_rotation_deg(item->valueint);
-        display_manager_initialize_paint();
-    }
-
     // Auto Rotate
     item = cJSON_GetObjectItem(root, "auto_rotate");
     if (item && cJSON_IsBool(item)) {

@@ -112,7 +112,7 @@ esp_err_t display_manager_init(void)
 void display_manager_initialize_paint(void)
 {
     Paint_NewImage(epd_image_buffer, BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT,
-                   config_manager_get_display_rotation_deg() % 360, EPD_7IN3E_WHITE);
+                   BOARD_HAL_DISPLAY_ROTATION_DEG, EPD_7IN3E_WHITE);
     Paint_SetScale(6);
     Paint_SelectImage(epd_image_buffer);
 }
