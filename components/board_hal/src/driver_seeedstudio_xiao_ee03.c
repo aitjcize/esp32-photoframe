@@ -1,15 +1,7 @@
 // Board HAL for the Seeed Studio XIAO ePaper Display Board EE03: a XIAO
-// ESP32-S3 Plus carrier driving a 10.3" monochrome IT8951 panel (1872x1404,
-// 16-level grayscale / GC16). Same panel/controller as the reTerminal E1003, but
-// on the XIAO ePaper driver-board wiring (like the EE02/EE04 boards).
-//
-// Pin sources:
-//   - IT8951 SPI + control pins: CONFIRMED from Seeed_GFX
-//     (User_Setups/EPaper_Board_Pins_Setups.h, USE_XIAO_EPAPER_DISPLAY_BOARD_EE03).
-//   - SHT40 I2C pins: CONFIRMED from the EE03 V1.0 schematic (0x44, SCL=GPIO41,
-//     SDA=GPIO42).
-//   - Battery-sense + button GPIOs: inherited from the EE02/EE04 boards of the
-//     same driver-board family. Verifies against the EE03 schematic.
+// ESP32-S3 Plus driving a 10.3" monochrome IT8951 panel (1872x1404, 16-level
+// grayscale / GC16). Same panel/controller as the reTerminal E1003, but on the
+// XIAO ePaper driver-board wiring (like the EE02/EE04 boards).
 
 #include <math.h>
 
@@ -72,10 +64,8 @@ esp_err_t board_hal_init(void)
     ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &bus_cfg, SPI_DMA_CH_AUTO));
 
     // --- E-Paper Display (IT8951) ---
-    // epaper_init() drives RST + the enable pin (here PWR_EN / GPIO43, the
-    // board-wide peripheral power) high, waits for the rails to settle, then
-    // resets and reads device info. Powering PWR_EN here also brings up VCC_3V3,
-    // so the SHT40 below is powered by the time we init it.
+    // epaper_init() drives RST + PWR_EN high (powering the subsystem, including
+    // VCC_3V3 for the SHT40 below), then resets and reads device info.
     epaper_config_t ep_cfg = {
         .spi_host = SPI2_HOST,
         .pin_cs = BOARD_HAL_EPD_CS_PIN,
@@ -119,10 +109,8 @@ esp_err_t board_hal_init(void)
     board_hal_led_set(BOARD_HAL_LED_ACTIVITY, false);
 
     // --- I2C bus (SHT40 temperature/humidity sensor at 0x44) ---
-    // The SHT40 is powered from VCC_3V3, which is gated by PWR_EN (enabled above
-    // via epaper_init), so it is powered by now. Feeding the live panel
-    // temperature to the IT8951 lets it pick the right grayscale waveform
-    // (better tone, less ghosting than the fixed default).
+    // Feeds live panel temperature to the IT8951 for better waveform selection
+    // (less ghosting than the fixed default).
     i2c_master_bus_config_t i2c_bus_config = {
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .i2c_port = 0,
@@ -157,20 +145,18 @@ esp_err_t board_hal_prepare_for_sleep(void)
 
     if (sensor_is_available()) {
         sensor_sleep();
+        ESP_LOGI(TAG, "SHT40 sensor put to sleep");
     }
 
     board_hal_led_set(BOARD_HAL_LED_ACTIVITY, false);
 
-    // Put the IT8951 to sleep, then cut the whole peripheral power domain:
-    // epaper_enter_deepsleep drives PWR_EN (GPIO43) low, which gates VCC_3V3 +
-    // VD_1V8 + VCC_ITE_3V3 + the EPD bias (IT8951 T-CON, SHT40, font ROM, flash).
-    // Without this the subsystem keeps drawing several mA in deep sleep.
+    // Sleep the IT8951, then cut its power domain. epaper_enter_deepsleep drives
+    // PWR_EN low, powering down the whole subsystem (else it draws several mA).
     epaper_enter_deepsleep();
 
-    // Prevent back-powering the now-dead IT8951 through the pins we drive toward
-    // it: a GPIO left HIGH leaks through the T-CON's input clamp diodes into the
-    // unpowered VCC_ITE_3V3 rail. Drive those lines LOW and latch them for deep
-    // sleep so they source no current while the rail is off.
+    // With the IT8951 rail now cut, any of its bus pins left HIGH back-feeds the
+    // dead chip through its input clamp diodes. Drive them LOW and latch for
+    // deep sleep so they source no current.
     static const gpio_num_t itcon_pins[] = {
         BOARD_HAL_EPD_CS_PIN,
         BOARD_HAL_SPI_SCLK_PIN,
@@ -183,16 +169,14 @@ esp_err_t board_hal_prepare_for_sleep(void)
         gpio_hold_en(itcon_pins[i]);
     }
 
-    // Drive the battery load-switch enable LOW and latch the pad so it can't
-    // float, re-enable the switch, and drain the 100k+100k divider through deep
-    // sleep (matches the EE02/EE04 handling).
+    // Latch the battery load-switch enable LOW so it can't float and drain the
+    // divider in deep sleep (matches EE02/EE04).
     gpio_set_direction(VBAT_ADC_ENABLE_PIN, GPIO_MODE_OUTPUT);
     gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);
     gpio_hold_en(VBAT_ADC_ENABLE_PIN);
     // Latch the LED OFF through deep sleep so the pad can't float and glow.
     gpio_hold_en(BOARD_HAL_LED_PIN);
-    // Latch PWR_EN (GPIO43) LOW so the whole peripheral domain stays off in deep
-    // sleep. This is the main sleep-current fix on the EE03.
+    // Latch PWR_EN LOW so the peripheral domain stays off in deep sleep.
     gpio_hold_en(BOARD_HAL_PWR_EN_PIN);
     gpio_deep_sleep_hold_en();
 
