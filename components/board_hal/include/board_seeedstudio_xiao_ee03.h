@@ -24,11 +24,11 @@
 
 // E-Paper: IT8951 T-CON (10.3" ED103TC2 grayscale, GC16). No DC line (the
 // IT8951 uses an SPI preamble), single CS. BUSY is the IT8951 HRDY pin.
-#define BOARD_HAL_EPD_CS_PIN GPIO_NUM_44      // TFT_CS  (D7)
-#define BOARD_HAL_EPD_DC_PIN (-1)             // unused on IT8951
-#define BOARD_HAL_EPD_CS1_PIN (-1)            // unused (single panel)
-#define BOARD_HAL_EPD_RST_PIN GPIO_NUM_38     // TFT_RST
-#define BOARD_HAL_EPD_BUSY_PIN GPIO_NUM_4     // TFT_BUSY / HRDY
+#define BOARD_HAL_EPD_CS_PIN GPIO_NUM_44   // TFT_CS  (D7)
+#define BOARD_HAL_EPD_DC_PIN (-1)          // unused on IT8951
+#define BOARD_HAL_EPD_CS1_PIN (-1)         // unused (single panel)
+#define BOARD_HAL_EPD_RST_PIN GPIO_NUM_38  // TFT_RST
+#define BOARD_HAL_EPD_BUSY_PIN GPIO_NUM_4  // TFT_BUSY / HRDY
 // Board-wide peripheral power enable (PWR_EN on the schematic): gates VCC_3V3
 // (SHT40, font ROM, SPI flash), the IT8951 core rails, and the EPD bias --
 // everything except the XIAO module. Driven high to power the subsystem; must

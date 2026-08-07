@@ -69,11 +69,11 @@ esp_err_t board_hal_init(void)
     epaper_config_t ep_cfg = {
         .spi_host = SPI2_HOST,
         .pin_cs = BOARD_HAL_EPD_CS_PIN,
-        .pin_dc = BOARD_HAL_EPD_DC_PIN,          // unused on IT8951
+        .pin_dc = BOARD_HAL_EPD_DC_PIN,  // unused on IT8951
         .pin_rst = BOARD_HAL_EPD_RST_PIN,
-        .pin_busy = BOARD_HAL_EPD_BUSY_PIN,      // HRDY
-        .pin_cs1 = BOARD_HAL_EPD_CS1_PIN,        // unused (single panel)
-        .pin_enable = BOARD_HAL_PWR_EN_PIN,      // PWR_EN: master peripheral power
+        .pin_busy = BOARD_HAL_EPD_BUSY_PIN,  // HRDY
+        .pin_cs1 = BOARD_HAL_EPD_CS1_PIN,    // unused (single panel)
+        .pin_enable = BOARD_HAL_PWR_EN_PIN,  // PWR_EN: master peripheral power
     };
     epaper_init(&ep_cfg);
 
