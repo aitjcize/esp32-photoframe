@@ -4,22 +4,18 @@
 #include <png.h>
 #include <stdlib.h>
 
+#include "GUI_ColorMap.h"
 #include "GUI_Paint.h"
 
 static const char *TAG = "GUI_PNGfile";
 
 /**
- * @brief Read PNG file and display it on the e-paper display
+ * @brief Read a PNG file and paint it to the display buffer
  *
- * Reads a 24-bit RGB PNG file, converts it to 6-color palette, and paints
- * it directly to the display buffer using Paint_SetPixel.
- *
- * @param path Path to the PNG file
- * @param Xstart Starting X coordinate
- * @param Ystart Starting Y coordinate
- * @return 0 on success, 1 on error
+ * Decodes the PNG to RGB888 row by row and paints each pixel through the
+ * given RGB -> 4-bit pixel mapper using Paint_SetPixel.
  */
-UBYTE GUI_ReadPng_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
+static UBYTE read_png_mapped(const char *path, UWORD Xstart, UWORD Ystart, GUI_RGBMapFn map_rgb)
 {
     FILE *fp = NULL;
     png_structp png_ptr = NULL;
@@ -129,23 +125,7 @@ UBYTE GUI_ReadPng_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
             uint8_t g = rgb_buffer[offset + 1];
             uint8_t b = rgb_buffer[offset + 2];
 
-            // Map RGB to 6-color palette index
-            UBYTE color;
-            if (r == 0 && g == 0 && b == 0) {
-                color = 0;  // Black
-            } else if (r == 255 && g == 255 && b == 255) {
-                color = 1;  // White
-            } else if (r == 255 && g == 255 && b == 0) {
-                color = 2;  // Yellow
-            } else if (r == 255 && g == 0 && b == 0) {
-                color = 3;  // Red
-            } else if (r == 0 && g == 0 && b == 255) {
-                color = 5;  // Blue
-            } else if (r == 0 && g == 255 && b == 0) {
-                color = 6;  // Green
-            } else {
-                color = 1;  // Default to white for unknown colors
-            }
+            UBYTE color = map_rgb(r, g, b);
 
             // Paint pixel directly (Paint rotation system handles coordinate transformations)
             Paint_SetPixel(Xstart + x, Ystart + y, color);
@@ -169,4 +149,14 @@ cleanup:
     if (fp)
         fclose(fp);
     return 1;
+}
+
+UBYTE GUI_ReadPng_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
+{
+    return read_png_mapped(path, Xstart, Ystart, GUI_RGBToSpectra6);
+}
+
+UBYTE GUI_ReadPng_Gray16(const char *path, UWORD Xstart, UWORD Ystart)
+{
+    return read_png_mapped(path, Xstart, Ystart, GUI_RGBToGray16);
 }

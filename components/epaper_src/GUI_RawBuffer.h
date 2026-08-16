@@ -23,4 +23,20 @@
 UBYTE GUI_DisplayRGBBuffer_6Color(const uint8_t *rgb_buffer, int width, int height, UWORD Xstart,
                                   UWORD Ystart);
 
+/**
+ * @brief Display an RGB buffer on a grayscale (GC16) e-paper display
+ *
+ * Same as GUI_DisplayRGBBuffer_6Color, but pixels are mapped by luminance
+ * to gray levels 0..15 instead of Spectra palette indices.
+ *
+ * @param rgb_buffer RGB888 buffer (3 bytes per pixel, already dithered to palette)
+ * @param width Image width
+ * @param height Image height
+ * @param Xstart Starting X coordinate
+ * @param Ystart Starting Y coordinate
+ * @return 0 on success, 1 on error
+ */
+UBYTE GUI_DisplayRGBBuffer_Gray16(const uint8_t *rgb_buffer, int width, int height, UWORD Xstart,
+                                  UWORD Ystart);
+
 #endif

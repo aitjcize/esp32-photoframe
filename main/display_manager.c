@@ -29,6 +29,19 @@
 static const char *TAG = "display_manager";
 #define NVS_LAST_IMAGE_KEY "last_image"
 
+// Grayscale (gc*) panels take linear-intensity nibbles (0=black..15=white)
+// rather than Spectra ink-color indices, so both the decode mapping and the
+// "white" fill value depend on the display type.
+static bool display_is_grayscale(void)
+{
+    return strncmp(BOARD_HAL_DISPLAY_TYPE, "gc", 2) == 0;
+}
+
+static UWORD display_white_color(void)
+{
+    return display_is_grayscale() ? 0xF : EPD_7IN3E_WHITE;
+}
+
 static SemaphoreHandle_t display_mutex = NULL;
 static char current_image[64] = {0};
 static char last_displayed_image[256] = {0};  // Internal state: last displayed image path
@@ -112,8 +125,8 @@ esp_err_t display_manager_init(void)
 void display_manager_initialize_paint(void)
 {
     Paint_NewImage(epd_image_buffer, BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT,
-                   config_manager_get_display_rotation_deg() % 360, EPD_7IN3E_WHITE);
-    Paint_SetScale(6);
+                   config_manager_get_display_rotation_deg() % 360, display_white_color());
+    Paint_SetScale(display_is_grayscale() ? 16 : 6);
     Paint_SelectImage(epd_image_buffer);
 }
 
@@ -133,7 +146,7 @@ esp_err_t display_manager_show_image(const char *filename)
     ESP_LOGI(TAG, "Free heap before display: %lu bytes", esp_get_free_heap_size());
 
     ESP_LOGI(TAG, "Clearing display buffer");
-    Paint_Clear(EPD_7IN3E_WHITE);
+    Paint_Clear(display_white_color());
 
     // Detect file type by extension
     const char *ext = strrchr(filename, '.');
@@ -150,14 +163,18 @@ esp_err_t display_manager_show_image(const char *filename)
         }
     } else if (is_png) {
         ESP_LOGI(TAG, "Reading PNG file into buffer");
-        if (GUI_ReadPng_RGB_6Color(filename, 0, 0) != 0) {
+        UBYTE result = display_is_grayscale() ? GUI_ReadPng_Gray16(filename, 0, 0)
+                                              : GUI_ReadPng_RGB_6Color(filename, 0, 0);
+        if (result != 0) {
             ESP_LOGE(TAG, "Failed to read PNG file");
             xSemaphoreGive(display_mutex);
             return ESP_FAIL;
         }
     } else {
         ESP_LOGI(TAG, "Reading BMP file into buffer");
-        if (GUI_ReadBmp_RGB_6Color(filename, 0, 0) != 0) {
+        UBYTE result = display_is_grayscale() ? GUI_ReadBmp_RGB_Gray16(filename, 0, 0)
+                                              : GUI_ReadBmp_RGB_6Color(filename, 0, 0);
+        if (result != 0) {
             ESP_LOGE(TAG, "Failed to read BMP file");
             xSemaphoreGive(display_mutex);
             return ESP_FAIL;
@@ -203,10 +220,13 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
     ESP_LOGI(TAG, "Free heap before display: %lu bytes", esp_get_free_heap_size());
 
     ESP_LOGI(TAG, "Clearing display buffer");
-    Paint_Clear(EPD_7IN3E_WHITE);
+    Paint_Clear(display_white_color());
 
     ESP_LOGI(TAG, "Painting RGB buffer to display");
-    if (GUI_DisplayRGBBuffer_6Color(rgb_buffer, width, height, 0, 0) != 0) {
+    UBYTE result = display_is_grayscale()
+                       ? GUI_DisplayRGBBuffer_Gray16(rgb_buffer, width, height, 0, 0)
+                       : GUI_DisplayRGBBuffer_6Color(rgb_buffer, width, height, 0, 0);
+    if (result != 0) {
         ESP_LOGE(TAG, "Failed to paint RGB buffer");
         xSemaphoreGive(display_mutex);
         return ESP_FAIL;
@@ -263,8 +283,7 @@ esp_err_t display_manager_show_calibration(void)
 
     // Draw the calibration pattern directly to the buffer. Grayscale (GC16)
     // panels get a 16-level gray step wedge instead of the 6-color swatches.
-    if (strncmp(BOARD_HAL_DISPLAY_TYPE, "gc", 2) == 0) {
-        Paint_SetScale(16);
+    if (display_is_grayscale()) {
         Paint_DrawGrayscaleCalibrationPattern();
     } else {
         Paint_DrawCalibrationPattern();

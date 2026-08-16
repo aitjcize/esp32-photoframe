@@ -95,6 +95,9 @@ UBYTE GUI_ReadBmp_4Gray(const char *path, UWORD Xstart, UWORD Ystart);
 UBYTE GUI_ReadBmp_16Gray(const char *path, UWORD Xstart, UWORD Ystart);
 UBYTE GUI_ReadBmp_RGB_4Color(const char *path, UWORD Xstart, UWORD Ystart);
 UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart);
+// 24-bit RGB BMP mapped by luminance to GC16 gray levels 0..15 (grayscale
+// boards); GUI_ReadBmp_16Gray above instead expects a grayscale-format BMP.
+UBYTE GUI_ReadBmp_RGB_Gray16(const char *path, UWORD Xstart, UWORD Ystart);
 UBYTE GUI_ReadBmp_RGB_7Color(const char *path, UWORD Xstart, UWORD Ystart);
 
 #ifdef __cplusplus

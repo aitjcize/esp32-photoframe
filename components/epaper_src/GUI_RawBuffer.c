@@ -3,10 +3,12 @@
 
 #include <esp_log.h>
 
+#include "GUI_ColorMap.h"
+
 static const char *TAG = "GUI_RawBuffer";
 
-UBYTE GUI_DisplayRGBBuffer_6Color(const uint8_t *rgb_buffer, int width, int height, UWORD Xstart,
-                                  UWORD Ystart)
+static UBYTE display_rgb_buffer_mapped(const uint8_t *rgb_buffer, int width, int height,
+                                       UWORD Xstart, UWORD Ystart, GUI_RGBMapFn map_rgb)
 {
     if (!rgb_buffer) {
         ESP_LOGE(TAG, "NULL rgb_buffer");
@@ -26,30 +28,23 @@ UBYTE GUI_DisplayRGBBuffer_6Color(const uint8_t *rgb_buffer, int width, int heig
             uint8_t g = rgb_buffer[offset + 1];
             uint8_t b = rgb_buffer[offset + 2];
 
-            // Map RGB to 6-color palette index
             // The buffer should already be dithered to palette colors
-            UBYTE color;
-            if (r == 0 && g == 0 && b == 0) {
-                color = 0;  // Black
-            } else if (r == 255 && g == 255 && b == 255) {
-                color = 1;  // White
-            } else if (r == 255 && g == 255 && b == 0) {
-                color = 2;  // Yellow
-            } else if (r == 255 && g == 0 && b == 0) {
-                color = 3;  // Red
-            } else if (r == 0 && g == 0 && b == 255) {
-                color = 5;  // Blue
-            } else if (r == 0 && g == 255 && b == 0) {
-                color = 6;  // Green
-            } else {
-                // Fallback: find closest color (shouldn't happen if properly dithered)
-                color = 1;  // Default to white
-            }
-
-            Paint_SetPixel(Xstart + x, Ystart + y, color);
+            Paint_SetPixel(Xstart + x, Ystart + y, map_rgb(r, g, b));
         }
     }
 
     ESP_LOGI(TAG, "RGB buffer displayed successfully");
     return 0;
+}
+
+UBYTE GUI_DisplayRGBBuffer_6Color(const uint8_t *rgb_buffer, int width, int height, UWORD Xstart,
+                                  UWORD Ystart)
+{
+    return display_rgb_buffer_mapped(rgb_buffer, width, height, Xstart, Ystart, GUI_RGBToSpectra6);
+}
+
+UBYTE GUI_DisplayRGBBuffer_Gray16(const uint8_t *rgb_buffer, int width, int height, UWORD Xstart,
+                                  UWORD Ystart)
+{
+    return display_rgb_buffer_mapped(rgb_buffer, width, height, Xstart, Ystart, GUI_RGBToGray16);
 }

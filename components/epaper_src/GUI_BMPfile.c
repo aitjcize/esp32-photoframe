@@ -53,6 +53,7 @@
 #include <string.h>  //memset()
 #include <unistd.h>
 
+#include "GUI_ColorMap.h"
 #include "GUI_Paint.h"
 // #include "test_decoder.h"
 
@@ -464,7 +465,7 @@ UBYTE GUI_ReadBmp_RGB_4Color(const char *path, UWORD Xstart, UWORD Ystart)
     return 0;
 }
 #if 1
-UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
+static UBYTE read_bmp24_mapped(const char *path, UWORD Xstart, UWORD Ystart, GUI_RGBMapFn map_rgb)
 {
     FILE *fp;                     // Define a file pointer
     BMPFILEHEADER bmpFileHeader;  // Define a bmp file header structure
@@ -527,26 +528,8 @@ UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
             uint8_t g = row_data[offset + 1];
             uint8_t b = row_data[offset + 0];
 
-            // Map RGB to 6-color palette index
-            UBYTE color;
-            if (r == 0 && g == 0 && b == 0) {
-                color = 0;  // Black
-            } else if (r == 255 && g == 255 && b == 255) {
-                color = 1;  // White
-            } else if (r == 255 && g == 255 && b == 0) {
-                color = 2;  // Yellow
-            } else if (r == 255 && g == 0 && b == 0) {
-                color = 3;  // Red
-            } else if (r == 0 && g == 0 && b == 255) {
-                color = 5;  // Blue
-            } else if (r == 0 && g == 255 && b == 0) {
-                color = 6;  // Green
-            } else {
-                color = 1;  // Default to white for unknown colors
-            }
-
             // Paint pixel directly
-            Paint_SetPixel(Xstart + x, Ystart + display_y, color);
+            Paint_SetPixel(Xstart + x, Ystart + display_y, map_rgb(r, g, b));
         }
     }
 
@@ -554,6 +537,16 @@ UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
     fclose(fp);
     ESP_LOGI(TAG, "BMP displayed successfully (stream processing)");
     return 0;
+}
+
+UBYTE GUI_ReadBmp_RGB_6Color(const char *path, UWORD Xstart, UWORD Ystart)
+{
+    return read_bmp24_mapped(path, Xstart, Ystart, GUI_RGBToSpectra6);
+}
+
+UBYTE GUI_ReadBmp_RGB_Gray16(const char *path, UWORD Xstart, UWORD Ystart)
+{
+    return read_bmp24_mapped(path, Xstart, Ystart, GUI_RGBToGray16);
 }
 #else
 
