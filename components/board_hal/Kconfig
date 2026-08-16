@@ -40,6 +40,18 @@ menu "Board Configuration"
                 No SD card support.
                 AI rotation mode disabled due to limited PSRAM.
 
+        config BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE03
+            bool "Seeed XIAO EE03 (10.3\" Grayscale GC16)"
+            select EP_DRIVER_IT8951
+            select SENSOR_DRIVER_SHT40
+            help
+                Driver for the Seeed Studio XIAO ePaper Display Board EE03: a
+                XIAO ESP32-S3 Plus driving a 10.3" grayscale panel (1872x1404,
+                16-level / GC16) via an IT8951 T-CON over SPI. Same panel as the
+                reTerminal E1003, on the XIAO ePaper driver-board wiring.
+                Includes an SHT40 sensor for waveform temperature compensation
+                and battery monitoring via ADC. No SD card, no external RTC.
+
         config BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002
             bool "Seeed reTerminal E1002 (Spectra E6)"
             select SDCARD_DRIVER_SPI
@@ -80,7 +92,7 @@ menu "Board Configuration"
 
     config USE_INTERNAL_FLASH_STORAGE
         bool "Use internal flash as storage (LittleFS)"
-        default y if BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02 || BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE04 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1004
+        default y if BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02 || BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE03 || BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE04 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1004
         default n
         help
             Mounts a LittleFS partition from internal flash to use as storage.

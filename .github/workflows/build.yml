@@ -24,7 +24,7 @@ jobs:
       contents: write
     strategy:
       matrix:
-        board: [waveshare_photopainter_73, seeedstudio_xiao_ee02, seeedstudio_reterminal_e1002, seeedstudio_xiao_ee04, seeedstudio_reterminal_e1004, seeedstudio_reterminal_e1003]
+        board: [waveshare_photopainter_73, seeedstudio_xiao_ee02, seeedstudio_reterminal_e1002, seeedstudio_xiao_ee04, seeedstudio_reterminal_e1004, seeedstudio_reterminal_e1003, seeedstudio_xiao_ee03]
         include:
           - board: waveshare_photopainter_73
             flash_size: 16MB
@@ -38,6 +38,8 @@ jobs:
             flash_size: 32MB
           - board: seeedstudio_reterminal_e1003
             flash_size: 32MB
+          - board: seeedstudio_xiao_ee03
+            flash_size: 16MB
       fail-fast: false
 
     steps:
