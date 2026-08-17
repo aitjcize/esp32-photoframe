@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "GUI_BMPfile.h"
+#include "GUI_ColorMap.h"
 #include "GUI_EPDGZfile.h"
 #include "GUI_PNGfile.h"
 #include "GUI_Paint.h"
@@ -28,6 +29,11 @@
 
 static const char *TAG = "display_manager";
 #define NVS_LAST_IMAGE_KEY "last_image"
+
+// Display operations (streamed processing plus the panel refresh) can
+// legitimately hold the display mutex for a minute or more; waiters queue
+// for a matching window instead of failing spuriously.
+#define DISPLAY_LOCK_TIMEOUT_MS (120 * 1000)
 
 // Grayscale (gc*) panels take linear-intensity nibbles (0=black..15=white)
 // rather than Spectra ink-color indices, so both the decode mapping and the
@@ -136,7 +142,7 @@ esp_err_t display_manager_show_image(const char *filename)
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to acquire display mutex");
         return ESP_FAIL;
     }
@@ -211,7 +217,7 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to acquire display mutex");
         return ESP_FAIL;
     }
@@ -251,9 +257,79 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
     return ESP_OK;
 }
 
+esp_err_t display_manager_begin_rgb_stream(void)
+{
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire display mutex");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Beginning streamed RGB display");
+    Paint_Clear(display_white_color());
+    return ESP_OK;
+}
+
+esp_err_t display_manager_push_rgb_row(int y, const uint8_t *rgb_row, int width)
+{
+    if (!rgb_row) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (y >= Paint.Height) {
+        return ESP_OK;
+    }
+
+    GUI_RGBMapFn map_rgb = display_is_grayscale() ? GUI_RGBToGray16 : GUI_RGBToSpectra6;
+    for (int x = 0; x < width && x < Paint.Width; x++) {
+        const uint8_t *p = &rgb_row[x * 3];
+        Paint_SetPixel(x, y, map_rgb(p[0], p[1], p[2]));
+    }
+    return ESP_OK;
+}
+
+esp_err_t display_manager_push_rgb_column(int x, const uint8_t *rgb_col, int height)
+{
+    if (!rgb_col) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (x >= Paint.Width) {
+        return ESP_OK;
+    }
+
+    GUI_RGBMapFn map_rgb = display_is_grayscale() ? GUI_RGBToGray16 : GUI_RGBToSpectra6;
+    for (int y = 0; y < height && y < Paint.Height; y++) {
+        const uint8_t *p = &rgb_col[y * 3];
+        Paint_SetPixel(x, y, map_rgb(p[0], p[1], p[2]));
+    }
+    return ESP_OK;
+}
+
+esp_err_t display_manager_end_rgb_stream(bool show, const char *filename)
+{
+    if (show) {
+        ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
+        epaper_display(epd_image_buffer);
+        ESP_LOGI(TAG, "E-paper display update complete");
+
+        if (filename) {
+            // Record the logical name of the streamed image (mirroring what
+            // show_image does for file-backed displays) so /api/current_image
+            // can resolve its .jpg thumbnail. Done while the mutex is still
+            // held so the reported state cannot race a queued display.
+            strncpy(current_image, filename, sizeof(current_image) - 1);
+            create_image_link(filename);
+        } else {
+            // Displayed from an anonymous buffer
+            current_image[0] = '\0';
+        }
+    }
+
+    xSemaphoreGive(display_mutex);
+    return ESP_OK;
+}
+
 esp_err_t display_manager_clear(void)
 {
-    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
         return ESP_FAIL;
     }
 
@@ -271,7 +347,7 @@ esp_err_t display_manager_clear(void)
 
 esp_err_t display_manager_show_calibration(void)
 {
-    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to acquire display mutex for calibration");
         return ESP_FAIL;
     }
