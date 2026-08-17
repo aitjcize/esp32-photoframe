@@ -20,6 +20,8 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "image_processor.h"
 #include "mdns_service.h"
 #include "nvs.h"
@@ -483,6 +485,13 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
         if (ctx->file) {
             fwrite(evt->data, 1, evt->data_len, ctx->file);
             ctx->total_read += evt->data_len;
+            // The SD write path busy-polls SPI; on a fast link this handler
+            // can run back-to-back for seconds, and together with another
+            // busy task it starves the IDLE watchdog. Yield at every 32 KB
+            // boundary so the idle task gets a window.
+            if ((ctx->total_read >> 15) != ((ctx->total_read - evt->data_len) >> 15)) {
+                vTaskDelay(1);
+            }
         }
         break;
     case HTTP_EVENT_ON_HEADER:
@@ -1012,23 +1021,13 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
                     unlink(temp_upload_path);
                 }
 
-                // Process to RGB buffer
-                image_process_rgb_result_t result;
-                err = image_processor_process_to_rgb(file_buffer, file_size, image_format, algo,
-                                                     &result);
+                // Process and stream the result straight to the display
+                err = image_processor_process_to_display(file_buffer, file_size, image_format, algo,
+                                                         NULL);
                 heap_caps_free(file_buffer);
 
                 if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
-                    return err;
-                }
-
-                // Display directly from RGB buffer
-                err = display_manager_show_rgb_buffer(result.rgb_data, result.width, result.height);
-                heap_caps_free(result.rgb_data);
-
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to display image");
+                    ESP_LOGE(TAG, "Failed to process and display image: %s", esp_err_to_name(err));
                     return err;
                 }
 

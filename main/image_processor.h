@@ -22,16 +22,6 @@ typedef enum {
     IMAGE_FORMAT_EPD_GZ
 } image_format_t;
 
-/**
- * @brief Result structure for raw RGB buffer output (no PNG encoding)
- */
-typedef struct {
-    uint8_t *rgb_data;  // RGB888 buffer (caller must free with heap_caps_free)
-    size_t rgb_size;    // Size of RGB data in bytes (width * height * 3)
-    int width;          // Output image width
-    int height;         // Output image height
-} image_process_rgb_result_t;
-
 esp_err_t image_processor_init(void);
 
 /**
@@ -44,25 +34,35 @@ esp_err_t image_processor_process(const char *input_path, const char *output_pat
                                   dither_algorithm_t dither_algorithm);
 
 /**
- * @brief Process image from memory buffer to raw RGB buffer (no PNG encoding)
+ * @brief Process image from memory buffer and show it on the display
  *
- * This function takes raw image data (PNG or JPG), processes it, and returns
- * the processed RGB buffer directly. This is more efficient for SD-card-less
- * systems where the image can be displayed directly without PNG encode/decode.
- * The caller is responsible for freeing result->rgb_data with heap_caps_free().
+ * This function takes raw image data (PNG or JPG), processes it, and streams
+ * the result row by row straight into the display buffer, then refreshes the
+ * panel. The full-resolution processed image is never materialized in RAM.
  *
  * @param input_data Raw image data (PNG or JPG format)
  * @param input_size Size of input data in bytes
  * @param format Image format of input data
  * @param dither_algorithm Dithering algorithm to use
- * @param result Output structure containing processed RGB data
+ * @param display_name Logical name recorded as the current image so its
+ *                     thumbnail resolves (see display_manager_end_rgb_stream);
+ *                     NULL for an anonymous buffer display
  * @return esp_err_t ESP_OK on success
  */
-esp_err_t image_processor_process_to_rgb(const uint8_t *input_data, size_t input_size,
-                                         image_format_t format, dither_algorithm_t dither_algorithm,
-                                         image_process_rgb_result_t *result);
+esp_err_t image_processor_process_to_display(const uint8_t *input_data, size_t input_size,
+                                             image_format_t format,
+                                             dither_algorithm_t dither_algorithm,
+                                             const char *display_name);
 
 esp_err_t image_processor_reload_palette(void);
+
+/**
+ * @brief Human-readable reason for the most recent processing failure
+ *
+ * Empty string when the last operation succeeded. Suitable for appending to
+ * HTTP error responses.
+ */
+const char *image_processor_get_last_error(void);
 
 bool image_processor_is_processed(const char *input_path);
 
