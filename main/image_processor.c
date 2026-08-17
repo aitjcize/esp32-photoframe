@@ -1487,8 +1487,10 @@ static bool check_processed_png(png_structp png_ptr, png_infop info_ptr, bool pa
         return false;
     }
 
-    // Force RGB format
+    // Force 8-bit RGB format (16-bit samples would double the row stride
+    // under the 3-bytes-per-pixel walk below)
     png_set_expand(png_ptr);
+    png_set_strip_16(png_ptr);
     png_set_strip_alpha(png_ptr);
     png_set_packing(png_ptr);
     png_set_palette_to_rgb(png_ptr);
