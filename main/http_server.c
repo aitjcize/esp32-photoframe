@@ -481,19 +481,6 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
                 return ESP_FAIL;
             }
             display_path = CURRENT_EPD_PATH;
-        } else if (image_format == IMAGE_FORMAT_PNG &&
-                   image_processor_is_processed(result.image_path)) {
-            ESP_LOGI(TAG, "PNG is already processed, skipping processing");
-            unlink(temp_png_path);
-            if (rename(result.image_path, temp_png_path) != 0) {
-                ESP_LOGE(TAG, "Failed to move PNG");
-                unlink(result.image_path);
-                if (result.has_thumbnail)
-                    unlink(result.thumbnail_path);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to process PNG");
-                return ESP_FAIL;
-            }
-            display_path = temp_png_path;
         } else if (image_format == IMAGE_FORMAT_BMP) {
             unlink(temp_bmp_path);
             if (rename(result.image_path, temp_bmp_path) != 0) {
@@ -508,27 +495,31 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         } else {
             // Raw PNG or JPG: process and stream rows straight to the
             // display -- no rendered-file round-trip
-            ESP_LOGI(TAG, "%s needs processing", image_format == IMAGE_FORMAT_JPG ? "JPG" : "PNG");
             dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
-
-            uint8_t *file_buffer = NULL;
-            size_t file_size = 0;
-            if (read_file_to_psram(result.image_path, &file_buffer, &file_size) != ESP_OK) {
-                unlink(result.image_path);
-                if (result.has_thumbnail)
-                    unlink(result.thumbnail_path);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read image");
-                return ESP_FAIL;
-            }
 
             // /api/current_image tries the .jpg sibling first, then falls
             // back to this exact name with its native content type
             const char *display_name =
                 (image_format == IMAGE_FORMAT_JPG) ? temp_jpg_path : temp_png_path;
 
-            err = image_processor_process_to_display(file_buffer, file_size, image_format, algo,
-                                                     display_name);
-            heap_caps_free(file_buffer);
+            if (image_format == IMAGE_FORMAT_PNG) {
+                // File-backed fused path: no RAM copy of the upload
+                err = image_processor_process_or_display_png(result.image_path, algo, display_name);
+            } else {
+                uint8_t *file_buffer = NULL;
+                size_t file_size = 0;
+                if (read_file_to_psram(result.image_path, &file_buffer, &file_size) != ESP_OK) {
+                    unlink(result.image_path);
+                    if (result.has_thumbnail)
+                        unlink(result.thumbnail_path);
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                        "Failed to read image");
+                    return ESP_FAIL;
+                }
+                err = image_processor_process_to_display(file_buffer, file_size, image_format, algo,
+                                                         display_name);
+                heap_caps_free(file_buffer);
+            }
 
             if (err != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
@@ -792,28 +783,8 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         }
         display_path = temp_bmp_path;
     } else {
-        // PNG or JPG - unified processing logic
-        bool needs_processing = true;
-
-        if (image_format == IMAGE_FORMAT_PNG) {
-            if (image_processor_is_processed(temp_upload_path)) {
-                needs_processing = false;
-            } else {
-                ESP_LOGI(TAG, "PNG needs processing");
-            }
-        }
-
-        if (!needs_processing) {
-            ESP_LOGI(TAG, "Image is already processed, skipping processing");
-            unlink(temp_png_path);
-            if (rename(temp_upload_path, temp_png_path) != 0) {
-                ESP_LOGE(TAG, "Failed to move uploaded PNG to temp location");
-                unlink(temp_upload_path);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to process PNG");
-                return ESP_FAIL;
-            }
-        } else {
-            // Needs processing (JPG or raw PNG): read the upload into RAM,
+        {
+            // PNG or JPG: read the upload into RAM,
             // then process and stream rows straight to the display on every
             // storage type. The panel retains the image without power, and
             // the rendered .current.png was deleted right after display
@@ -822,52 +793,39 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
 
             {
-                FILE *fp = fopen(temp_upload_path, "rb");
-                if (!fp) {
-                    ESP_LOGE(TAG, "Failed to open uploaded file");
-                    unlink(temp_upload_path);
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                        "Failed to process image");
-                    return ESP_FAIL;
-                }
-
-                fseek(fp, 0, SEEK_END);
-                long file_size = ftell(fp);
-                fseek(fp, 0, SEEK_SET);
-
-                uint8_t *file_buffer = heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
-                if (!file_buffer) {
-                    ESP_LOGE(TAG, "Failed to allocate buffer for image");
-                    fclose(fp);
-                    unlink(temp_upload_path);
-                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                        "Image requires too much memory to process");
-                    return ESP_FAIL;
-                }
-
-                size_t bytes_read = fread(file_buffer, 1, file_size, fp);
-                fclose(fp);
-
-                if (bytes_read != (size_t) file_size) {
-                    ESP_LOGE(TAG, "Incomplete file read: %zu of %ld bytes", bytes_read, file_size);
-                    heap_caps_free(file_buffer);
-                    unlink(temp_upload_path);
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                        "Failed to read image file");
-                    return ESP_FAIL;
-                }
-
-                // Process and stream the result straight to the display.
-                // The upload is fully read into file_buffer, so the file on
-                // disk is only disposed of after processing succeeds -- a
-                // failed upload must not clobber the current thumbnail.
-                // /api/current_image tries the .jpg sibling first, then
-                // falls back to the exact name with its native content type.
+                // The file on disk is only disposed of after processing
+                // succeeds -- a failed upload must not clobber the current
+                // thumbnail. /api/current_image tries the .jpg sibling
+                // first, then falls back to the exact name with its native
+                // content type.
                 const char *display_name =
                     (image_format == IMAGE_FORMAT_JPG) ? temp_jpg_path : temp_png_path;
-                err = image_processor_process_to_display(file_buffer, file_size, image_format, algo,
-                                                         display_name);
-                heap_caps_free(file_buffer);
+
+                if (image_format == IMAGE_FORMAT_PNG) {
+                    // File-backed fused path: no RAM copy of the upload
+                    err = image_processor_process_or_display_png(temp_upload_path, algo,
+                                                                 display_name);
+                } else {
+                    uint8_t *file_buffer = NULL;
+                    size_t file_size = 0;
+                    esp_err_t read_err =
+                        read_file_to_psram(temp_upload_path, &file_buffer, &file_size);
+                    if (read_err != ESP_OK) {
+                        ESP_LOGE(TAG, "Failed to read uploaded file");
+                        unlink(temp_upload_path);
+                        if (read_err == ESP_ERR_NO_MEM) {
+                            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                                "Image requires too much memory to process");
+                        } else {
+                            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                                "Failed to read image file");
+                        }
+                        return ESP_FAIL;
+                    }
+                    err = image_processor_process_to_display(file_buffer, file_size, image_format,
+                                                             algo, display_name);
+                    heap_caps_free(file_buffer);
+                }
 
                 if (err != ESP_OK) {
                     ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
@@ -941,10 +899,9 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
                 return ESP_OK;
             }
         }
-        display_path = temp_png_path;
     }
 
-    // Display the image (PNG or BMP) - display_manager handles both
+    // Display the image (BMP or EPDGZ) - display_manager handles both
     err = display_manager_show_image(display_path);
     if (err != ESP_OK) {
         unlink(temp_bmp_path);

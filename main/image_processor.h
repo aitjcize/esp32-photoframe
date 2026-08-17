@@ -54,6 +54,19 @@ esp_err_t image_processor_process_to_display(const uint8_t *input_data, size_t i
                                              dither_algorithm_t dither_algorithm,
                                              const char *display_name);
 
+/**
+ * @brief Display a PNG file, processing it only when necessary
+ *
+ * A pre-processed PNG (native dimensions, every pixel a theoretical output
+ * color) is validated and painted straight from the file in a single decode
+ * with no RAM copy; anything else falls back to
+ * image_processor_process_to_display. Preferred entry point for the direct
+ * display endpoint's PNG uploads.
+ */
+esp_err_t image_processor_process_or_display_png(const char *path,
+                                                 dither_algorithm_t dither_algorithm,
+                                                 const char *display_name);
+
 esp_err_t image_processor_reload_palette(void);
 
 /**
@@ -65,11 +78,6 @@ esp_err_t image_processor_reload_palette(void);
 const char *image_processor_get_last_error(void);
 
 bool image_processor_is_processed(const char *input_path);
-
-/**
- * @brief Check if buffer contains a pre-processed image
- */
-bool image_processor_is_processed_buffer(const uint8_t *data, size_t size);
 
 image_format_t image_processor_detect_format(const char *input_path);
 

@@ -1440,7 +1440,10 @@ static bool pixel_in_output_palette(uint8_t r, uint8_t g, uint8_t b)
 // a time (a full-size GC16 frame decoded whole would need 7.9 MB). Expects a
 // freshly created read struct with its IO source already attached; arms its
 // own longjmp target, so callers only destroy the structs afterwards.
-static bool check_processed_png(png_structp png_ptr, png_infop info_ptr)
+// With paint_rows set, each validated row is also pushed to the display
+// stream, fusing the validation and display decodes into one pass; on a
+// failed validation the partially painted buffer is simply not refreshed.
+static bool check_processed_png(png_structp png_ptr, png_infop info_ptr, bool paint_rows)
 {
     png_bytep volatile row = NULL;
 
@@ -1500,6 +1503,15 @@ static bool check_processed_png(png_structp png_ptr, png_infop info_ptr)
                 break;
             }
         }
+
+        if (valid && paint_rows) {
+            display_manager_push_rgb_row(y, (const uint8_t *) row, width);
+        }
+
+        // Yield periodically so the IDLE task can feed the watchdog
+        if ((y & 15) == 0) {
+            vTaskDelay(1);
+        }
     }
 
     free((void *) row);
@@ -1547,40 +1559,91 @@ bool image_processor_is_processed(const char *input_path)
     png_init_io(png_ptr, fp);
     png_set_sig_bytes(png_ptr, 8);
 
-    bool valid = check_processed_png(png_ptr, info_ptr);
+    bool valid = check_processed_png(png_ptr, info_ptr, false);
 
     png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
     fclose(fp);
     return valid;
 }
 
-bool image_processor_is_processed_buffer(const uint8_t *data, size_t size)
+esp_err_t image_processor_process_or_display_png(const char *path,
+                                                 dither_algorithm_t dither_algorithm,
+                                                 const char *display_name)
 {
-    if (!data || size < 8 || png_sig_cmp((png_const_bytep) data, 0, 8) != 0) {
-        return false;
+    if (!path) {
+        return ESP_ERR_INVALID_ARG;
     }
 
-    png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    if (!png_ptr) {
-        return false;
+    // Fused fast path: a pre-processed PNG validates and paints straight
+    // from the file in a single decode, with no RAM copy of the upload (a
+    // near-5 MB source competes with the frame buffer, and on MemFS the
+    // file already lives in PSRAM). Any validation failure leaves the panel
+    // untouched and the source falls back to full processing.
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        ESP_LOGE(TAG, "Failed to open %s", path);
+        return ESP_FAIL;
     }
 
-    png_infop info_ptr = png_create_info_struct(png_ptr);
-    if (!info_ptr) {
-        png_destroy_read_struct(&png_ptr, NULL, NULL);
-        return false;
+    uint8_t sig[8];
+    if (fread(sig, 1, 8, fp) == 8 && png_sig_cmp(sig, 0, 8) == 0) {
+        png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+        png_infop info_ptr = png_ptr ? png_create_info_struct(png_ptr) : NULL;
+        if (png_ptr && info_ptr) {
+            png_init_io(png_ptr, fp);
+            png_set_sig_bytes(png_ptr, 8);
+
+            esp_err_t err = display_manager_begin_rgb_stream();
+            if (err != ESP_OK) {
+                png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+                fclose(fp);
+                return err;
+            }
+
+            bool displayed = check_processed_png(png_ptr, info_ptr, true);
+            display_manager_end_rgb_stream(displayed, display_name);
+            png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+
+            if (displayed) {
+                fclose(fp);
+                ESP_LOGI(TAG, "Displayed pre-processed PNG in a single decode");
+                return ESP_OK;
+            }
+            ESP_LOGI(TAG, "PNG needs processing");
+        } else if (png_ptr) {
+            png_destroy_read_struct(&png_ptr, NULL, NULL);
+        }
+    }
+    fclose(fp);
+
+    // Fallback: full processing needs the compressed source in RAM
+    fp = fopen(path, "rb");
+    if (!fp) {
+        return ESP_FAIL;
+    }
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (file_size <= 0) {
+        fclose(fp);
+        return ESP_FAIL;
+    }
+    uint8_t *file_buffer = (uint8_t *) heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
+    if (!file_buffer) {
+        fclose(fp);
+        return ESP_ERR_NO_MEM;
+    }
+    size_t read_bytes = fread(file_buffer, 1, file_size, fp);
+    fclose(fp);
+    if (read_bytes != (size_t) file_size) {
+        heap_caps_free(file_buffer);
+        return ESP_FAIL;
     }
 
-    // Row-streaming check straight from the buffer -- decoding the whole
-    // image first would need a full panel-size RGB buffer (7.9 MB on the
-    // 1872x1404 GC16 panel) just to inspect it.
-    png_mem_read_t mem = {.data = data, .size = size, .offset = 0};
-    png_set_read_fn(png_ptr, &mem, png_mem_read_callback);
-
-    bool valid = check_processed_png(png_ptr, info_ptr);
-
-    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
-    return valid;
+    esp_err_t err = image_processor_process_to_display(
+        file_buffer, (size_t) file_size, IMAGE_FORMAT_PNG, dither_algorithm, display_name);
+    heap_caps_free(file_buffer);
+    return err;
 }
 
 image_format_t image_processor_detect_format(const char *input_path)
