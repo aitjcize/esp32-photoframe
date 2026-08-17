@@ -83,6 +83,14 @@ image_format_t image_processor_detect_format_buffer(const uint8_t *data, size_t 
  * decoding pixel data. Used to classify portrait vs. landscape cheaply before
  * committing to a full decode.
  */
+/**
+ * @brief Same as image_processor_peek_dimensions(), but reads the leading
+ * bytes of a file itself rather than requiring the caller to already have a
+ * buffer - a header-only peek, not a full decode.
+ */
+esp_err_t image_processor_peek_file_dimensions(const char *path, image_format_t format, int *out_w,
+                                               int *out_h);
+
 esp_err_t image_processor_peek_dimensions(const uint8_t *data, size_t size, image_format_t format,
                                           int *out_width, int *out_height);
 
@@ -129,5 +137,14 @@ esp_err_t image_processor_add_caption_to_file(const char *png_path, const char *
  */
 esp_err_t image_processor_write_rgb_to_png(const uint8_t *rgb_buffer, int width, int height,
                                            const char *output_path);
+
+/**
+ * @brief Generates a small preview thumbnail from an already-processed PNG,
+ * nearest-neighbor downsampled to fit within max_dimension on its longer
+ * edge (aspect ratio preserved). Used for images that don't otherwise get a
+ * thumbnail sidecar generated client-side (e.g. Telegram downloads).
+ */
+esp_err_t image_processor_make_thumbnail(const char *source_png_path, int max_dimension,
+                                         const char *output_path);
 
 #endif

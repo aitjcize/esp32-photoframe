@@ -1,9 +1,11 @@
 #include "display_manager.h"
 
 #include <dirent.h>
+#include <stdio.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "GUI_BMPfile.h"
@@ -22,25 +24,15 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "history_manager.h"
+#include "image_processor.h"
 #include "nvs.h"
+#include "processing_settings.h"
 #include "storage.h"
 #include "utils.h"
 
 static const char *TAG = "display_manager";
 #define NVS_LAST_IMAGE_KEY "last_image"
-
-// Grayscale (gc*) panels take linear-intensity nibbles (0=black..15=white)
-// rather than Spectra ink-color indices, so both the decode mapping and the
-// "white" fill value depend on the display type.
-static bool display_is_grayscale(void)
-{
-    return strncmp(BOARD_HAL_DISPLAY_TYPE, "gc", 2) == 0;
-}
-
-static UWORD display_white_color(void)
-{
-    return display_is_grayscale() ? 0xF : EPD_7IN3E_WHITE;
-}
 
 static SemaphoreHandle_t display_mutex = NULL;
 static char current_image[64] = {0};
@@ -48,21 +40,6 @@ static char last_displayed_image[256] = {0};  // Internal state: last displayed 
 
 static uint8_t *epd_image_buffer = NULL;
 static uint32_t image_buffer_size;
-
-// Load last displayed image from NVS
-static void load_last_displayed_image(void)
-{
-    nvs_handle_t nvs_handle;
-    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) == ESP_OK) {
-        size_t len = sizeof(last_displayed_image);
-        if (nvs_get_str(nvs_handle, NVS_LAST_IMAGE_KEY, last_displayed_image, &len) == ESP_OK) {
-            ESP_LOGI(TAG, "Loaded last displayed image: %s", last_displayed_image);
-        } else {
-            last_displayed_image[0] = '\0';
-        }
-        nvs_close(nvs_handle);
-    }
-}
 
 // Save last displayed image to NVS
 static void save_last_displayed_image(const char *filename)
@@ -125,8 +102,8 @@ esp_err_t display_manager_init(void)
 void display_manager_initialize_paint(void)
 {
     Paint_NewImage(epd_image_buffer, BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT,
-                   config_manager_get_display_rotation_deg() % 360, display_white_color());
-    Paint_SetScale(display_is_grayscale() ? 16 : 6);
+                   config_manager_get_display_rotation_deg() % 360, EPD_7IN3E_WHITE);
+    Paint_SetScale(6);
     Paint_SelectImage(epd_image_buffer);
 }
 
@@ -146,7 +123,7 @@ esp_err_t display_manager_show_image(const char *filename)
     ESP_LOGI(TAG, "Free heap before display: %lu bytes", esp_get_free_heap_size());
 
     ESP_LOGI(TAG, "Clearing display buffer");
-    Paint_Clear(display_white_color());
+    Paint_Clear(EPD_7IN3E_WHITE);
 
     // Detect file type by extension
     const char *ext = strrchr(filename, '.');
@@ -163,18 +140,14 @@ esp_err_t display_manager_show_image(const char *filename)
         }
     } else if (is_png) {
         ESP_LOGI(TAG, "Reading PNG file into buffer");
-        UBYTE result = display_is_grayscale() ? GUI_ReadPng_Gray16(filename, 0, 0)
-                                              : GUI_ReadPng_RGB_6Color(filename, 0, 0);
-        if (result != 0) {
+        if (GUI_ReadPng_RGB_6Color(filename, 0, 0) != 0) {
             ESP_LOGE(TAG, "Failed to read PNG file");
             xSemaphoreGive(display_mutex);
             return ESP_FAIL;
         }
     } else {
         ESP_LOGI(TAG, "Reading BMP file into buffer");
-        UBYTE result = display_is_grayscale() ? GUI_ReadBmp_RGB_Gray16(filename, 0, 0)
-                                              : GUI_ReadBmp_RGB_6Color(filename, 0, 0);
-        if (result != 0) {
+        if (GUI_ReadBmp_RGB_6Color(filename, 0, 0) != 0) {
             ESP_LOGE(TAG, "Failed to read BMP file");
             xSemaphoreGive(display_mutex);
             return ESP_FAIL;
@@ -201,6 +174,13 @@ esp_err_t display_manager_show_image(const char *filename)
 
     xSemaphoreGive(display_mutex);
 
+    // Single choke point for every successful display, regardless of source
+    // (rotation, manual web-UI pick, Telegram) - keeps the "shown until a
+    // full cycle completes" history consistent everywhere. Idempotent: a
+    // repeated path (e.g. the fixed URL-rotation temp file) is a no-op after
+    // the first call.
+    history_manager_mark_shown(filename);
+
     ESP_LOGI(TAG, "Image displayed successfully");
     return ESP_OK;
 }
@@ -220,13 +200,10 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
     ESP_LOGI(TAG, "Free heap before display: %lu bytes", esp_get_free_heap_size());
 
     ESP_LOGI(TAG, "Clearing display buffer");
-    Paint_Clear(display_white_color());
+    Paint_Clear(EPD_7IN3E_WHITE);
 
     ESP_LOGI(TAG, "Painting RGB buffer to display");
-    UBYTE result = display_is_grayscale()
-                       ? GUI_DisplayRGBBuffer_Gray16(rgb_buffer, width, height, 0, 0)
-                       : GUI_DisplayRGBBuffer_6Color(rgb_buffer, width, height, 0, 0);
-    if (result != 0) {
+    if (GUI_DisplayRGBBuffer_6Color(rgb_buffer, width, height, 0, 0) != 0) {
         ESP_LOGE(TAG, "Failed to paint RGB buffer");
         xSemaphoreGive(display_mutex);
         return ESP_FAIL;
@@ -283,7 +260,8 @@ esp_err_t display_manager_show_calibration(void)
 
     // Draw the calibration pattern directly to the buffer. Grayscale (GC16)
     // panels get a 16-level gray step wedge instead of the 6-color swatches.
-    if (display_is_grayscale()) {
+    if (strncmp(BOARD_HAL_DISPLAY_TYPE, "gc", 2) == 0) {
+        Paint_SetScale(16);
         Paint_DrawGrayscaleCalibrationPattern();
     } else {
         Paint_DrawCalibrationPattern();
@@ -387,6 +365,120 @@ static void rotate_sequential(char **enabled_albums, int album_count)
     }
 }
 
+// Whether the frame is currently mounted in portrait as *actually rendered*.
+// Mirrors telegram_bot.c's wants_portrait_frame_now() - kept as a separate,
+// tiny duplicate rather than a cross-module dependency between these two
+// already-large files.
+static bool wants_portrait_frame(void)
+{
+    int rot = config_manager_get_display_rotation_deg() % 360;
+    if (rot < 0) {
+        rot += 360;
+    }
+    return (rot == 90 || rot == 270);
+}
+
+static esp_err_t read_whole_file_dm(const char *path, uint8_t **out_data, long *out_size)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        return ESP_FAIL;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (size <= 0) {
+        fclose(f);
+        return ESP_FAIL;
+    }
+    uint8_t *buf = heap_caps_malloc((size_t) size, MALLOC_CAP_SPIRAM);
+    if (!buf) {
+        fclose(f);
+        return ESP_ERR_NO_MEM;
+    }
+    size_t read_bytes = fread(buf, 1, (size_t) size, f);
+    fclose(f);
+    if (read_bytes != (size_t) size) {
+        heap_caps_free(buf);
+        return ESP_FAIL;
+    }
+    *out_data = buf;
+    *out_size = size;
+    return ESP_OK;
+}
+
+// Composes two mismatched-orientation album images into one, saved as a new
+// permanent file in dest_album_path - same idea as telegram_bot.c's
+// orientation pairing, applied to normal auto-rotation instead of Telegram
+// receives. Both source files are left untouched (caller's choice to keep
+// them as independently rotatable images too).
+static esp_err_t compose_rotation_pair(const char *path_a, const char *path_b,
+                                       const char *dest_album_path, char *out_path,
+                                       size_t out_path_len)
+{
+    uint8_t *buf_a = NULL, *buf_b = NULL;
+    long size_a = 0, size_b = 0;
+
+    esp_err_t err = read_whole_file_dm(path_a, &buf_a, &size_a);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = read_whole_file_dm(path_b, &buf_b, &size_b);
+    if (err != ESP_OK) {
+        heap_caps_free(buf_a);
+        return err;
+    }
+
+    image_format_t format_a = image_processor_detect_format(path_a);
+    image_format_t format_b = image_processor_detect_format(path_b);
+    dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
+
+    image_process_rgb_result_t result;
+    err = image_processor_compose_pair_to_rgb(buf_a, (size_t) size_a, format_a, buf_b,
+                                              (size_t) size_b, format_b, wants_portrait_frame(),
+                                              algo, &result);
+    heap_caps_free(buf_a);
+    heap_caps_free(buf_b);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    time_t now = time(NULL);
+    for (int suffix = 0; suffix < 100; suffix++) {
+        if (suffix == 0) {
+            snprintf(out_path, out_path_len, "%s/combined_%lld.png", dest_album_path,
+                     (long long) now);
+        } else {
+            snprintf(out_path, out_path_len, "%s/combined_%lld_%d.png", dest_album_path,
+                     (long long) now, suffix);
+        }
+        struct stat st;
+        if (stat(out_path, &st) != 0) {
+            break;  // path is free
+        }
+    }
+
+    err = image_processor_write_rgb_to_png(result.rgb_data, result.width, result.height, out_path);
+    heap_caps_free(result.rgb_data);
+    return err;
+}
+
+// Peeks orientation for a single candidate; only PNG/JPG carry a meaningful
+// source aspect ratio to check (BMP/EPDGZ are treated as already
+// display-appropriate, same as in telegram_bot.c's pairing).
+static bool image_orientation_mismatches(const char *path, bool wants_portrait)
+{
+    image_format_t fmt = image_processor_detect_format(path);
+    if (fmt != IMAGE_FORMAT_PNG && fmt != IMAGE_FORMAT_JPG) {
+        return false;
+    }
+    int w = 0, h = 0;
+    if (image_processor_peek_file_dimensions(path, fmt, &w, &h) != ESP_OK || w <= 0 || h <= 0) {
+        return false;
+    }
+    return (h > w) != wants_portrait;
+}
+
 static void rotate_random(char **enabled_albums, int album_count)
 {
     ESP_LOGI(TAG, "Random rotation mode");
@@ -474,37 +566,102 @@ static void rotate_random(char **enabled_albums, int album_count)
         return;
     }
 
-    // Load last displayed image if not already loaded
-    if (last_displayed_image[0] == '\0') {
-        load_last_displayed_image();
-    }
-
-    // Select random image, avoiding the last displayed image if possible
-    int random_index = esp_random() % total_image_count;
-
-    // If we have more than one image and the random selection matches the last image,
-    // try to pick a different one (up to 10 attempts)
-    if (total_image_count > 1 && last_displayed_image[0] != '\0') {
-        int attempts = 0;
-        while (attempts < 10 && strcmp(image_list[random_index], last_displayed_image) == 0) {
-            random_index = esp_random() % total_image_count;
-            attempts++;
+    // Pick among images not yet shown this cycle (history_manager). If every
+    // image in the enabled albums has already been shown, the cycle is
+    // complete: clear the history and start a fresh one over the full set.
+    // This also inherently avoids repeating the last-shown image whenever
+    // more than one image remains unseen, so no separate retry-loop is
+    // needed for that anymore.
+    int *unseen = malloc((size_t) total_image_count * sizeof(int));
+    if (!unseen) {
+        ESP_LOGE(TAG, "Failed to allocate unseen-index list");
+        for (int i = 0; i < total_image_count; i++) {
+            free(image_list[i]);
         }
-
-        if (strcmp(image_list[random_index], last_displayed_image) == 0) {
-            ESP_LOGW(TAG, "Could not avoid repeating last image after 10 attempts");
-        } else {
-            ESP_LOGI(TAG, "Successfully avoided repeating last image");
+        free(image_list);
+        return;
+    }
+    int unseen_count = 0;
+    for (int i = 0; i < total_image_count; i++) {
+        if (!history_manager_has_shown(image_list[i])) {
+            unseen[unseen_count++] = i;
         }
     }
+    if (unseen_count == 0) {
+        ESP_LOGI(TAG, "Display history cycle complete (%d images shown) - starting a new cycle",
+                 total_image_count);
+        history_manager_clear();
+        for (int i = 0; i < total_image_count; i++) {
+            unseen[unseen_count++] = i;
+        }
+    }
+
+    int random_index = unseen[esp_random() % unseen_count];
+    free(unseen);
+
+    const char *display_path = image_list[random_index];
+    char composed_path[512];
+    bool use_composed = false;
+
+    // Orientation pairing (opt-in, random mode only - see
+    // config_manager_get_rotation_pairing_enabled()): if the picked image
+    // doesn't match the panel's orientation, look for another mismatched
+    // image in the same candidate pool and combine them instead of showing
+    // one letterboxed.
+    if (config_manager_get_rotation_pairing_enabled()) {
+        bool wants_portrait = wants_portrait_frame();
+        if (image_orientation_mismatches(display_path, wants_portrait)) {
+            int partner_index = -1;
+            for (int i = 0; i < total_image_count; i++) {
+                if (i == random_index) {
+                    continue;
+                }
+                if (image_orientation_mismatches(image_list[i], wants_portrait)) {
+                    partner_index = i;
+                    break;
+                }
+            }
+
+            if (partner_index >= 0) {
+                // Save the combined result into the primary pick's own
+                // album directory.
+                char dest_album_path[512];
+                strncpy(dest_album_path, display_path, sizeof(dest_album_path) - 1);
+                dest_album_path[sizeof(dest_album_path) - 1] = '\0';
+                char *slash = strrchr(dest_album_path, '/');
+                if (slash) {
+                    *slash = '\0';
+                }
+
+                esp_err_t err = compose_rotation_pair(display_path, image_list[partner_index],
+                                                      dest_album_path, composed_path,
+                                                      sizeof(composed_path));
+                if (err == ESP_OK) {
+                    ESP_LOGI(TAG, "Auto-rotate: combined %s + %s -> %s", display_path,
+                             image_list[partner_index], composed_path);
+                    // The sources stay in their album (still independently
+                    // rotatable later) but count as shown for this cycle,
+                    // same as the combined result itself will once displayed.
+                    history_manager_mark_shown(display_path);
+                    history_manager_mark_shown(image_list[partner_index]);
+                    use_composed = true;
+                } else {
+                    ESP_LOGW(TAG, "Auto-rotate: failed to combine %s + %s: %s", display_path,
+                             image_list[partner_index], esp_err_to_name(err));
+                }
+            }
+        }
+    }
+
+    const char *final_path = use_composed ? composed_path : display_path;
 
     // Display random image
-    ESP_LOGI(TAG, "Auto-rotate: Displaying random image %d/%d: %s", random_index + 1,
-             total_image_count, image_list[random_index]);
-    display_manager_show_image(image_list[random_index]);
+    ESP_LOGI(TAG, "Auto-rotate: Displaying random image %d/%d (unseen this cycle: %d): %s",
+             random_index + 1, total_image_count, unseen_count, final_path);
+    display_manager_show_image(final_path);
 
     // Store the displayed image filename in NVS
-    save_last_displayed_image(image_list[random_index]);
+    save_last_displayed_image(final_path);
 
     // Free image list
     for (int i = 0; i < total_image_count; i++) {

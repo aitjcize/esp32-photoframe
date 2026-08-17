@@ -1107,6 +1107,31 @@ esp_err_t image_processor_peek_dimensions(const uint8_t *data, size_t size, imag
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t image_processor_peek_file_dimensions(const char *path, image_format_t format, int *out_w,
+                                               int *out_h)
+{
+    if (!path) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        return ESP_FAIL;
+    }
+    // Header-only peek - large enough for both JPEG SOF markers and a PNG
+    // IHDR chunk without reading the whole (possibly multi-MB) file.
+    const size_t scan_bytes = 65536;
+    uint8_t *buf = malloc(scan_bytes);
+    if (!buf) {
+        fclose(f);
+        return ESP_ERR_NO_MEM;
+    }
+    size_t n = fread(buf, 1, scan_bytes, f);
+    fclose(f);
+    esp_err_t err = image_processor_peek_dimensions(buf, n, format, out_w, out_h);
+    free(buf);
+    return err;
+}
+
 esp_err_t image_processor_compose_pair_to_rgb(const uint8_t *data_a, size_t size_a,
                                               image_format_t format_a, const uint8_t *data_b,
                                               size_t size_b, image_format_t format_b,
@@ -1487,4 +1512,86 @@ esp_err_t image_processor_write_rgb_to_png(const uint8_t *rgb_buffer, int width,
         return ESP_ERR_INVALID_ARG;
     }
     return write_png_file(output_path, (uint8_t *) rgb_buffer, width, height);
+}
+
+esp_err_t image_processor_make_thumbnail(const char *source_png_path, int max_dimension,
+                                         const char *output_path)
+{
+    if (!source_png_path || !output_path || max_dimension <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    FILE *fp = fopen(source_png_path, "rb");
+    if (!fp) {
+        ESP_LOGE(TAG, "Failed to open %s for thumbnail generation", source_png_path);
+        return ESP_FAIL;
+    }
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (file_size <= 0) {
+        fclose(fp);
+        return ESP_FAIL;
+    }
+
+    uint8_t *file_buffer = (uint8_t *) heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
+    if (!file_buffer) {
+        fclose(fp);
+        return ESP_ERR_NO_MEM;
+    }
+    size_t read_bytes = fread(file_buffer, 1, file_size, fp);
+    fclose(fp);
+    if (read_bytes != (size_t) file_size) {
+        heap_caps_free(file_buffer);
+        return ESP_FAIL;
+    }
+
+    uint8_t *src_rgb = NULL;
+    int src_width = 0, src_height = 0;
+    esp_err_t err = decode_png_buffer(file_buffer, file_size, &src_rgb, &src_width, &src_height);
+    heap_caps_free(file_buffer);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    int dst_width, dst_height;
+    if (src_width >= src_height) {
+        dst_width = max_dimension;
+        dst_height = (int) ((int64_t) src_height * max_dimension / src_width);
+    } else {
+        dst_height = max_dimension;
+        dst_width = (int) ((int64_t) src_width * max_dimension / src_height);
+    }
+    if (dst_width < 1) {
+        dst_width = 1;
+    }
+    if (dst_height < 1) {
+        dst_height = 1;
+    }
+
+    uint8_t *dst_rgb =
+        (uint8_t *) heap_caps_malloc((size_t) dst_width * dst_height * 3, MALLOC_CAP_SPIRAM);
+    if (!dst_rgb) {
+        heap_caps_free(src_rgb);
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Nearest-neighbor downsample - a grid preview doesn't need anything
+    // fancier, and this keeps the extra CPU/RAM cost minimal.
+    for (int y = 0; y < dst_height; y++) {
+        int src_y = (int) ((int64_t) y * src_height / dst_height);
+        for (int x = 0; x < dst_width; x++) {
+            int src_x = (int) ((int64_t) x * src_width / dst_width);
+            const uint8_t *sp = &src_rgb[(size_t) (src_y * src_width + src_x) * 3];
+            uint8_t *dp = &dst_rgb[(size_t) (y * dst_width + x) * 3];
+            dp[0] = sp[0];
+            dp[1] = sp[1];
+            dp[2] = sp[2];
+        }
+    }
+    heap_caps_free(src_rgb);
+
+    err = write_png_file(output_path, dst_rgb, dst_width, dst_height);
+    heap_caps_free(dst_rgb);
+    return err;
 }

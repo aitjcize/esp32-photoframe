@@ -209,6 +209,12 @@ int config_manager_get_wifi_fail_count(void);
 void config_manager_set_wifi_performance_mode_enabled(bool enabled);
 bool config_manager_get_wifi_performance_mode_enabled(void);
 
+// Orientation pairing during normal (non-Telegram) auto-rotation - random
+// mode only. Defaults to false. See NVS_ROTATION_PAIRING_ENABLED_KEY in
+// config.h.
+void config_manager_set_rotation_pairing_enabled(bool enabled);
+bool config_manager_get_rotation_pairing_enabled(void);
+
 // ============================================================================
 // OTA
 // ============================================================================

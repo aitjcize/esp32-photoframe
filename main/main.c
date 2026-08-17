@@ -22,6 +22,7 @@
 #include "esp_vfs_dev.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "history_manager.h"
 
 // External RTC support
 #ifdef CONFIG_EXT_RTC_ENABLED
@@ -581,6 +582,8 @@ void app_main(void)
     ESP_ERROR_CHECK(ota_manager_init());
 
     ESP_ERROR_CHECK(album_manager_init());
+
+    ESP_ERROR_CHECK(history_manager_init());
 
     // Check wake-up source
     wakeup_source_t wakeup_src = power_manager_get_wakeup_source();

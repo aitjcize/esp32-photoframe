@@ -50,6 +50,11 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
 // enabled) so a problem is visible on the frame itself, not just in logs.
 void utils_handle_wifi_connect_result(bool connected);
 
+// Manual preview: overlays an example error message on the currently
+// displayed image (or a blank canvas if nothing suitable is currently
+// displayed), regardless of the error-overlay setting.
+esp_err_t utils_test_error_overlay(void);
+
 // Trigger image rotation based on configured rotation mode
 // Handles both URL and SD card rotation modes
 // Returns ESP_OK on success, error code on failure

@@ -5,10 +5,17 @@
 
 // Result of a single telegram_bot_poll() call.
 typedef enum {
-    // Polled successfully. Any new images were downloaded (progressive
-    // fallback applied) and the newest one displayed; any "/" commands found
-    // were queued for telegram_bot_run_pending_commands().
+    // Polled successfully, and a new image was displayed. Any "/" commands
+    // found were queued for telegram_bot_run_pending_commands().
     TELEGRAM_POLL_OK = 0,
+
+    // Polled successfully, but nothing was displayed this cycle - either
+    // there were no new messages, or none of the messages in this batch
+    // resulted in a displayable image (e.g. only commands, or an image is
+    // still waiting for its orientation-pairing partner). The caller should
+    // fall back to normal album rotation so the frame still changes image
+    // on this wake, same as the non-Telegram rotation modes.
+    TELEGRAM_POLL_OK_NO_IMAGE,
 
     // The emergency "/telegram_reset" command was found in this batch. All
     // other updates in the batch were skipped, update_id was advanced past

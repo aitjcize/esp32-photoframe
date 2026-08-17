@@ -527,6 +527,12 @@ esp_err_t apply_config_from_json(cJSON *root)
         config_manager_set_wifi_performance_mode_enabled(cJSON_IsTrue(item));
     }
 
+    // Auto-rotate orientation pairing (random mode only)
+    item = cJSON_GetObjectItem(root, "rotation_pairing_enabled");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_rotation_pairing_enabled(cJSON_IsTrue(item));
+    }
+
     return ESP_OK;
 }
 
@@ -1213,34 +1219,67 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
     return ESP_OK;
 }
 
+// Generates a blank white canvas at the panel's native resolution and
+// overlays the message on it - used whenever there's no existing displayed
+// image to overlay onto (fresh boot, after /clear, or a non-overlay-ready
+// current image). White is a valid palette entry on every supported panel,
+// so the buffer is already "processed" as far as image_processor_draw_caption
+// is concerned.
+static esp_err_t display_error_overlay_blank(const char *message)
+{
+    int width = BOARD_HAL_DISPLAY_WIDTH;
+    int height = BOARD_HAL_DISPLAY_HEIGHT;
+    size_t buf_size = (size_t) width * (size_t) height * 3;
+
+    uint8_t *rgb_buffer = heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
+    if (!rgb_buffer) {
+        ESP_LOGE(TAG, "Failed to allocate blank canvas for error overlay");
+        return ESP_ERR_NO_MEM;
+    }
+    memset(rgb_buffer, 0xFF, buf_size);
+
+    image_processor_draw_caption(rgb_buffer, width, height, message);
+    esp_err_t err = image_processor_write_rgb_to_png(rgb_buffer, width, height, CURRENT_PNG_PATH);
+    heap_caps_free(rgb_buffer);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write blank error-overlay canvas: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    display_manager_show_image(CURRENT_PNG_PATH);
+    ESP_LOGW(TAG, "Displayed error overlay on a blank canvas: %s", message);
+    return ESP_OK;
+}
+
 // Overlays a short message on the currently displayed image WITHOUT modifying
 // the original saved file: copies it to the scratch PNG path first, draws the
-// caption there, and displays the copy.
-static void display_error_overlay(const char *message)
+// caption there, and displays the copy. Falls back to a blank canvas (see
+// above) if there's nothing suitable to overlay onto.
+static esp_err_t display_error_overlay(const char *message)
 {
     const char *current_image = display_manager_get_current_image();
     if (!current_image || current_image[0] == '\0') {
-        ESP_LOGW(TAG, "No current image to overlay error onto, skipping");
-        return;
+        ESP_LOGI(TAG, "No current image to overlay error onto, using a blank canvas");
+        return display_error_overlay_blank(message);
     }
 
     image_format_t format = image_processor_detect_format(current_image);
     if (format != IMAGE_FORMAT_PNG || !image_processor_is_processed(current_image)) {
-        ESP_LOGW(TAG, "Current image %s is not an overlay-ready processed PNG, skipping",
+        ESP_LOGI(TAG, "Current image %s is not an overlay-ready processed PNG, using a blank canvas",
                  current_image);
-        return;
+        return display_error_overlay_blank(message);
     }
 
     FILE *src = fopen(current_image, "rb");
     if (!src) {
         ESP_LOGE(TAG, "Failed to open %s for error overlay", current_image);
-        return;
+        return ESP_FAIL;
     }
     FILE *dst = fopen(CURRENT_PNG_PATH, "wb");
     if (!dst) {
         fclose(src);
         ESP_LOGE(TAG, "Failed to open %s for error overlay", CURRENT_PNG_PATH);
-        return;
+        return ESP_FAIL;
     }
     char buf[512];
     size_t n;
@@ -1253,6 +1292,7 @@ static void display_error_overlay(const char *message)
     image_processor_add_caption_to_file(CURRENT_PNG_PATH, message);
     display_manager_show_image(CURRENT_PNG_PATH);
     ESP_LOGW(TAG, "Displayed error overlay: %s", message);
+    return ESP_OK;
 }
 
 void utils_handle_wifi_connect_result(bool connected)
@@ -1273,8 +1313,16 @@ void utils_handle_wifi_connect_result(bool connected)
     }
 
     char caption[96];
-    snprintf(caption, sizeof(caption), "Fehler: Keine WLAN-Verbindung (%dx in Folge)", count);
+    snprintf(caption, sizeof(caption), "Error: No WiFi connection (%dx in a row)", count);
     display_error_overlay(caption);
+}
+
+esp_err_t utils_test_error_overlay(void)
+{
+    // Manual preview from the Web UI - always overlays the example message
+    // regardless of the error-overlay setting or the WiFi-fail counter, so
+    // it can be used to see what the feature looks like before enabling it.
+    return display_error_overlay("Error: No WiFi connection (3x in a row) - TEST");
 }
 
 esp_err_t trigger_image_rotation(void)
@@ -1299,6 +1347,15 @@ esp_err_t trigger_image_rotation(void)
 
         if (poll_err == ESP_OK) {
             utils_set_last_fetch_error(NULL);
+            if (poll_result == TELEGRAM_POLL_OK_NO_IMAGE) {
+                // No new Telegram image this cycle - still change the
+                // display, same as the non-Telegram rotation modes, by
+                // falling back to the active album(s) (this also covers the
+                // Telegram download folder, which shows up as a regular
+                // album - see telegram_bot_poll()).
+                ESP_LOGI(TAG, "No new Telegram image, falling back to local rotation");
+                display_manager_rotate_from_storage();
+            }
             result = ESP_OK;
         } else {
             const char *reason = (poll_result == TELEGRAM_POLL_NOT_CONFIGURED)

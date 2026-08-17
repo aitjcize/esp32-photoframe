@@ -11,6 +11,33 @@ import { wideEdit } from "../utils/uiPrefs";
 const settingsStore = useSettingsStore();
 const appStore = useAppStore();
 
+const snackbar = ref(false);
+const snackbarText = ref("");
+const snackbarColor = ref("success");
+function showSnackbar(text, color) {
+  snackbarText.value = text;
+  snackbarColor.value = color;
+  snackbar.value = true;
+}
+
+const testingErrorOverlay = ref(false);
+async function testErrorOverlay() {
+  testingErrorOverlay.value = true;
+  try {
+    const response = await fetch("/api/error-overlay/test", { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) {
+      showSnackbar(data.message || "Error overlay displayed", "success");
+    } else {
+      showSnackbar(data.message || "Failed to display error overlay", "error");
+    }
+  } catch (_error) {
+    showSnackbar("Failed to display error overlay", "error");
+  } finally {
+    testingErrorOverlay.value = false;
+  }
+}
+
 // The device rejects the entire config request when any schedule rule is
 // invalid, empty or over the 7-rule budget — gate saving on the same checks.
 const scheduleValid = computed(() => {
@@ -625,7 +652,33 @@ async function performFactoryReset() {
                       label="Storage Rotation Logic"
                       variant="outlined"
                       hide-details
+                      class="mb-4"
                     />
+
+                    <v-switch
+                      v-model="settingsStore.deviceSettings.rotationPairingEnabled"
+                      label="Combine mismatched-orientation images"
+                      color="primary"
+                      hide-details
+                    />
+                    <div class="text-caption text-medium-emphasis">
+                      When the next image to show doesn't match the panel's orientation, looks for
+                      another mismatched image in the active album(s) and combines them side by
+                      side instead of showing one letterboxed. The combined image is saved
+                      permanently in the album (the two originals are kept too). Also togglable
+                      via the "/rotation_pairing" Telegram bot command.
+                    </div>
+                    <v-alert
+                      v-if="settingsStore.deviceSettings.rotationPairingEnabled &&
+                        settingsStore.deviceSettings.sdRotationMode === 'sequential'"
+                      type="warning"
+                      variant="tonal"
+                      density="compact"
+                      class="mt-2"
+                    >
+                      Only takes effect in Random rotation logic - Sequential mode ignores this
+                      setting.
+                    </v-alert>
                   </v-card-text>
                 </v-card>
               </v-expand-transition>
@@ -868,11 +921,25 @@ async function performFactoryReset() {
               color="primary"
               hide-details
             />
-            <div class="text-caption text-medium-emphasis">
+            <div class="text-caption text-medium-emphasis mb-2">
               After 3 consecutive failed WiFi connection attempts on a scheduled wake, overlays a
               short error message on the currently displayed image (without modifying the saved
               file) so the problem is visible on the frame itself, not just in logs. Also
               togglable via the "/error_overlay" Telegram bot command.
+            </div>
+            <v-btn
+              variant="outlined"
+              size="small"
+              :loading="testingErrorOverlay"
+              @click="testErrorOverlay"
+            >
+              <v-icon icon="mdi-alert-outline" start />
+              Test Error Overlay
+            </v-btn>
+            <div class="text-caption text-medium-emphasis mt-1">
+              Displays an example error message right now, regardless of the setting above -
+              useful to preview what it looks like. Overlays onto the current image if there is
+              one, otherwise shows it on a blank screen.
             </div>
           </v-tabs-window-item>
 
@@ -1146,6 +1213,10 @@ async function performFactoryReset() {
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="3000">
+      {{ snackbarText }}
+    </v-snackbar>
   </div>
 </template>
 

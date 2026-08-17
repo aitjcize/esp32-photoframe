@@ -78,6 +78,7 @@ static int wifi_fail_count = 0;
 
 // WiFi
 static bool wifi_performance_mode_enabled = true;
+static bool rotation_pairing_enabled = false;
 
 // OTA
 static bool ota_check_enabled = true;
@@ -517,6 +518,12 @@ esp_err_t config_manager_init(void)
         uint8_t stored_wifi_perf = 1;  // Default to enabled (existing tiered behavior)
         if (nvs_get_u8(nvs_handle, NVS_WIFI_PERF_MODE_ENABLED_KEY, &stored_wifi_perf) == ESP_OK) {
             wifi_performance_mode_enabled = (stored_wifi_perf != 0);
+        }
+
+        uint8_t stored_rotation_pairing = 0;
+        if (nvs_get_u8(nvs_handle, NVS_ROTATION_PAIRING_ENABLED_KEY, &stored_rotation_pairing) ==
+            ESP_OK) {
+            rotation_pairing_enabled = (stored_rotation_pairing != 0);
         }
 
         {
@@ -1519,6 +1526,25 @@ void config_manager_set_wifi_performance_mode_enabled(bool enabled)
 bool config_manager_get_wifi_performance_mode_enabled(void)
 {
     return wifi_performance_mode_enabled;
+}
+
+void config_manager_set_rotation_pairing_enabled(bool enabled)
+{
+    rotation_pairing_enabled = enabled;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_ROTATION_PAIRING_ENABLED_KEY, enabled ? 1 : 0);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Auto-rotate orientation pairing %s", enabled ? "enabled" : "disabled");
+}
+
+bool config_manager_get_rotation_pairing_enabled(void)
+{
+    return rotation_pairing_enabled;
 }
 
 // ============================================================================

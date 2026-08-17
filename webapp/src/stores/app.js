@@ -100,7 +100,13 @@ export const useAppStore = defineStore("app", () => {
         images.value = [];
         return;
       }
-      const response = await fetch(`${API_BASE}/api/images?album=${encodeURIComponent(albumName)}`);
+      // Mirrors AlbumGallery.vue's "Show thumbnails" preference (same
+      // localStorage key) so the device can skip its per-file thumbnail
+      // existence check entirely when the client won't render any anyway.
+      const showThumbnails = localStorage.getItem("photoframe_show_thumbnails") === "true";
+      const response = await fetch(
+        `${API_BASE}/api/images?album=${encodeURIComponent(albumName)}&thumbnails=${showThumbnails ? 1 : 0}`
+      );
       if (!response.ok || response.headers.get("content-type")?.includes("text/html")) {
         images.value = [];
         return;

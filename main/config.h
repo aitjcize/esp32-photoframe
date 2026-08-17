@@ -67,7 +67,18 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 #define CURRENT_PNG_PATH FS_MOUNT_POINT "/.current.png"
 #define CURRENT_EPD_PATH FS_MOUNT_POINT "/.current.epdgz"
 #define CURRENT_IMAGE_LINK FS_MOUNT_POINT "/.current.lnk"
+// Scratch full-size PNG used only while generating a Telegram-image
+// thumbnail sidecar - kept separate from CURRENT_PNG_PATH so thumbnail
+// generation for a non-displayed image in a batch can never collide with
+// whichever image ends up actually being shown that same poll cycle.
+#define TELEGRAM_THUMB_SCRATCH_PATH FS_MOUNT_POINT "/.tg_thumb_scratch.png"
+#define TELEGRAM_THUMBNAIL_MAX_DIMENSION 300
 #define CURRENT_CALIBRATION_PATH FS_MOUNT_POINT "/.calibration.png"
+
+// Display-history file (one shown image's full path per line) - lets random
+// rotation and the Telegram fallback rotation cycle through every image once
+// before repeating. See history_manager.[ch].
+#define DISPLAY_HISTORY_PATH FS_MOUNT_POINT "/.display_history"
 
 #ifdef DEBUG_DEEP_SLEEP_WAKE
 #define AUTO_SLEEP_TIMEOUT_SEC 60
@@ -191,6 +202,13 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 // interactive wakes or USB power. When disabled, WiFi power-save always stays
 // on regardless of that policy, trading web UI responsiveness for lower draw.
 #define NVS_WIFI_PERF_MODE_ENABLED_KEY "wifi_perf_mode"
+
+// Orientation-pairing during normal (non-Telegram) auto-rotation: when the
+// randomly-picked next image doesn't match the panel's orientation, look for
+// another mismatched image in the active album(s) and combine them instead
+// of showing one letterboxed. Opt-in, off by default. Random rotation mode
+// only - sequential mode's deterministic index cursor is left untouched.
+#define NVS_ROTATION_PAIRING_ENABLED_KEY "rot_pairing_en"
 
 // On battery, WiFi association draws a brief high-current TX burst; capping
 // TX power lowers that peak (at some cost to range). Value is in units of

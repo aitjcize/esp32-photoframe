@@ -59,6 +59,7 @@ export const useSettingsStore = defineStore("settings", () => {
     deepSleepEnabled: true,
     otaCheckEnabled: true,
     wifiPerformanceModeEnabled: true,
+    rotationPairingEnabled: false,
     // Debugging
     debugLogEnabled: false,
     errorOverlayEnabled: false,
@@ -203,6 +204,7 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.deepSleepEnabled = data.deep_sleep_enabled !== false;
       deviceSettings.value.otaCheckEnabled = data.ota_check_enabled !== false;
       deviceSettings.value.wifiPerformanceModeEnabled = data.wifi_performance_mode_enabled !== false;
+      deviceSettings.value.rotationPairingEnabled = data.rotation_pairing_enabled === true;
       deviceSettings.value.debugLogEnabled = data.debug_log_enabled === true;
       deviceSettings.value.errorOverlayEnabled = data.error_overlay_enabled === true;
       deviceSettings.value.haUrl = data.ha_url || "";
@@ -284,6 +286,7 @@ export const useSettingsStore = defineStore("settings", () => {
       deep_sleep_enabled: deviceSettings.value.deepSleepEnabled,
       ota_check_enabled: deviceSettings.value.otaCheckEnabled,
       wifi_performance_mode_enabled: deviceSettings.value.wifiPerformanceModeEnabled,
+      rotation_pairing_enabled: deviceSettings.value.rotationPairingEnabled,
       debug_log_enabled: deviceSettings.value.debugLogEnabled,
       error_overlay_enabled: deviceSettings.value.errorOverlayEnabled,
       save_downloaded_images: deviceSettings.value.saveDownloadedImages,

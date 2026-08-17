@@ -17,16 +17,23 @@ firmware — no additional server required.
    photo (largest → smallest) until one succeeds, or asks for the image as a file instead.
 4. A caption sent with the image is drawn onto the photo as a text overlay (unless the caption
    itself is a `/`-command).
-5. `last_update_id` is persisted in NVS (+1 offset) so restarts never re-process old messages, and
+5. Every downloaded image is converted to a processed, display-ready PNG (deleting the raw
+   original) and gets a preview thumbnail, exactly like a manual Web UI upload — so it shows up
+   correctly in the gallery and is a normal, rotatable album image, not just a one-off push.
+6. `last_update_id` is persisted in NVS (+1 offset) so restarts never re-process old messages, and
    an allowlisted chat ID filters out unsolicited senders.
-6. Filenames are short and collision-safe: `img_<unix-timestamp>.<ext>`.
+7. Filenames are short and collision-safe: `img_<unix-timestamp>.<ext>`.
+8. If a poll doesn't result in a new image being displayed (nothing new arrived, or everything in
+   the batch was a command / still waiting for its pairing partner), the device falls back to
+   normal album rotation instead of leaving the previous image up indefinitely — the frame always
+   changes image on every rotation-triggering wake, same as the non-Telegram modes.
 
 **Wake-up processing order** (fixed, so behavior is predictable across timer, button, and
 Telegram-triggered wakes):
 
 ```
 WiFi connect → poll Telegram → emergency-reset scan → download & display newest image
-  → run queued "/" commands → persist last_update_id → deep sleep
+  (or fall back to album rotation) → run queued "/" commands → persist last_update_id → deep sleep
 ```
 
 ## Emergency reset
@@ -42,7 +49,21 @@ layout is landscape (or vice versa), a single portrait image would normally be l
 **Pairing** (`/pairing`) is enabled, two images of complementary orientation are combined
 side-by-side into one composed image instead. Unpaired images wait in a small persistent queue
 (NVS-backed) until a matching partner arrives; the composed result is saved to the album so
-nothing is lost.
+nothing is lost. Within a single batch of several images, only the newest ready-to-display result
+(a plain image or a freshly-composed pair) ends up on screen — everything else is still saved to
+the album and available for later rotation.
+
+The same pairing idea is also available for **normal auto-rotation** (not just Telegram receives)
+— see [Auto-rotate orientation pairing](#auto-rotate-orientation-pairing) below.
+
+## Display history (no-repeat rotation)
+
+Random album rotation (Telegram's own album included, since downloaded images become normal album
+files) tracks every image it has shown by path in a persisted history file, so it cycles through
+every image in the active album(s) once before repeating, instead of just avoiding the single
+immediately-previous pick. Once everything has been shown, the history clears itself and a new
+cycle starts automatically. `/clear_history` clears it manually (and resets the sequential-mode
+rotation cursor too).
 
 ## Commands
 
@@ -51,13 +72,18 @@ nothing is lost.
 | `/status` | Firmware, reset reason, battery, WiFi, storage %, heap %, rotation schedule, and all toggle states |
 | `/clear` | Clears the display to white |
 | `/restart` | Restarts the device |
-| `/pairing` | Toggles Hoch-/Querformat (portrait/landscape) pairing |
+| `/pairing` | Toggles portrait/landscape combining for Telegram receives |
+| `/list_albums` | Lists every album, with its active/inactive state |
+| `/active_albums` | Lists only the active albums |
+| `/enable_album <name>` | Activates an existing album for rotation |
+| `/clear_history` | Clears the display history and restarts the no-repeat cycle |
 | `/rotate_cron <M H Weekday>` | Sets the auto-rotate schedule as a cron expression |
 | `/deep_sleep on\|off` | Enables/disables deep sleep |
 | `/auto_rotate on\|off` | Enables/disables the auto-rotate timer |
 | `/wake_notify on\|off` | Toggles a status ping sent on every wake-up |
 | `/error_overlay on\|off` | Toggles an on-display warning banner after repeated WiFi failures |
 | `/wifi_perf on\|off` | Toggles the WiFi performance mode (see below) |
+| `/rotation_pairing on\|off` | Toggles auto-rotate orientation pairing (random mode only) |
 | `/help` | Lists all commands |
 | `/telegram_reset` | **Emergency**: clears the queue immediately, highest priority |
 
@@ -66,20 +92,19 @@ instead of being drawn on the image.
 
 ### `/status` and message formatting
 
-All bot replies use a consistent, scannable layout:
+All bot replies use a consistent, scannable, plain-ASCII layout:
 
 - `/status` groups related fields (firmware/reset, battery/WiFi, storage/heap, schedule,
   settings) with blank lines instead of one dense block, and reports storage and heap as both
-  absolute values and percentages (e.g. `62.3/128.0 MB frei (48%)`).
-- `/status` lists the on/off state of every toggle (`Pairing`, `Deep Sleep`, `Auto-Rotate`,
-  `Wach-Auf-Meldung`, `Fehler-Overlay`, `WLAN-Performance`) as `[x]` / `[ ]`.
-- Every reply is prefixed with `[OK]`, `[FEHLER]`, `[!]`, or `[i]` so success, failure, warning,
+  absolute values and percentages (e.g. `62.3/128.0 MB free (48%)`).
+- `/status` lists the on/off state of every toggle as `[x]` / `[ ]`.
+- Every reply is prefixed with `[OK]`, `[ERROR]`, `[!]`, or `[i]` so success, failure, warning,
   and usage-hint messages are visually distinct at a glance.
-- `/help` is grouped into **Status / Anzeige / Einstellungen / Notfall** sections.
+- `/help` is grouped into Status / Display / Albums / Settings / Emergency sections.
 
-Text stays plain ASCII (no Markdown parse mode, no umlauts/emoji) by design — Telegram's
-`parse_mode` would require escaping user-controlled text like SSIDs and cron expressions to avoid
-silently failing to send.
+Text stays plain ASCII (no Markdown parse mode, no accented characters/emoji) by design —
+Telegram's `parse_mode` would require escaping user-controlled text like SSIDs and cron
+expressions to avoid silently failing to send.
 
 ## Low battery & wake notifications
 
@@ -95,7 +120,7 @@ All default to preserving existing behavior for users who don't configure Telegr
 | Setting | Default | Purpose |
 |---|---|---|
 | Telegram bot token / chat ID | empty | Enables the Telegram rotation mode when both are set |
-| Pairing | on | Combine mismatched-orientation images instead of letterboxing |
+| Pairing | on | Combine mismatched-orientation Telegram receives instead of letterboxing |
 | Deep Sleep | on | Existing setting, now also controllable via `/deep_sleep` |
 | Auto-Rotate | on | Existing setting, now also controllable via `/auto_rotate` |
 | Wake notify | off | Status ping to Telegram on every wake |
@@ -103,7 +128,8 @@ All default to preserving existing behavior for users who don't configure Telegr
 | WiFi performance mode | off | See below |
 | Home Assistant integration | **off** | Master switch for all HA features (see below) |
 | OTA auto-check | on | Automatic update check on cold boot |
-| Thumbnail gallery (Web UI) | **off** | Client-side only; large galleries slow down the device's HTTP server |
+| Auto-rotate orientation pairing | **off** | See [below](#auto-rotate-orientation-pairing) - random mode only |
+| Thumbnail gallery (Web UI) | **off** | Client-side toggle; large galleries slow down the device's HTTP server |
 
 ### WiFi performance mode
 
@@ -124,6 +150,26 @@ their integration working — the flag isn't silently sprung on existing users.
 Disabling automatic OTA checks (`ota_check_enabled = false`) skips the cold-boot update check
 entirely — useful for dev builds where a `dev-<commit>` version string otherwise causes spurious
 "update available" comparisons.
+
+### Auto-rotate orientation pairing
+
+Extends the same portrait/landscape combining idea to **normal auto-rotation**, not just Telegram
+receives. When enabled and the randomly-picked next image doesn't match the panel's orientation,
+the device immediately looks for another mismatched image in the active album(s) and combines
+them instead of showing one letterboxed. The combined result is saved permanently in the album
+(with a thumbnail); both source images are kept too, still independently rotatable later.
+
+**Random rotation mode only** — sequential mode's deterministic image-order cursor is deliberately
+left untouched, so this setting has no effect there. The Web UI shows a warning if the toggle is
+on while Sequential mode is selected.
+
+### Error overlay test
+
+Settings includes a "Test Error Overlay" button that triggers the overlay immediately
+(`POST /api/error-overlay/test`), regardless of the setting above, to preview it without waiting
+for 3 consecutive WiFi failures. If there's no current image to overlay onto (fresh boot, or after
+`/clear`), it generates a blank canvas instead of failing, so the preview - and the real
+WiFi-failure case on a device that's never displayed anything yet - always has something to show.
 
 ## Security
 

@@ -164,7 +164,7 @@ function onShowThumbnailsChange(val) {
           >
             <v-card variant="outlined" class="image-card">
               <v-img
-                v-if="showThumbnails"
+                v-if="showThumbnails && image.thumbnail"
                 :src="getThumbnailUrl(image)"
                 :alt="image.filename"
                 aspect-ratio="1"

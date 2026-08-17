@@ -1745,6 +1745,8 @@ static esp_err_t config_handler(httpd_req_t *req)
                               config_manager_get_error_overlay_enabled());
         cJSON_AddBoolToObject(root, "wifi_performance_mode_enabled",
                               config_manager_get_wifi_performance_mode_enabled());
+        cJSON_AddBoolToObject(root, "rotation_pairing_enabled",
+                              config_manager_get_rotation_pairing_enabled());
 
         char *json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");
@@ -2056,9 +2058,15 @@ static esp_err_t album_images_handler(httpd_req_t *req)
 
     char query[256];
     char album_name[128] = "";
+    bool include_thumbnails = true;
 
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
         httpd_query_key_value(query, "album", album_name, sizeof(album_name));
+        char thumbnails_param[8] = "";
+        if (httpd_query_key_value(query, "thumbnails", thumbnails_param,
+                                  sizeof(thumbnails_param)) == ESP_OK) {
+            include_thumbnails = (strcmp(thumbnails_param, "0") != 0);
+        }
     }
 
     if (strlen(album_name) == 0) {
@@ -2097,21 +2105,33 @@ static esp_err_t album_images_handler(httpd_req_t *req)
                 cJSON_AddStringToObject(image_obj, "filename", entry->d_name);
                 cJSON_AddStringToObject(image_obj, "album", decoded_album_name);
 
-                // Check if a corresponding JPG thumbnail exists for any image type
-                char thumbnail_name[256];
-                char thumbnail_path[512];
+                // Check if a corresponding JPG-named thumbnail exists (Web UI
+                // uploads generate a real one client-side; Telegram downloads
+                // get one generated server-side - see
+                // generate_telegram_thumbnail() in telegram_bot.c - as
+                // PNG-encoded bytes under a ".jpg" name, since the firmware
+                // has no JPEG encoder; browsers sniff content, not
+                // extension, so this displays fine either way). Always a
+                // different filename than the main image itself, since a
+                // ".jpg" thumbnail can never collide with a listed
+                // .bmp/.png/.epdgz main image. Skipped entirely when the
+                // client doesn't want thumbnails (Web UI "Show thumbnails"
+                // off) - the per-file stat() here was adding measurable
+                // list-load latency for no benefit in that case.
+                if (include_thumbnails) {
+                    char thumbnail_name[256];
+                    char thumbnail_path[512];
 
-                // Extract base name without extension
-                int base_len = ext - entry->d_name;
-                snprintf(thumbnail_name, sizeof(thumbnail_name), "%.*s.jpg", base_len,
-                         entry->d_name);
-                snprintf(thumbnail_path, sizeof(thumbnail_path), "%s/%s", album_path,
-                         thumbnail_name);
+                    int base_len = ext - entry->d_name;
+                    snprintf(thumbnail_name, sizeof(thumbnail_name), "%.*s.jpg", base_len,
+                             entry->d_name);
+                    snprintf(thumbnail_path, sizeof(thumbnail_path), "%s/%s", album_path,
+                             thumbnail_name);
 
-                // Check if thumbnail file exists
-                struct stat st;
-                if (stat(thumbnail_path, &st) == 0) {
-                    cJSON_AddStringToObject(image_obj, "thumbnail", thumbnail_name);
+                    struct stat st;
+                    if (stat(thumbnail_path, &st) == 0) {
+                        cJSON_AddStringToObject(image_obj, "thumbnail", thumbnail_name);
+                    }
                 }
 
                 cJSON_AddItemToArray(response, image_obj);
@@ -2368,6 +2388,23 @@ static esp_err_t display_calibration_handler(httpd_req_t *req)
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(
             req, "{\"status\":\"error\",\"message\":\"Failed to display calibration pattern\"}");
+        return ESP_FAIL;
+    }
+}
+
+static esp_err_t error_overlay_test_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Testing error overlay display");
+
+    esp_err_t ret = utils_test_error_overlay();
+
+    httpd_resp_set_type(req, "application/json");
+    if (ret == ESP_OK) {
+        httpd_resp_sendstr(req, "{\"status\":\"success\",\"message\":\"Error overlay displayed\"}");
+        return ESP_OK;
+    } else {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Failed to display error overlay\"}");
         return ESP_FAIL;
     }
 }
@@ -2889,6 +2926,12 @@ esp_err_t http_server_init(void)
                                                .handler = display_calibration_handler,
                                                .user_ctx = NULL};
         httpd_register_uri_handler(server, &display_calibration_uri);
+
+        httpd_uri_t error_overlay_test_uri = {.uri = "/api/error-overlay/test",
+                                              .method = HTTP_POST,
+                                              .handler = error_overlay_test_handler,
+                                              .user_ctx = NULL};
+        httpd_register_uri_handler(server, &error_overlay_test_uri);
 
         ESP_LOGI(TAG, "HTTP server started");
         return ESP_OK;
