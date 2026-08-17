@@ -2,6 +2,8 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "config.h"
@@ -141,4 +143,62 @@ void display_flow_drop_stale_current(const char *keep_path, bool keep_thumbnail)
     if (!keep_thumbnail) {
         unlink(CURRENT_JPG_PATH);
     }
+}
+
+FILE *display_flow_open_current(const char **out_content_type)
+{
+    char displayed[512] = {0};
+
+    FILE *link_fp = fopen(CURRENT_IMAGE_LINK, "r");
+    if (!link_fp) {
+        return NULL;
+    }
+    if (!fgets(displayed, sizeof(displayed), link_fp)) {
+        fclose(link_fp);
+        return NULL;
+    }
+    fclose(link_fp);
+
+    size_t len = strlen(displayed);
+    if (len > 0 && displayed[len - 1] == '\n') {
+        displayed[len - 1] = '\0';
+    }
+
+    // The .jpg sibling of the displayed name is its thumbnail; serve that
+    // when present. Selection happens by fopen so a concurrent display
+    // update cannot invalidate the choice.
+    char thumbnail[512];
+    snprintf(thumbnail, sizeof(thumbnail), "%s", displayed);
+    char *ext = strrchr(thumbnail, '.');
+    if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
+                strcasecmp(ext, ".epdgz") == 0)) {
+        strcpy(ext, ".jpg");
+    }
+
+    FILE *fp = fopen(thumbnail, "rb");
+    if (fp) {
+        *out_content_type = "image/jpeg";
+        return fp;
+    }
+
+    const char *orig_ext = strrchr(displayed, '.');
+    // Raw packed panel data is not renderable by a browser; report no
+    // thumbnail rather than serving .epdgz bytes as an image
+    if (orig_ext && strcasecmp(orig_ext, ".epdgz") == 0) {
+        return NULL;
+    }
+
+    fp = fopen(displayed, "rb");
+    if (!fp) {
+        return NULL;
+    }
+
+    if (orig_ext && strcasecmp(orig_ext, ".png") == 0) {
+        *out_content_type = "image/png";
+    } else if (orig_ext && strcasecmp(orig_ext, ".bmp") == 0) {
+        *out_content_type = "image/bmp";
+    } else {
+        *out_content_type = "image/jpeg";
+    }
+    return fp;
 }

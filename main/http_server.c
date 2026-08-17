@@ -1258,71 +1258,13 @@ static esp_err_t current_image_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    char image_to_serve[512] = {0};
-    const char *content_type = "image/jpeg";
-
-    // Read image path from .current.lnk
-    FILE *link_fp = fopen(CURRENT_IMAGE_LINK, "r");
-    if (!link_fp) {
+    const char *content_type = NULL;
+    FILE *fp = display_flow_open_current(&content_type);
+    if (!fp) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No image currently displayed");
         return ESP_FAIL;
     }
-
-    // Read the path from link file
-    if (!fgets(image_to_serve, sizeof(image_to_serve), link_fp)) {
-        fclose(link_fp);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read link file");
-        return ESP_FAIL;
-    }
-    fclose(link_fp);
-
-    // Remove trailing newline if present
-    size_t len = strlen(image_to_serve);
-    if (len > 0 && image_to_serve[len - 1] == '\n') {
-        image_to_serve[len - 1] = '\0';
-    }
-
-    // Detect original file extension for fallback content-type
-    char *orig_ext = strrchr(image_to_serve, '.');
-
-    // Try to serve JPG version first by replacing .bmp/.png extension with .jpg
-    char thumbnail_path[512];
-    strncpy(thumbnail_path, image_to_serve, sizeof(thumbnail_path) - 1);
-    thumbnail_path[sizeof(thumbnail_path) - 1] = '\0';
-
-    char *ext = strrchr(thumbnail_path, '.');
-    if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
-                strcasecmp(ext, ".epdgz") == 0)) {
-        strcpy(ext, ".jpg");
-    }
-
-    FILE *fp = fopen(thumbnail_path, "rb");
-
-    if (!fp) {
-        // Raw packed panel data is not renderable by a browser; report no
-        // thumbnail rather than serving .epdgz bytes as an image
-        if (orig_ext && strcasecmp(orig_ext, ".epdgz") == 0) {
-            httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No thumbnail for current image");
-            return ESP_FAIL;
-        }
-
-        // Fall back to original file (BMP or PNG) if JPG doesn't exist
-        fp = fopen(image_to_serve, "rb");
-        if (orig_ext && strcasecmp(orig_ext, ".png") == 0) {
-            content_type = "image/png";
-        } else if (orig_ext && strcasecmp(orig_ext, ".bmp") == 0) {
-            content_type = "image/bmp";
-        }
-
-        ESP_LOGI(TAG, "Serving %s as fallback thumbnail image", image_to_serve);
-
-        if (!fp) {
-            httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Image not found");
-            return ESP_FAIL;
-        }
-    } else {
-        ESP_LOGI(TAG, "Serving thumbnail image %s for %s", thumbnail_path, image_to_serve);
-    }
+    ESP_LOGI(TAG, "Serving current image (%s)", content_type);
 
     httpd_resp_set_type(req, content_type);
     // Cache for 30 seconds since current image changes infrequently

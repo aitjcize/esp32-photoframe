@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "esp_err.h"
 #include "image_processor.h"
@@ -63,6 +64,21 @@ const char *display_flow_stage_file(const char *source_path, image_format_t form
  */
 void display_flow_retire_source(const char *source_path, image_format_t format,
                                 bool fresh_thumbnail);
+
+/**
+ * @brief Open the file /api/current_image should serve
+ *
+ * Reads the current-image link and opens the servable file: the .jpg
+ * thumbnail sibling of the displayed name when it exists, otherwise the
+ * displayed original with its native content type. Raw packed .epdgz is
+ * never served. An open stream (rather than a path) is returned so a
+ * concurrent display update cannot swap the file between selection and
+ * read.
+ *
+ * @return open file (caller closes) with *out_content_type set, or NULL
+ *         when nothing servable exists
+ */
+FILE *display_flow_open_current(const char **out_content_type);
 
 /**
  * @brief Drop stale .current.* image files after a successful file display
