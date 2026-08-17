@@ -215,8 +215,17 @@ esp_err_t config_manager_init(void)
         int32_t stored_display_rotation_deg = 0;
         if (nvs_get_i32(nvs_handle, NVS_DISPLAY_ROTATION_DEG_KEY, &stored_display_rotation_deg) ==
             ESP_OK) {
-            display_rotation_deg = stored_display_rotation_deg;
-            ESP_LOGI(TAG, "Loaded display rotation from NVS: %d degrees", display_rotation_deg);
+            // Only 0/180 are supported; a legacy 90/270 value would swap the
+            // paint geometry away from the native layout the streaming
+            // pipeline assumes (see apply_config_from_json). Keep the board
+            // default instead.
+            if (stored_display_rotation_deg == 0 || stored_display_rotation_deg == 180) {
+                display_rotation_deg = stored_display_rotation_deg;
+                ESP_LOGI(TAG, "Loaded display rotation from NVS: %d degrees", display_rotation_deg);
+            } else {
+                ESP_LOGW(TAG, "Ignoring unsupported stored display rotation %ld degrees",
+                         (long) stored_display_rotation_deg);
+            }
         }
 
         size_t wifi_ssid_len = WIFI_SSID_MAX_LEN;

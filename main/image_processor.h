@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "display_manager.h"
 #include "esp_err.h"
 
 typedef enum {
@@ -44,15 +45,16 @@ esp_err_t image_processor_process(const char *input_path, const char *output_pat
  * @param input_size Size of input data in bytes
  * @param format Image format of input data
  * @param dither_algorithm Dithering algorithm to use
- * @param display_name Logical name recorded as the current image so its
- *                     thumbnail resolves (see display_manager_end_rgb_stream);
- *                     NULL for an anonymous buffer display
- * @return esp_err_t ESP_OK on success
+ * @param pub What to publish on completion (current-image name, optional
+ *            album snapshot and fallback; see display_publish_t); NULL for
+ *            an anonymous buffer display
+ * @return esp_err_t ESP_OK on success; ESP_ERR_NOT_FINISHED when displayed
+ *         but the requested snapshot failed
  */
 esp_err_t image_processor_process_to_display(const uint8_t *input_data, size_t input_size,
                                              image_format_t format,
                                              dither_algorithm_t dither_algorithm,
-                                             const char *display_name);
+                                             const display_publish_t *pub);
 
 /**
  * @brief Display a PNG file, processing it only when necessary
@@ -60,12 +62,13 @@ esp_err_t image_processor_process_to_display(const uint8_t *input_data, size_t i
  * A pre-processed PNG (native dimensions, every pixel a theoretical output
  * color) is validated and painted straight from the file in a single decode
  * with no RAM copy; anything else falls back to
- * image_processor_process_to_display. Preferred entry point for the direct
- * display endpoint's PNG uploads.
+ * image_processor_process_to_display. Preferred entry point for PNG display
+ * requests. With release_source set, the file is unlinked as soon as an
+ * in-RAM copy exists (for MemFS-backed sources that live in PSRAM).
  */
 esp_err_t image_processor_process_or_display_png(const char *path,
                                                  dither_algorithm_t dither_algorithm,
-                                                 const char *display_name);
+                                                 const display_publish_t *pub, bool release_source);
 
 esp_err_t image_processor_reload_palette(void);
 
@@ -76,8 +79,6 @@ esp_err_t image_processor_reload_palette(void);
  * HTTP error responses.
  */
 const char *image_processor_get_last_error(void);
-
-bool image_processor_is_processed(const char *input_path);
 
 image_format_t image_processor_detect_format(const char *input_path);
 

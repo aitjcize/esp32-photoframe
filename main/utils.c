@@ -298,8 +298,18 @@ esp_err_t apply_config_from_json(cJSON *root)
 
     item = cJSON_GetObjectItem(root, "display_rotation_deg");
     if (item && cJSON_IsNumber(item)) {
-        config_manager_set_display_rotation_deg(item->valueint);
-        display_manager_initialize_paint();
+        int deg = item->valueint;
+        // Only 0 and 180 are supported: 90/270 swap Paint's logical
+        // dimensions, which the panel-size decode paths and dimensionless
+        // .epdgz payloads cannot represent (portrait mounting is handled by
+        // display_orientation instead)
+        if (deg == 0 || deg == 180) {
+            config_manager_set_display_rotation_deg(deg);
+            display_manager_initialize_paint();
+        } else {
+            utils_set_config_error("Display rotation must be 0 or 180 degrees");
+            return ESP_FAIL;
+        }
     }
 
     // Auto Rotate
@@ -950,114 +960,223 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
         }
         final_path = temp_bmp_path;
     } else if (image_format == IMAGE_FORMAT_PNG || image_format == IMAGE_FORMAT_JPG) {
-        bool needs_processing = true;
-        if (image_format == IMAGE_FORMAT_PNG && image_processor_is_processed(temp_upload_path)) {
-            needs_processing = false;
-            ESP_LOGI(TAG, "Image already processed, skipping processing");
+        // Stream straight to the display -- no processed file and no
+        // process-to-file round-trip (the old flow zlib-encoded a panel-size
+        // PNG only for show_image to re-decode it). A pre-processed PNG
+        // displays in a single validating decode; anything else is
+        // processed. With album saving on, the finished 4bpp frame is
+        // snapshotted to the album as .epdgz right after the refresh, while
+        // the display mutex is still held.
+        processing_settings_t settings;
+        if (processing_settings_load(&settings) != ESP_OK) {
+            processing_settings_get_defaults(&settings);
+        }
+        dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
+
+        bool persistent = storage_has_persistent_storage();
+        bool save_to_album = persistent && config_manager_get_save_downloaded_images();
+
+        // Album paths are decided before display so the current-image link
+        // records the final logical name atomically with the refresh
+        char album_image_path[512] = {0};
+        char album_thumb_path[512] = {0};
+        if (save_to_album) {
+            char downloads_path[256];
+            snprintf(downloads_path, sizeof(downloads_path), "%s/Downloads", IMAGE_DIRECTORY);
+            struct stat st;
+            if (stat(downloads_path, &st) != 0 && mkdir(downloads_path, 0755) != 0) {
+                ESP_LOGW(TAG, "Failed to create Downloads directory, not saving to album");
+                save_to_album = false;
+            } else {
+                time_t now = time(NULL);
+                snprintf(album_image_path, sizeof(album_image_path), "%s/download_%lld.epdgz",
+                         downloads_path, (long long) now);
+                snprintf(album_thumb_path, sizeof(album_thumb_path), "%s/download_%lld.jpg",
+                         downloads_path, (long long) now);
+            }
         }
 
-        if (!needs_processing) {
-            // Already processed PNG: just move to temp_png_path
-            unlink(temp_png_path);
-            if (rename(temp_upload_path, temp_png_path) != 0) {
-                ESP_LOGE(TAG, "Failed to rename processed image");
+        // An album .epdgz has no browser-renderable preview unless a
+        // thumbnail exists (downloaded, or the JPG original); without one,
+        // the current-image link points at the kept original instead
+        bool album_has_preview = thumbnail_downloaded || image_format == IMAGE_FORMAT_JPG;
+
+        // JPG sources are read into RAM up front so the original file is
+        // free to be staged as the album preview before display
+        uint8_t *file_buffer = NULL;
+        size_t file_size = 0;
+        if (image_format == IMAGE_FORMAT_JPG) {
+            FILE *fp = fopen(temp_upload_path, "rb");
+            if (!fp) {
+                ESP_LOGE(TAG, "Failed to open downloaded file");
                 unlink(temp_upload_path);
                 return ESP_FAIL;
             }
-        } else {
-            // Process the image to temp_png_path
-            processing_settings_t settings;
-            if (processing_settings_load(&settings) != ESP_OK) {
-                processing_settings_get_defaults(&settings);
-            }
-            dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
-
-            if (storage_has_persistent_storage()) {
-                // Persistent storage system: process to file
-                err = image_processor_process(temp_upload_path, temp_png_path, algo);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
-                    unlink(temp_upload_path);
-                    return err;
-                }
-            } else {
-                // Temporary/No-storage system: read file to buffer, process to RGB, display
-                // directly
-                FILE *fp = fopen(temp_upload_path, "rb");
-                if (!fp) {
-                    ESP_LOGE(TAG, "Failed to open uploaded file");
-                    unlink(temp_upload_path);
-                    return ESP_FAIL;
-                }
-
-                fseek(fp, 0, SEEK_END);
-                long file_size = ftell(fp);
-                fseek(fp, 0, SEEK_SET);
-
-                uint8_t *file_buffer = heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
-                if (!file_buffer) {
-                    ESP_LOGE(TAG, "Failed to allocate buffer for image");
-                    fclose(fp);
-                    unlink(temp_upload_path);
-                    return ESP_ERR_NO_MEM;
-                }
-
-                size_t bytes_read = fread(file_buffer, 1, file_size, fp);
+            fseek(fp, 0, SEEK_END);
+            long fsize = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            if (fsize <= 0) {
                 fclose(fp);
-
-                if (bytes_read != (size_t) file_size) {
-                    ESP_LOGE(TAG, "Incomplete file read: %zu of %ld bytes", bytes_read, file_size);
-                    heap_caps_free(file_buffer);
-                    unlink(temp_upload_path);
-                    return ESP_ERR_INVALID_SIZE;
-                }
-
-                // MemFS-backed /storage: don't retain the full original (it
-                // would consume the PSRAM the next fetch needs); the small
-                // downloaded thumbnail, when present, stays as .current.jpg
                 unlink(temp_upload_path);
-
-                // Process and stream the result straight to the display. The
-                // logical name lets /api/current_image resolve the downloaded
-                // thumbnail via the .jpg extension swap.
-                err = image_processor_process_to_display(file_buffer, file_size, image_format, algo,
-                                                         temp_png_path);
+                return ESP_FAIL;
+            }
+            file_buffer = heap_caps_malloc(fsize, MALLOC_CAP_SPIRAM);
+            if (!file_buffer) {
+                fclose(fp);
+                unlink(temp_upload_path);
+                return ESP_ERR_NO_MEM;
+            }
+            size_t bytes_read = fread(file_buffer, 1, fsize, fp);
+            fclose(fp);
+            if (bytes_read != (size_t) fsize) {
+                ESP_LOGE(TAG, "Incomplete file read: %zu of %ld bytes", bytes_read, fsize);
                 heap_caps_free(file_buffer);
+                unlink(temp_upload_path);
+                return ESP_ERR_INVALID_SIZE;
+            }
+            file_size = (size_t) fsize;
+            if (!persistent) {
+                // MemFS-backed source lives in PSRAM; drop the file now that
+                // the compressed copy exists
+                unlink(temp_upload_path);
+            }
+        }
 
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to process and display image: %s", esp_err_to_name(err));
-                    return err;
+        // Stage the album preview BEFORE display: end_rgb_stream publishes
+        // the album link under the display mutex, and the link's .jpg
+        // sibling must already exist at that moment or /api/current_image
+        // can 404 (transiently, or permanently if the move fails)
+        bool preview_staged = false;
+        if (save_to_album && album_has_preview) {
+            if (thumbnail_downloaded) {
+                preview_staged = rename(temp_jpg_path, album_thumb_path) == 0;
+            } else {
+                preview_staged = rename(temp_upload_path, album_thumb_path) == 0;
+            }
+            if (!preview_staged) {
+                ESP_LOGW(TAG, "Failed to stage album thumbnail; keeping original as preview");
+                album_has_preview = false;
+            }
+        }
+
+        // The fallback name is what end_rgb_stream publishes -- atomically,
+        // under the display mutex -- if the album snapshot fails, matching
+        // the keep-original disposal below
+        const char *fallback_name =
+            (persistent && image_format == IMAGE_FORMAT_JPG) ? temp_jpg_path : temp_png_path;
+
+        display_publish_t pub = {
+            .display_name = (save_to_album && album_has_preview) ? album_image_path : fallback_name,
+            .save_path = save_to_album ? album_image_path : NULL,
+            .fallback_name = fallback_name,
+        };
+
+        if (image_format == IMAGE_FORMAT_PNG) {
+            // File-backed fused path: no RAM copy of the download; MemFS
+            // sources are released as soon as processing copies them
+            err = image_processor_process_or_display_png(temp_upload_path, algo, &pub, !persistent);
+        } else {
+            err = image_processor_process_to_display(file_buffer, file_size, image_format, algo,
+                                                     &pub);
+            heap_caps_free(file_buffer);
+        }
+
+        if (err == ESP_ERR_NOT_FINISHED) {
+            // Displayed, but the album snapshot failed (e.g. storage full):
+            // end_rgb_stream already published the fallback name; fall back
+            // to the keep-original disposal so that name resolves
+            ESP_LOGW(TAG, "Album snapshot failed; keeping download as current image only");
+            if (preview_staged) {
+                // Bring the staged album preview back as the current
+                // thumbnail so the fallback link resolves
+                if (rename(album_thumb_path, temp_jpg_path) == 0) {
+                    thumbnail_downloaded = true;
+                } else {
+                    ESP_LOGW(TAG, "Failed to restore staged album thumbnail");
+                    unlink(album_thumb_path);
                 }
+                preview_staged = false;
+            }
+            save_to_album = false;
+            err = ESP_OK;
+        }
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to process and display image: %s", esp_err_to_name(err));
+            unlink(temp_upload_path);
+            if (preview_staged) {
+                unlink(album_thumb_path);
+            }
+            return err;
+        }
 
-                ESP_LOGI(TAG, "Image displayed from buffer");
-                // Only now that the new image is on the panel may a stale
-                // thumbnail from the previous display be dropped; a failure
-                // above must keep the previous image's thumbnail valid
-                if (!thumbnail_downloaded) {
+        // The new image is on the panel; only now may the previous display's
+        // files be replaced or dropped
+        if (save_to_album) {
+            if (!album_has_preview) {
+                // No renderable album preview exists: keep the original in
+                // the published current-image slot for its format
+                if (image_format == IMAGE_FORMAT_JPG) {
+                    unlink(temp_jpg_path);
+                    if (rename(temp_upload_path, temp_jpg_path) != 0) {
+                        ESP_LOGW(TAG, "Failed to keep original JPEG as thumbnail");
+                    }
+                    unlink(temp_png_path);
+                } else {
+                    unlink(temp_png_path);
+                    if (rename(temp_upload_path, temp_png_path) != 0) {
+                        ESP_LOGW(TAG, "Failed to keep original PNG for current image");
+                    }
                     unlink(temp_jpg_path);
                 }
-                // Signal the caller that no file display is needed
-                if (path_size > 0) {
-                    saved_image_path[0] = '\0';
-                }
-                return ESP_OK;
-            }
-        }
-        final_path = temp_png_path;
-
-        // Handle thumbnail for JPEG: use original as thumbnail if none was downloaded
-        if (image_format == IMAGE_FORMAT_JPG && !thumbnail_downloaded) {
-            unlink(temp_jpg_path);
-            if (rename(temp_upload_path, temp_jpg_path) != 0) {
-                ESP_LOGW(TAG, "Failed to move original JPEG to thumbnail path");
-                unlink(temp_upload_path);
             } else {
-                ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
+                unlink(temp_png_path);
+                unlink(temp_jpg_path);
             }
-        } else {
-            // Clean up original upload file
             unlink(temp_upload_path);
+            unlink(temp_bmp_path);
+            unlink(CURRENT_EPD_PATH);
+            ESP_LOGI(TAG, "Saved to Downloads album: %s", album_image_path);
+        } else if (persistent) {
+            // Keep-original policy, matching the direct display endpoint
+            if (image_format == IMAGE_FORMAT_PNG) {
+                unlink(temp_png_path);
+                if (rename(temp_upload_path, temp_png_path) != 0) {
+                    ESP_LOGW(TAG, "Failed to keep original PNG for current image");
+                    unlink(temp_upload_path);
+                }
+                if (!thumbnail_downloaded) {
+                    unlink(temp_jpg_path);  // stale thumbnail from an earlier display
+                }
+            } else {
+                if (!thumbnail_downloaded && !preview_staged) {
+                    unlink(temp_jpg_path);
+                    if (rename(temp_upload_path, temp_jpg_path) != 0) {
+                        ESP_LOGW(TAG, "Failed to keep original JPEG as thumbnail");
+                        unlink(temp_upload_path);
+                    }
+                } else {
+                    unlink(temp_upload_path);
+                }
+                unlink(temp_png_path);  // stale
+            }
+            unlink(temp_bmp_path);
+            unlink(CURRENT_EPD_PATH);
+        } else {
+            // MemFS-backed /storage: retain nothing but the small downloaded
+            // thumbnail
+            unlink(temp_upload_path);
+            if (!thumbnail_downloaded) {
+                unlink(temp_jpg_path);
+            }
         }
+
+        ESP_LOGI(TAG, "Image displayed via stream");
+        utils_set_last_fetch_error(NULL);
+        // Signal the caller that no file display is needed
+        if (path_size > 0) {
+            saved_image_path[0] = '\0';
+        }
+        return ESP_OK;
     } else {
         ESP_LOGE(TAG, "Unsupported image format: %d", image_format);
         unlink(temp_upload_path);

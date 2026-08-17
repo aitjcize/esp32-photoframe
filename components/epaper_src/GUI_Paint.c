@@ -253,6 +253,64 @@ void Paint_SetPixel(UWORD Xpoint, UWORD Ypoint, UWORD Color)
 }
 
 /******************************************************************************
+function: Read back a pixel written by Paint_SetPixel (4-bit scales only),
+          applying the same rotation and mirror mapping
+parameter:
+    Xpoint : At point X
+    Ypoint : At point Y
+******************************************************************************/
+UBYTE Paint_GetPixel(UWORD Xpoint, UWORD Ypoint)
+{
+    if (Xpoint > Paint.Width || Ypoint > Paint.Height) {
+        return 0;
+    }
+    UWORD X, Y;
+    switch (Paint.Rotate) {
+    case 0:
+        X = Xpoint;
+        Y = Ypoint;
+        break;
+    case 90:
+        X = Paint.WidthMemory - Ypoint - 1;
+        Y = Xpoint;
+        break;
+    case 180:
+        X = Paint.WidthMemory - Xpoint - 1;
+        Y = Paint.HeightMemory - Ypoint - 1;
+        break;
+    case 270:
+        X = Ypoint;
+        Y = Paint.HeightMemory - Xpoint - 1;
+        break;
+    default:
+        return 0;
+    }
+
+    switch (Paint.Mirror) {
+    case MIRROR_NONE:
+        break;
+    case MIRROR_HORIZONTAL:
+        X = Paint.WidthMemory - X - 1;
+        break;
+    case MIRROR_VERTICAL:
+        Y = Paint.HeightMemory - Y - 1;
+        break;
+    case MIRROR_ORIGIN:
+        X = Paint.WidthMemory - X - 1;
+        Y = Paint.HeightMemory - Y - 1;
+        break;
+    default:
+        return 0;
+    }
+
+    if (X > Paint.WidthMemory || Y > Paint.HeightMemory) {
+        return 0;
+    }
+    UBYTE Rdata = Paint.Image[X / 2 + Y * Paint.WidthByte];
+    return (X % 2 == 0) ? (UBYTE) (Rdata >> 4) : (UBYTE) (Rdata & 0x0F);
+}
+
+/******************************************************************************
 function: Clear the color of the picture
 parameter:
     Color : Painted colors

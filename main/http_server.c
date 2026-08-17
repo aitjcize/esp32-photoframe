@@ -502,9 +502,13 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             const char *display_name =
                 (image_format == IMAGE_FORMAT_JPG) ? temp_jpg_path : temp_png_path;
 
+            display_publish_t pub = {.display_name = display_name};
+
             if (image_format == IMAGE_FORMAT_PNG) {
                 // File-backed fused path: no RAM copy of the upload
-                err = image_processor_process_or_display_png(result.image_path, algo, display_name);
+                // MemFS-backed sources are released once an in-RAM copy exists
+                err = image_processor_process_or_display_png(result.image_path, algo, &pub,
+                                                             !storage_has_persistent_storage());
             } else {
                 uint8_t *file_buffer = NULL;
                 size_t file_size = 0;
@@ -516,8 +520,13 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
                                         "Failed to read image");
                     return ESP_FAIL;
                 }
+                if (!storage_has_persistent_storage()) {
+                    // MemFS-backed source lives in PSRAM; drop the file now
+                    // that the compressed copy exists
+                    unlink(result.image_path);
+                }
                 err = image_processor_process_to_display(file_buffer, file_size, image_format, algo,
-                                                         display_name);
+                                                         &pub);
                 heap_caps_free(file_buffer);
             }
 
@@ -801,10 +810,13 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
                 const char *display_name =
                     (image_format == IMAGE_FORMAT_JPG) ? temp_jpg_path : temp_png_path;
 
+                display_publish_t pub = {.display_name = display_name};
+
                 if (image_format == IMAGE_FORMAT_PNG) {
                     // File-backed fused path: no RAM copy of the upload
-                    err = image_processor_process_or_display_png(temp_upload_path, algo,
-                                                                 display_name);
+                    // MemFS-backed sources are released once an in-RAM copy exists
+                    err = image_processor_process_or_display_png(temp_upload_path, algo, &pub,
+                                                                 !storage_has_persistent_storage());
                 } else {
                     uint8_t *file_buffer = NULL;
                     size_t file_size = 0;
@@ -822,8 +834,13 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
                         }
                         return ESP_FAIL;
                     }
+                    if (!storage_has_persistent_storage()) {
+                        // MemFS-backed source lives in PSRAM; drop the file
+                        // now that the compressed copy exists
+                        unlink(temp_upload_path);
+                    }
                     err = image_processor_process_to_display(file_buffer, file_size, image_format,
-                                                             algo, display_name);
+                                                             algo, &pub);
                     heap_caps_free(file_buffer);
                 }
 

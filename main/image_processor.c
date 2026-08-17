@@ -1210,7 +1210,7 @@ static esp_err_t display_row_sink(void *ctx, int y, const uint8_t *row)
 esp_err_t image_processor_process_to_display(const uint8_t *input_data, size_t input_size,
                                              image_format_t format,
                                              dither_algorithm_t dither_algorithm,
-                                             const char *display_name)
+                                             const display_publish_t *pub)
 {
     if (!input_data || input_size == 0) {
         return ESP_ERR_INVALID_ARG;
@@ -1248,7 +1248,12 @@ esp_err_t image_processor_process_to_display(const uint8_t *input_data, size_t i
             if (err == ESP_OK) {
                 err = png_stream_run(&stream, dither_algorithm, display_row_sink, &sink_ctx, true,
                                      sink_ctx.rotated);
-                display_manager_end_rgb_stream(err == ESP_OK, display_name);
+                {
+                    esp_err_t end_err = display_manager_end_rgb_stream(err == ESP_OK, pub);
+                    if (err == ESP_OK) {
+                        err = end_err;
+                    }
+                }
             }
             png_stream_close(&stream);
             return err;
@@ -1280,7 +1285,17 @@ esp_err_t image_processor_process_to_display(const uint8_t *input_data, size_t i
     if (err == ESP_OK) {
         err = process_rgb_stream(rgb_buffer, width, height, dither_algorithm, display_row_sink,
                                  &sink_ctx, true, sink_ctx.rotated);
-        display_manager_end_rgb_stream(err == ESP_OK, display_name);
+
+        // Every row has been painted; release the decoded source before end
+        // runs the snapshot (its zlib state needs PSRAM a near-full decode
+        // could otherwise deny)
+        heap_caps_free(rgb_buffer);
+        rgb_buffer = NULL;
+
+        esp_err_t end_err = display_manager_end_rgb_stream(err == ESP_OK, pub);
+        if (err == ESP_OK) {
+            err = end_err;
+        }
     }
 
     heap_caps_free(rgb_buffer);
@@ -1435,7 +1450,7 @@ static bool pixel_in_output_palette(uint8_t r, uint8_t g, uint8_t b)
     return false;
 }
 
-// Shared row-streaming body of the is_processed checks: verifies panel
+// Shared row-streaming processed-image validation: verifies panel
 // dimensions and that every pixel is a theoretical output color, one row at
 // a time (a full-size GC16 frame decoded whole would need 7.9 MB). Expects a
 // freshly created read struct with its IO source already attached; arms its
@@ -1518,57 +1533,9 @@ static bool check_processed_png(png_structp png_ptr, png_infop info_ptr, bool pa
     return valid;
 }
 
-bool image_processor_is_processed(const char *input_path)
-{
-    ESP_LOGD(TAG, "Checking if image is already processed: %s", input_path);
-
-    FILE *fp = fopen(input_path, "rb");
-    if (!fp) {
-        ESP_LOGE(TAG, "Failed to open input file: %s", input_path);
-        return false;
-    }
-
-    uint8_t sig[8];
-    size_t read = fread(sig, 1, 8, fp);
-    if (read != 8 || png_sig_cmp(sig, 0, 8) != 0) {
-        ESP_LOGD(TAG, "Not a PNG file");
-        fclose(fp);
-        return false;
-    }
-
-    png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    if (!png_ptr) {
-        fclose(fp);
-        return false;
-    }
-
-    png_infop info_ptr = png_create_info_struct(png_ptr);
-    if (!info_ptr) {
-        png_destroy_read_struct(&png_ptr, NULL, NULL);
-        fclose(fp);
-        return false;
-    }
-
-    if (setjmp(png_jmpbuf(png_ptr))) {
-        ESP_LOGE(TAG, "PNG error during check");
-        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
-        fclose(fp);
-        return false;
-    }
-
-    png_init_io(png_ptr, fp);
-    png_set_sig_bytes(png_ptr, 8);
-
-    bool valid = check_processed_png(png_ptr, info_ptr, false);
-
-    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
-    fclose(fp);
-    return valid;
-}
-
 esp_err_t image_processor_process_or_display_png(const char *path,
                                                  dither_algorithm_t dither_algorithm,
-                                                 const char *display_name)
+                                                 const display_publish_t *pub, bool release_source)
 {
     if (!path) {
         return ESP_ERR_INVALID_ARG;
@@ -1601,13 +1568,13 @@ esp_err_t image_processor_process_or_display_png(const char *path,
             }
 
             bool displayed = check_processed_png(png_ptr, info_ptr, true);
-            display_manager_end_rgb_stream(displayed, display_name);
+            esp_err_t end_err = display_manager_end_rgb_stream(displayed, pub);
             png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
 
             if (displayed) {
                 fclose(fp);
                 ESP_LOGI(TAG, "Displayed pre-processed PNG in a single decode");
-                return ESP_OK;
+                return end_err;
             }
             ESP_LOGI(TAG, "PNG needs processing");
         } else if (png_ptr) {
@@ -1640,8 +1607,14 @@ esp_err_t image_processor_process_or_display_png(const char *path,
         return ESP_FAIL;
     }
 
-    esp_err_t err = image_processor_process_to_display(
-        file_buffer, (size_t) file_size, IMAGE_FORMAT_PNG, dither_algorithm, display_name);
+    if (release_source) {
+        // MemFS-backed sources live in PSRAM; drop the file now that the
+        // compressed copy exists so the two never coexist with the decoder
+        unlink(path);
+    }
+
+    esp_err_t err = image_processor_process_to_display(file_buffer, (size_t) file_size,
+                                                       IMAGE_FORMAT_PNG, dither_algorithm, pub);
     heap_caps_free(file_buffer);
     return err;
 }
