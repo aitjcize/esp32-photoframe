@@ -1679,6 +1679,8 @@ static esp_err_t config_handler(httpd_req_t *req)
         rotation_mode_t rm = config_manager_get_rotation_mode();
         if (rm == ROTATION_MODE_URL)
             rotation_mode_str = "url";
+        else if (rm == ROTATION_MODE_TELEGRAM)
+            rotation_mode_str = "telegram";
         cJSON_AddStringToObject(root, "rotation_mode", rotation_mode_str);
 
         // Auto Rotate - SDCARD
@@ -1716,6 +1718,18 @@ static esp_err_t config_handler(httpd_req_t *req)
         // Home Assistant
         const char *ha_url = config_manager_get_ha_url();
         cJSON_AddStringToObject(root, "ha_url", ha_url ? ha_url : "");
+        cJSON_AddBoolToObject(root, "ha_enabled", config_manager_get_ha_enabled());
+
+        // Telegram Bot
+        const char *tg_token = config_manager_get_telegram_bot_token();
+        cJSON_AddStringToObject(root, "telegram_bot_token", tg_token ? tg_token : "");
+        const char *tg_chat_id = config_manager_get_telegram_chat_id();
+        cJSON_AddStringToObject(root, "telegram_chat_id", tg_chat_id ? tg_chat_id : "");
+        cJSON_AddBoolToObject(root, "telegram_configured", config_manager_telegram_is_configured());
+        cJSON_AddBoolToObject(root, "telegram_pairing_enabled",
+                              config_manager_get_telegram_pairing_enabled());
+        cJSON_AddBoolToObject(root, "telegram_wake_notify_enabled",
+                              config_manager_get_telegram_wake_notify_enabled());
 
         // AI API Keys
         const char *openai_key = config_manager_get_openai_api_key();
@@ -1726,6 +1740,11 @@ static esp_err_t config_handler(httpd_req_t *req)
         // Other
         cJSON_AddBoolToObject(root, "deep_sleep_enabled", config_manager_get_deep_sleep_enabled());
         cJSON_AddBoolToObject(root, "debug_log_enabled", config_manager_get_debug_log_enabled());
+        cJSON_AddBoolToObject(root, "ota_check_enabled", config_manager_get_ota_check_enabled());
+        cJSON_AddBoolToObject(root, "error_overlay_enabled",
+                              config_manager_get_error_overlay_enabled());
+        cJSON_AddBoolToObject(root, "wifi_performance_mode_enabled",
+                              config_manager_get_wifi_performance_mode_enabled());
 
         char *json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");

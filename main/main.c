@@ -40,6 +40,7 @@
 #include "processing_settings.h"
 #include "splash_screen.h"
 #include "storage.h"
+#include "telegram_bot.h"
 #include "utils.h"
 #include "wifi_manager.h"
 #include "wifi_provisioning.h"
@@ -285,13 +286,21 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
         // Won't reach here after sleep
     }
 
-    // Initialize WiFi if needed (URL mode always needs it, SD card mode only if HA configured)
-    if (rotation_mode == ROTATION_MODE_URL || ha_configured) {
+    // Initialize WiFi if needed (URL/Telegram modes always need it, SD card mode only if HA
+    // configured)
+    if (rotation_mode == ROTATION_MODE_URL || rotation_mode == ROTATION_MODE_TELEGRAM ||
+        ha_configured) {
         ESP_LOGI(TAG, "Initializing WiFi for %s",
-                 rotation_mode == ROTATION_MODE_URL ? "URL rotation" : "HA battery post");
+                 rotation_mode == ROTATION_MODE_URL
+                     ? "URL rotation"
+                     : (rotation_mode == ROTATION_MODE_TELEGRAM ? "Telegram rotation"
+                                                                : "HA battery post"));
         ESP_ERROR_CHECK(wifi_manager_init());
 
-        if (connect_to_wifi_with_timeout(60)) {
+        bool connected_now = connect_to_wifi_with_timeout(60);
+        utils_handle_wifi_connect_result(connected_now);
+
+        if (connected_now) {
             wifi_connected = true;
             ESP_LOGI(TAG, "WiFi connected");
         } else {
@@ -352,6 +361,15 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     // Trigger rotation
     power_manager_reset_sleep_timer();
     trigger_image_rotation();
+
+    // Telegram mode: run any "/" commands queued during the poll above (e.g.
+    // /status, /restart, /clear) now that the newest image has been
+    // displayed, and before we notify HA / open the config window / sleep.
+    // (The emergency "/telegram_reset" case already went straight to sleep
+    // from inside trigger_image_rotation() and never reaches this point.)
+    if (rotation_mode == ROTATION_MODE_TELEGRAM) {
+        telegram_bot_run_pending_commands();
+    }
 
     // Notify HA that data has been updated (after both OTA check and rotation)
     if (wifi_connected && ha_configured) {
@@ -735,7 +753,10 @@ void app_main(void)
 
     ESP_LOGI(TAG, "PhotoFrame started successfully");
 
-    // Delay OTA check to avoid competing with boot-time network activity
-    vTaskDelay(pdMS_TO_TICKS(10000));
-    ota_check_for_update(NULL, 0);
+    // Delay OTA check to avoid competing with boot-time network activity.
+    // A manual "check now" from the web UI bypasses this setting.
+    if (config_manager_get_ota_check_enabled()) {
+        vTaskDelay(pdMS_TO_TICKS(10000));
+        ota_check_for_update(NULL, 0);
+    }
 }

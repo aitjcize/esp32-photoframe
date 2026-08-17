@@ -6,7 +6,11 @@
 // Uncomment to debug deep sleep wake
 // #define DEBUG_DEEP_SLEEP_WAKE
 
-typedef enum { ROTATION_MODE_STORAGE = 0, ROTATION_MODE_URL = 1 } rotation_mode_t;
+typedef enum {
+    ROTATION_MODE_STORAGE = 0,
+    ROTATION_MODE_URL = 1,
+    ROTATION_MODE_TELEGRAM = 2
+} rotation_mode_t;
 
 typedef enum { SD_ROTATION_RANDOM = 0, SD_ROTATION_SEQUENTIAL = 1 } sd_rotation_mode_t;
 
@@ -34,12 +38,16 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 #define HTTP_HEADER_VALUE_MAX_LEN 512
 #define CA_CERT_MAX_LEN 4096
 #define HTTP_ETAG_MAX_LEN 128
+#define TELEGRAM_BOT_TOKEN_MAX_LEN 128
+#define TELEGRAM_CHAT_ID_MAX_LEN 32
 
 #define DEFAULT_DEVICE_NAME "PhotoFrame"
 #define DEFAULT_WIFI_SSID "PhotoFrame"
 #define DEFAULT_WIFI_PASSWORD "photoframe123"
 #define DEFAULT_IMAGE_URL "https://loremflickr.com/800/480"
 #define DEFAULT_HA_URL ""
+#define DEFAULT_TELEGRAM_BOT_TOKEN ""
+#define DEFAULT_TELEGRAM_CHAT_ID ""
 #define DEFAULT_TIMEZONE "UTC0"
 #define DEFAULT_NTP_SERVER "pool.ntp.org"
 
@@ -51,6 +59,7 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 
 #define IMAGE_DIRECTORY FS_MOUNT_POINT "/images"
 #define DOWNLOAD_DIRECTORY IMAGE_DIRECTORY "/Downloads"
+#define TELEGRAM_DOWNLOAD_DIRECTORY IMAGE_DIRECTORY "/Telegram"
 
 #define CURRENT_UPLOAD_PATH FS_MOUNT_POINT "/.current.tmp"
 #define CURRENT_JPG_PATH FS_MOUNT_POINT "/.current.jpg"
@@ -150,6 +159,45 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 // Home Assistant
 #define NVS_HA_URL_KEY "ha_url"
 
+// Telegram Bot
+#define NVS_TELEGRAM_BOT_TOKEN_KEY "tg_bot_token"
+#define NVS_TELEGRAM_CHAT_ID_KEY "tg_chat_id"
+#define NVS_TELEGRAM_LAST_UPDATE_ID_KEY "tg_last_upd_id"
+// Orientation-pairing: combine two mismatched-orientation Telegram photos
+// (e.g. two portrait shots on a landscape frame) into one image instead of
+// ever showing one alone. Every mismatched image that arrives is queued here
+// (not just one) so nothing is lost if several arrive before a partner shows
+// up; persisted across deep sleep (RAM/files don't survive on MemFS-only
+// boards, NVS does).
+#define NVS_TELEGRAM_PAIRING_KEY "tg_pairing"
+#define NVS_TELEGRAM_PENDING_LIST_KEY "tg_pend_list"
+#define TELEGRAM_MAX_PENDING_IMAGES 6
+#define NVS_TELEGRAM_LOW_BATT_WARNED_KEY "tg_low_batt"
+// Wake-up status ping (SSID/IP/battery/wake reason/rotation schedule) sent to
+// Telegram every poll, even with no new updates - opt-in, off by default.
+#define NVS_TELEGRAM_WAKE_NOTIFY_KEY "tg_wake_notify"
+
+// Home Assistant
+#define NVS_HA_ENABLED_KEY "ha_enabled"
+
+// On-display error overlay for persistent failures (e.g. repeated WiFi
+// connect failure on a scheduled wake) - opt-in, off by default.
+#define NVS_ERROR_OVERLAY_ENABLED_KEY "err_overlay_en"
+#define NVS_WIFI_FAIL_COUNT_KEY "wifi_fail_cnt"
+#define WIFI_FAIL_OVERLAY_THRESHOLD 3
+
+// WiFi performance mode: when enabled (default), the existing tiered policy
+// (power_manager's sleep_timer_task) grants full-RX/low-latency WiFi during
+// interactive wakes or USB power. When disabled, WiFi power-save always stays
+// on regardless of that policy, trading web UI responsiveness for lower draw.
+#define NVS_WIFI_PERF_MODE_ENABLED_KEY "wifi_perf_mode"
+
+// On battery, WiFi association draws a brief high-current TX burst; capping
+// TX power lowers that peak (at some cost to range). Value is in units of
+// 0.25 dBm (esp_wifi_set_max_tx_power() convention) - 60 = 15 dBm, versus the
+// factory default of up to ~20 dBm (80).
+#define WIFI_BATTERY_MAX_TX_POWER_QUARTER_DBM 60
+
 // AI API Keys (for webapp client use)
 #define AI_API_KEY_MAX_LEN 256
 #define NVS_OPENAI_API_KEY_KEY "openai_key"
@@ -158,5 +206,21 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 // OTA Configuration
 #define GITHUB_API_URL "https://api.github.com/repos/aitjcize/esp32-photoframe/releases/latest"
 #define OTA_CHECK_INTERVAL_MS (24 * 60 * 60 * 1000)  // 24 hours
+#define NVS_OTA_CHECK_ENABLED_KEY "ota_check_en"
+
+// Telegram Bot API
+// Note: the real Telegram Bot API base is "https://api.telegram.org/bot<TOKEN>/<METHOD>"
+// (not "https://telegram.org<TOKEN>/..."). TELEGRAM_API_HOST + TELEGRAM_API_BASE_FMT
+// build that URL at runtime once the token is known.
+#define TELEGRAM_API_HOST "api.telegram.org"
+#define TELEGRAM_API_BASE_FMT "https://api.telegram.org/bot%s/%s"
+#define TELEGRAM_POLL_TIMEOUT_SEC 10    // long-poll timeout passed to getUpdates
+#define TELEGRAM_HTTP_TIMEOUT_MS 15000  // per-request HTTP timeout
+#define TELEGRAM_MAX_UPDATES_PER_POLL 50
+#define TELEGRAM_RESET_COMMAND "/telegram_reset"
+#define TELEGRAM_MAX_PENDING_COMMANDS 8
+#define TELEGRAM_COMMAND_MAX_LEN 128
+#define TELEGRAM_CAPTION_MAX_LEN 128
+#define TELEGRAM_FILE_ID_MAX_LEN 128
 
 #endif

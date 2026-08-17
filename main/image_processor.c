@@ -13,6 +13,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "fonts.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "jpeg_decoder.h"
@@ -1053,4 +1054,437 @@ image_format_t image_processor_detect_format(const char *input_path)
     }
 
     return IMAGE_FORMAT_UNKNOWN;
+}
+
+esp_err_t image_processor_peek_dimensions(const uint8_t *data, size_t size, image_format_t format,
+                                          int *out_width, int *out_height)
+{
+    if (!data || size == 0 || !out_width || !out_height) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (format == IMAGE_FORMAT_JPG) {
+        esp_jpeg_image_cfg_t jpeg_cfg = {.indata = (uint8_t *) data,
+                                         .indata_size = size,
+                                         .out_format = JPEG_IMAGE_FORMAT_RGB888,
+                                         .out_scale = JPEG_IMAGE_SCALE_0};
+        esp_jpeg_image_output_t outimg;
+        esp_err_t err = esp_jpeg_get_image_info(&jpeg_cfg, &outimg);
+        if (err != ESP_OK) {
+            return err;
+        }
+        *out_width = outimg.width;
+        *out_height = outimg.height;
+        return ESP_OK;
+    }
+
+    if (format == IMAGE_FORMAT_PNG) {
+        png_mem_read_t mem = {.data = data, .size = size, .offset = 0};
+
+        png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+        if (!png_ptr) {
+            return ESP_FAIL;
+        }
+        png_infop info_ptr = png_create_info_struct(png_ptr);
+        if (!info_ptr) {
+            png_destroy_read_struct(&png_ptr, NULL, NULL);
+            return ESP_FAIL;
+        }
+        if (setjmp(png_jmpbuf(png_ptr))) {
+            png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+            return ESP_FAIL;
+        }
+
+        png_set_read_fn(png_ptr, &mem, png_mem_read_callback);
+        png_read_info(png_ptr, info_ptr);
+        *out_width = png_get_image_width(png_ptr, info_ptr);
+        *out_height = png_get_image_height(png_ptr, info_ptr);
+
+        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+        return ESP_OK;
+    }
+
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t image_processor_compose_pair_to_rgb(const uint8_t *data_a, size_t size_a,
+                                              image_format_t format_a, const uint8_t *data_b,
+                                              size_t size_b, image_format_t format_b,
+                                              bool stack_vertically,
+                                              dither_algorithm_t dither_algorithm,
+                                              image_process_rgb_result_t *result)
+{
+    if (!data_a || !data_b || !result) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(result, 0, sizeof(*result));
+
+    uint8_t *rgb_a = NULL, *rgb_b = NULL;
+    int wa = 0, ha = 0, wb = 0, hb = 0;
+    esp_err_t err;
+
+    if (format_a == IMAGE_FORMAT_JPG) {
+        err = decode_jpg_buffer(data_a, size_a, &rgb_a, &wa, &ha);
+    } else if (format_a == IMAGE_FORMAT_PNG) {
+        err = decode_png_buffer(data_a, size_a, &rgb_a, &wa, &ha);
+    } else {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    if (format_b == IMAGE_FORMAT_JPG) {
+        err = decode_jpg_buffer(data_b, size_b, &rgb_b, &wb, &hb);
+    } else if (format_b == IMAGE_FORMAT_PNG) {
+        err = decode_png_buffer(data_b, size_b, &rgb_b, &wb, &hb);
+    } else {
+        heap_caps_free(rgb_a);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (err != ESP_OK) {
+        heap_caps_free(rgb_a);
+        return err;
+    }
+
+    int half_w = stack_vertically ? BOARD_HAL_DISPLAY_WIDTH : BOARD_HAL_DISPLAY_WIDTH / 2;
+    int half_h = stack_vertically ? BOARD_HAL_DISPLAY_HEIGHT / 2 : BOARD_HAL_DISPLAY_HEIGHT;
+
+    uint8_t *resized_a = resize_image(rgb_a, wa, ha, half_w, half_h);
+    heap_caps_free(rgb_a);
+    uint8_t *resized_b = resize_image(rgb_b, wb, hb, half_w, half_h);
+    heap_caps_free(rgb_b);
+
+    if (!resized_a || !resized_b) {
+        ESP_LOGE(TAG, "Failed to resize one or both images for pair composition");
+        if (resized_a)
+            heap_caps_free(resized_a);
+        if (resized_b)
+            heap_caps_free(resized_b);
+        return ESP_ERR_NO_MEM;
+    }
+
+    uint8_t *canvas = (uint8_t *) heap_caps_malloc(
+        (size_t) BOARD_HAL_DISPLAY_WIDTH * BOARD_HAL_DISPLAY_HEIGHT * 3, MALLOC_CAP_SPIRAM);
+    if (!canvas) {
+        ESP_LOGE(TAG, "Failed to allocate pair composition canvas");
+        heap_caps_free(resized_a);
+        heap_caps_free(resized_b);
+        return ESP_ERR_NO_MEM;
+    }
+
+    int b_off_x = stack_vertically ? 0 : half_w;
+    int b_off_y = stack_vertically ? half_h : 0;
+
+    for (int y = 0; y < half_h; y++) {
+        memcpy(&canvas[(y * BOARD_HAL_DISPLAY_WIDTH) * 3], &resized_a[y * half_w * 3],
+               (size_t) half_w * 3);
+        memcpy(&canvas[((b_off_y + y) * BOARD_HAL_DISPLAY_WIDTH + b_off_x) * 3],
+               &resized_b[y * half_w * 3], (size_t) half_w * 3);
+    }
+
+    heap_caps_free(resized_a);
+    heap_caps_free(resized_b);
+
+    ESP_LOGI(TAG, "Composed %dx%d pair canvas (%s)", BOARD_HAL_DISPLAY_WIDTH,
+             BOARD_HAL_DISPLAY_HEIGHT, stack_vertically ? "stacked" : "side-by-side");
+
+    uint8_t *processed = NULL;
+    int out_w = 0, out_h = 0;
+    err = process_rgb_buffer_core(canvas, BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT,
+                                  dither_algorithm, &processed, &out_w, &out_h);
+    if (canvas != processed) {
+        heap_caps_free(canvas);
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    result->rgb_data = processed;
+    result->rgb_size = (size_t) out_w * out_h * 3;
+    result->width = out_w;
+    result->height = out_h;
+    return ESP_OK;
+}
+
+// Blits one glyph from the fixed-width Font24 bitmap font (1bpp, MSB-first,
+// rows packed to ceil(Width/8) bytes) onto an RGB888 buffer.
+static void draw_glyph(uint8_t *rgb, int width, int height, int x, int y, char c, rgb_t color)
+{
+    if (c < ' ' || (unsigned char) c > 0x7E) {
+        return;  // outside the printable ASCII range covered by Font24
+    }
+
+    uint32_t bytes_per_row = Font24.Width / 8 + (Font24.Width % 8 ? 1 : 0);
+    uint32_t char_offset = (uint32_t) (c - ' ') * Font24.Height * bytes_per_row;
+    const uint8_t *ptr = &Font24.table[char_offset];
+
+    for (int row = 0; row < Font24.Height; row++) {
+        for (int col = 0; col < Font24.Width; col++) {
+            if (ptr[col / 8] & (0x80 >> (col % 8))) {
+                int px = x + col, py = y + row;
+                if (px >= 0 && px < width && py >= 0 && py < height) {
+                    int idx = (py * width + px) * 3;
+                    rgb[idx] = color.r;
+                    rgb[idx + 1] = color.g;
+                    rgb[idx + 2] = color.b;
+                }
+            }
+        }
+        ptr += bytes_per_row;
+    }
+}
+
+#define CAPTION_MAX_LINES 3
+#define CAPTION_LINE_MAX_CHARS 96
+#define CAPTION_LINE_PADDING 4
+
+// Telegram captions are UTF-8; Font24 only has bitmap glyphs for ASCII
+// (space..~). Transliterate the German umlauts/sz-ligature to ASCII digraphs
+// (still legible) and silently drop every other non-ASCII code point (emoji,
+// other accents, ...) - not worth carrying a Unicode-capable bitmap font for.
+static void sanitize_caption_ascii(const char *utf8, char *out, size_t out_len)
+{
+    size_t o = 0;
+    const unsigned char *p = (const unsigned char *) utf8;
+
+    while (*p != '\0' && o + 1 < out_len) {
+        unsigned char b0 = p[0];
+
+        if (b0 < 0x80) {
+            out[o++] = (char) b0;
+            p++;
+            continue;
+        }
+
+        uint32_t cp = 0;
+        int extra;
+        if ((b0 & 0xE0) == 0xC0) {
+            cp = b0 & 0x1F;
+            extra = 1;
+        } else if ((b0 & 0xF0) == 0xE0) {
+            cp = b0 & 0x0F;
+            extra = 2;
+        } else if ((b0 & 0xF8) == 0xF0) {
+            cp = b0 & 0x07;
+            extra = 3;
+        } else {
+            p++;  // stray continuation/invalid byte, skip
+            continue;
+        }
+
+        bool valid = true;
+        for (int i = 0; i < extra; i++) {
+            unsigned char cb = p[1 + i];
+            if ((cb & 0xC0) != 0x80) {
+                valid = false;
+                break;
+            }
+            cp = (cp << 6) | (cb & 0x3F);
+        }
+        if (!valid) {
+            p++;
+            continue;
+        }
+        p += 1 + extra;
+
+        const char *sub = NULL;
+        switch (cp) {
+        case 0x00E4:
+            sub = "ae";
+            break;  // ä
+        case 0x00F6:
+            sub = "oe";
+            break;  // ö
+        case 0x00FC:
+            sub = "ue";
+            break;  // ü
+        case 0x00C4:
+            sub = "Ae";
+            break;  // Ä
+        case 0x00D6:
+            sub = "Oe";
+            break;  // Ö
+        case 0x00DC:
+            sub = "Ue";
+            break;  // Ü
+        case 0x00DF:
+            sub = "ss";
+            break;  // ß
+        default:
+            break;  // everything else (accents, emoji, symbols, ...) dropped
+        }
+        for (const char *s = sub; s && *s != '\0' && o + 1 < out_len; s++) {
+            out[o++] = *s;
+        }
+    }
+    out[o] = '\0';
+}
+
+void image_processor_draw_caption(uint8_t *rgb_buffer, int width, int height, const char *caption)
+{
+    if (!rgb_buffer || !caption || caption[0] == '\0') {
+        return;
+    }
+
+    char ascii_caption[CAPTION_LINE_MAX_CHARS * CAPTION_MAX_LINES];
+    sanitize_caption_ascii(caption, ascii_caption, sizeof(ascii_caption));
+    if (ascii_caption[0] == '\0') {
+        return;  // nothing renderable left (e.g. an emoji-only caption)
+    }
+    caption = ascii_caption;
+
+    int chars_per_line = (width - 2 * CAPTION_LINE_PADDING) / Font24.Width;
+    if (chars_per_line < 1) {
+        return;  // display too narrow for this font, skip silently
+    }
+    if (chars_per_line > CAPTION_LINE_MAX_CHARS - 1) {
+        chars_per_line = CAPTION_LINE_MAX_CHARS - 1;
+    }
+
+    // Greedy word-wrap into up to CAPTION_MAX_LINES lines.
+    char lines[CAPTION_MAX_LINES][CAPTION_LINE_MAX_CHARS];
+    int line_count = 0;
+    char current[CAPTION_LINE_MAX_CHARS] = {0};
+    size_t current_len = 0;
+
+    const char *word_start = caption;
+    while (*word_start != '\0' && line_count < CAPTION_MAX_LINES) {
+        const char *word_end = word_start;
+        while (*word_end != '\0' && *word_end != ' ')
+            word_end++;
+        size_t word_len = (size_t) (word_end - word_start);
+        if (word_len > CAPTION_LINE_MAX_CHARS - 1) {
+            word_len = CAPTION_LINE_MAX_CHARS - 1;  // clip an absurdly long "word"
+        }
+
+        size_t needed = current_len + (current_len > 0 ? 1 : 0) + word_len;
+        if ((int) needed > chars_per_line && current_len > 0) {
+            strncpy(lines[line_count], current, CAPTION_LINE_MAX_CHARS - 1);
+            lines[line_count][CAPTION_LINE_MAX_CHARS - 1] = '\0';
+            line_count++;
+            current_len = 0;
+            current[0] = '\0';
+            if (line_count >= CAPTION_MAX_LINES) {
+                break;
+            }
+        }
+        if (current_len > 0) {
+            current[current_len++] = ' ';
+        }
+        memcpy(current + current_len, word_start, word_len);
+        current_len += word_len;
+        current[current_len] = '\0';
+
+        word_start = (*word_end == ' ') ? word_end + 1 : word_end;
+    }
+    if (line_count < CAPTION_MAX_LINES && current_len > 0) {
+        strncpy(lines[line_count], current, CAPTION_LINE_MAX_CHARS - 1);
+        lines[line_count][CAPTION_LINE_MAX_CHARS - 1] = '\0';
+        line_count++;
+    }
+
+    if (line_count == 0) {
+        return;
+    }
+
+    // Mark truncation with an ellipsis if there's leftover text.
+    if (*word_start != '\0') {
+        char *last = lines[line_count - 1];
+        size_t len = strlen(last);
+        size_t max_len = (size_t) chars_per_line;
+        if (len + 3 > max_len) {
+            len = (max_len > 3) ? max_len - 3 : 0;
+        }
+        last[len] = '\0';
+        strcat(last, "...");
+    }
+
+    int bar_height = line_count * (Font24.Height + CAPTION_LINE_PADDING) + CAPTION_LINE_PADDING;
+    if (bar_height > height) {
+        bar_height = height;
+    }
+    int bar_top = height - bar_height;
+
+    // Output in the exact theoretical palette values (matches what the
+    // dithering step already wrote) so the image stays a valid "processed"
+    // buffer: black bar, white text.
+    rgb_t bg = palette[0];
+    rgb_t fg = palette[1];
+
+    for (int y = bar_top; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int idx = (y * width + x) * 3;
+            rgb_buffer[idx] = bg.r;
+            rgb_buffer[idx + 1] = bg.g;
+            rgb_buffer[idx + 2] = bg.b;
+        }
+    }
+
+    for (int i = 0; i < line_count; i++) {
+        int text_width = (int) strlen(lines[i]) * Font24.Width;
+        int x = (width - text_width) / 2;
+        if (x < CAPTION_LINE_PADDING) {
+            x = CAPTION_LINE_PADDING;
+        }
+        int y = bar_top + CAPTION_LINE_PADDING + i * (Font24.Height + CAPTION_LINE_PADDING);
+        for (const char *p = lines[i]; *p != '\0'; p++) {
+            draw_glyph(rgb_buffer, width, height, x, y, *p, fg);
+            x += Font24.Width;
+        }
+    }
+}
+
+esp_err_t image_processor_add_caption_to_file(const char *png_path, const char *caption)
+{
+    if (!caption || caption[0] == '\0') {
+        return ESP_OK;
+    }
+    if (!png_path) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    FILE *fp = fopen(png_path, "rb");
+    if (!fp) {
+        ESP_LOGE(TAG, "Failed to open %s for caption overlay", png_path);
+        return ESP_FAIL;
+    }
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    uint8_t *file_buffer = (uint8_t *) heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
+    if (!file_buffer) {
+        fclose(fp);
+        return ESP_ERR_NO_MEM;
+    }
+    size_t read_bytes = fread(file_buffer, 1, file_size, fp);
+    fclose(fp);
+    if (read_bytes != (size_t) file_size) {
+        heap_caps_free(file_buffer);
+        return ESP_FAIL;
+    }
+
+    uint8_t *rgb_buffer = NULL;
+    int width = 0, height = 0;
+    esp_err_t err = decode_png_buffer(file_buffer, file_size, &rgb_buffer, &width, &height);
+    heap_caps_free(file_buffer);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    image_processor_draw_caption(rgb_buffer, width, height, caption);
+
+    err = write_png_file(png_path, rgb_buffer, width, height);
+    heap_caps_free(rgb_buffer);
+    return err;
+}
+
+esp_err_t image_processor_write_rgb_to_png(const uint8_t *rgb_buffer, int width, int height,
+                                           const char *output_path)
+{
+    if (!rgb_buffer || !output_path || width <= 0 || height <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return write_png_file(output_path, (uint8_t *) rgb_buffer, width, height);
 }

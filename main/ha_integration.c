@@ -40,6 +40,9 @@ static esp_err_t ha_http_event_handler(esp_http_client_event_t *evt)
 
 bool ha_is_configured(void)
 {
+    if (!config_manager_get_ha_enabled()) {
+        return false;
+    }
     const char *ha_url = config_manager_get_ha_url();
     return (ha_url != NULL && strlen(ha_url) > 0);
 }

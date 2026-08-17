@@ -118,6 +118,63 @@ const char *config_manager_get_image_etag(void);
 void config_manager_set_ha_url(const char *url);
 const char *config_manager_get_ha_url(void);
 
+// Master switch for all Home Assistant integration (online/offline/update
+// notifications and the rotation-veto piggyback). Defaults to false on a
+// fresh device; a device upgrading from a firmware version that predates
+// this switch keeps HA enabled automatically if a ha_url was already
+// configured, so existing setups don't silently break.
+void config_manager_set_ha_enabled(bool enabled);
+bool config_manager_get_ha_enabled(void);
+
+// ============================================================================
+// Telegram Bot
+// ============================================================================
+
+void config_manager_set_telegram_bot_token(const char *token);
+const char *config_manager_get_telegram_bot_token(void);
+
+void config_manager_set_telegram_chat_id(const char *chat_id);
+const char *config_manager_get_telegram_chat_id(void);
+
+// True once both a bot token and a chat ID are configured.
+bool config_manager_telegram_is_configured(void);
+
+// Highest Telegram update_id processed so far (0 = none yet). The next
+// getUpdates poll should request offset = value + 1.
+void config_manager_set_telegram_last_update_id(int64_t update_id);
+int64_t config_manager_get_telegram_last_update_id(void);
+
+// Orientation-pairing mode: combine two mismatched-orientation Telegram
+// photos into one composed image instead of ever showing one alone.
+// Togglable via the web UI and the "/pairing" bot command.
+void config_manager_set_telegram_pairing_enabled(bool enabled);
+bool config_manager_get_telegram_pairing_enabled(void);
+
+// Queue of images waiting for an orientation partner (FIFO - oldest first).
+// Every mismatched image is appended here, not just one, so nothing is lost
+// if several arrive before a partner shows up. Persisted so it survives deep
+// sleep even on MemFS-only boards where the files themselves won't (callers
+// should stat() before trusting a path is still there).
+void config_manager_add_telegram_pending_image(const char *path, const char *caption);
+int config_manager_get_telegram_pending_image_count(void);
+bool config_manager_get_telegram_pending_image_at(int index, char *path_out, size_t path_out_len,
+                                                  char *caption_out, size_t caption_out_len);
+void config_manager_remove_telegram_pending_image_at(int index);
+// Clears the tracking queue only - does NOT delete the underlying files
+// (they remain on storage like any other received image).
+void config_manager_clear_telegram_pending_images(void);
+
+// Whether a low-battery Telegram warning has already been sent for the
+// current discharge episode (cleared once the battery recovers), so the
+// warning fires once rather than on every poll.
+void config_manager_set_telegram_low_battery_warned(bool warned);
+bool config_manager_get_telegram_low_battery_warned(void);
+
+// Wake-up status ping (SSID/IP/battery/wake reason/rotation schedule) sent to
+// Telegram on every poll, even when there are no new updates.
+void config_manager_set_telegram_wake_notify_enabled(bool enabled);
+bool config_manager_get_telegram_wake_notify_enabled(void);
+
 // ============================================================================
 // AI API Keys
 // ============================================================================
@@ -127,6 +184,39 @@ const char *config_manager_get_openai_api_key(void);
 
 void config_manager_set_google_api_key(const char *key);
 const char *config_manager_get_google_api_key(void);
+
+// ============================================================================
+// Error overlay / WiFi failure tracking
+// ============================================================================
+
+// On-display error overlay for persistent failures (currently: repeated WiFi
+// connect failure on a scheduled wake). Togglable via web UI and bot command.
+void config_manager_set_error_overlay_enabled(bool enabled);
+bool config_manager_get_error_overlay_enabled(void);
+
+// Consecutive scheduled-wake WiFi connection failures (reset to 0 on any
+// success). Persisted so it survives deep sleep between wakes.
+void config_manager_set_wifi_fail_count(int count);
+int config_manager_get_wifi_fail_count(void);
+
+// ============================================================================
+// WiFi
+// ============================================================================
+
+// When false, WiFi always stays in power-save mode regardless of the
+// interactive/USB-triggered "full RX" policy in power_manager - lower draw,
+// slower web UI. Defaults to true (existing tiered behavior unchanged).
+void config_manager_set_wifi_performance_mode_enabled(bool enabled);
+bool config_manager_get_wifi_performance_mode_enabled(void);
+
+// ============================================================================
+// OTA
+// ============================================================================
+
+// Automatic OTA checks (periodic + cold-boot). A manual "check now" from the
+// web UI is unaffected by this setting.
+void config_manager_set_ota_check_enabled(bool enabled);
+bool config_manager_get_ota_check_enabled(void);
 
 // ============================================================================
 // Power

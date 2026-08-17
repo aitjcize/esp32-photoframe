@@ -34,3 +34,13 @@ demo/waveshare_photopainter_73
 demo/seeedstudio_xiao_ee02
 demo/seeedstudio_xiao_ee04
 demo/seeedstudio_reterminal_e1002
+
+# Local-only debug artifacts - device coredumps/logs can contain WiFi/device
+# details and must never be committed; never commit these.
+photoframe-debug*.log*
+CoreDUMP*.7z
+_BuildCMD.txt
+
+# Local editor/tool configs - not project-wide settings
+.claude/
+.vscode/

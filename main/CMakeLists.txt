@@ -19,6 +19,7 @@ set(SOURCES
     "splash_screen.c"
     "storage.c"
     "cron.c"
+    "telegram_bot.c"
     "utils.c"
     "wifi_manager.c"
     "wifi_provisioning.c"

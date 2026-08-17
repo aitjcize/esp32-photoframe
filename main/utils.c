@@ -27,6 +27,7 @@
 #include "power_manager.h"
 #include "processing_settings.h"
 #include "storage.h"
+#include "telegram_bot.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "utils";
@@ -367,6 +368,8 @@ esp_err_t apply_config_from_json(cJSON *root)
         rotation_mode_t mode = ROTATION_MODE_STORAGE;
         if (strcmp(mode_str, "url") == 0)
             mode = ROTATION_MODE_URL;
+        else if (strcmp(mode_str, "telegram") == 0)
+            mode = ROTATION_MODE_TELEGRAM;
         // Backwards compatibility: accept "sdcard" as alias for "storage"
         if (strcmp(mode_str, "sdcard") == 0)
             mode = ROTATION_MODE_STORAGE;
@@ -437,6 +440,52 @@ esp_err_t apply_config_from_json(cJSON *root)
         config_manager_set_ha_url(cJSON_GetStringValue(item));
     }
 
+    item = cJSON_GetObjectItem(root, "ha_enabled");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_ha_enabled(cJSON_IsTrue(item));
+    }
+
+    // Telegram Bot
+    item = cJSON_GetObjectItem(root, "telegram_bot_token");
+    if (item && cJSON_IsString(item)) {
+        config_manager_set_telegram_bot_token(cJSON_GetStringValue(item));
+    }
+
+    item = cJSON_GetObjectItem(root, "telegram_chat_id");
+    if (item && cJSON_IsString(item)) {
+        const char *chat_id = cJSON_GetStringValue(item);
+        // Must be empty (clearing) or a plain integer (optionally negative -
+        // Telegram uses negative IDs for groups/supergroups).
+        bool valid = true;
+        for (size_t i = 0; chat_id[i] != '\0' && valid; i++) {
+            if (chat_id[i] == '-' && i == 0) {
+                continue;
+            }
+            if (chat_id[i] < '0' || chat_id[i] > '9') {
+                valid = false;
+            }
+        }
+        if (!valid) {
+            utils_set_config_error("Telegram chat ID must be a numeric ID");
+            return ESP_FAIL;
+        }
+        config_manager_set_telegram_chat_id(chat_id);
+    }
+
+    item = cJSON_GetObjectItem(root, "telegram_pairing_enabled");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_telegram_pairing_enabled(cJSON_IsTrue(item));
+        if (!cJSON_IsTrue(item)) {
+            // Clears the tracking queue only - files stay on storage.
+            config_manager_clear_telegram_pending_images();
+        }
+    }
+
+    item = cJSON_GetObjectItem(root, "telegram_wake_notify_enabled");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_telegram_wake_notify_enabled(cJSON_IsTrue(item));
+    }
+
     // AI API Keys
     item = cJSON_GetObjectItem(root, "openai_api_key");
     if (item && cJSON_IsString(item)) {
@@ -458,6 +507,24 @@ esp_err_t apply_config_from_json(cJSON *root)
     item = cJSON_GetObjectItem(root, "debug_log_enabled");
     if (item && cJSON_IsBool(item)) {
         debug_log_set_enabled(cJSON_IsTrue(item));
+    }
+
+    // OTA
+    item = cJSON_GetObjectItem(root, "ota_check_enabled");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_ota_check_enabled(cJSON_IsTrue(item));
+    }
+
+    // Error overlay
+    item = cJSON_GetObjectItem(root, "error_overlay_enabled");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_error_overlay_enabled(cJSON_IsTrue(item));
+    }
+
+    // WiFi performance mode
+    item = cJSON_GetObjectItem(root, "wifi_performance_mode_enabled");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_wifi_performance_mode_enabled(cJSON_IsTrue(item));
     }
 
     return ESP_OK;
@@ -1146,12 +1213,103 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
     return ESP_OK;
 }
 
+// Overlays a short message on the currently displayed image WITHOUT modifying
+// the original saved file: copies it to the scratch PNG path first, draws the
+// caption there, and displays the copy.
+static void display_error_overlay(const char *message)
+{
+    const char *current_image = display_manager_get_current_image();
+    if (!current_image || current_image[0] == '\0') {
+        ESP_LOGW(TAG, "No current image to overlay error onto, skipping");
+        return;
+    }
+
+    image_format_t format = image_processor_detect_format(current_image);
+    if (format != IMAGE_FORMAT_PNG || !image_processor_is_processed(current_image)) {
+        ESP_LOGW(TAG, "Current image %s is not an overlay-ready processed PNG, skipping",
+                 current_image);
+        return;
+    }
+
+    FILE *src = fopen(current_image, "rb");
+    if (!src) {
+        ESP_LOGE(TAG, "Failed to open %s for error overlay", current_image);
+        return;
+    }
+    FILE *dst = fopen(CURRENT_PNG_PATH, "wb");
+    if (!dst) {
+        fclose(src);
+        ESP_LOGE(TAG, "Failed to open %s for error overlay", CURRENT_PNG_PATH);
+        return;
+    }
+    char buf[512];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), src)) > 0) {
+        fwrite(buf, 1, n, dst);
+    }
+    fclose(src);
+    fclose(dst);
+
+    image_processor_add_caption_to_file(CURRENT_PNG_PATH, message);
+    display_manager_show_image(CURRENT_PNG_PATH);
+    ESP_LOGW(TAG, "Displayed error overlay: %s", message);
+}
+
+void utils_handle_wifi_connect_result(bool connected)
+{
+    if (connected) {
+        if (config_manager_get_wifi_fail_count() != 0) {
+            config_manager_set_wifi_fail_count(0);
+        }
+        return;
+    }
+
+    int count = config_manager_get_wifi_fail_count() + 1;
+    config_manager_set_wifi_fail_count(count);
+    ESP_LOGW(TAG, "WiFi connect failed (%d consecutive)", count);
+
+    if (!config_manager_get_error_overlay_enabled() || count < WIFI_FAIL_OVERLAY_THRESHOLD) {
+        return;
+    }
+
+    char caption[96];
+    snprintf(caption, sizeof(caption), "Fehler: Keine WLAN-Verbindung (%dx in Folge)", count);
+    display_error_overlay(caption);
+}
+
 esp_err_t trigger_image_rotation(void)
 {
     rotation_mode_t rotation_mode = config_manager_get_rotation_mode();
     esp_err_t result = ESP_OK;
 
-    if (rotation_mode == ROTATION_MODE_URL) {
+    if (rotation_mode == ROTATION_MODE_TELEGRAM) {
+        // Telegram mode - poll getUpdates, download+display the newest image
+        // (with progressive-size fallback), queue any "/" commands.
+        telegram_poll_result_t poll_result = TELEGRAM_POLL_ERROR;
+        esp_err_t poll_err = telegram_bot_poll(&poll_result);
+
+        if (poll_result == TELEGRAM_POLL_RESET) {
+            // Emergency "/telegram_reset": the queue was already cleared and
+            // acknowledged inside telegram_bot_poll() - skip HA notify, the
+            // post-rotate HTTP window, everything, and sleep right now.
+            ESP_LOGW(TAG, "Telegram emergency reset - entering deep sleep immediately");
+            power_manager_enter_sleep();
+            // Not reached.
+        }
+
+        if (poll_err == ESP_OK) {
+            utils_set_last_fetch_error(NULL);
+            result = ESP_OK;
+        } else {
+            const char *reason = (poll_result == TELEGRAM_POLL_NOT_CONFIGURED)
+                                     ? "Telegram bot not configured"
+                                     : "Telegram poll failed";
+            ESP_LOGW(TAG, "%s, falling back to local rotation", reason);
+            utils_set_last_fetch_error(reason);
+            display_manager_rotate_from_storage();
+            result = ESP_FAIL;
+        }
+    } else if (rotation_mode == ROTATION_MODE_URL) {
         // URL mode - fetch image from URL
         const char *image_url = config_manager_get_image_url();
         ESP_LOGI(TAG, "URL rotation mode - downloading from: %s", image_url);

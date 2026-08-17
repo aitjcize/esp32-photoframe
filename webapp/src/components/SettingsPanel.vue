@@ -134,7 +134,10 @@ const rotationOptions = [
 ];
 
 const rotationModeOptions = computed(() => {
-  const options = [{ title: "URL - Fetch image from URL", value: "url" }];
+  const options = [
+    { title: "URL - Fetch image from URL", value: "url" },
+    { title: "Telegram - Receive images via Telegram bot", value: "telegram" },
+  ];
   if (appStore.systemInfo.sdcard_inserted || appStore.systemInfo.has_flash_storage) {
     options.unshift({ title: "Storage - Rotate through images", value: "storage" });
   }
@@ -714,6 +717,98 @@ async function performFactoryReset() {
                   </v-card-text>
                 </v-card>
               </v-expand-transition>
+
+              <v-expand-transition>
+                <v-card
+                  v-if="
+                    settingsStore.deviceSettings.autoRotate &&
+                    settingsStore.deviceSettings.rotationMode === 'telegram'
+                  "
+                  variant="tonal"
+                  class="mb-4"
+                >
+                  <v-card-text>
+                    <v-chip
+                      :color="settingsStore.deviceSettings.telegramConfigured ? 'success' : 'warning'"
+                      size="small"
+                      variant="tonal"
+                      class="mb-4"
+                    >
+                      <v-icon start>{{
+                        settingsStore.deviceSettings.telegramConfigured
+                          ? "mdi-check-circle"
+                          : "mdi-alert-circle-outline"
+                      }}</v-icon>
+                      {{
+                        settingsStore.deviceSettings.telegramConfigured
+                          ? "Telegram bot configured"
+                          : "Bot token and chat ID required"
+                      }}
+                    </v-chip>
+
+                    <v-text-field
+                      v-model="settingsStore.deviceSettings.telegramBotToken"
+                      label="Telegram Bot Token"
+                      variant="outlined"
+                      hint="From @BotFather, e.g. 123456789:AAbecomes..."
+                      persistent-hint
+                      class="mb-4"
+                    />
+
+                    <v-text-field
+                      v-model="settingsStore.deviceSettings.telegramChatId"
+                      label="Telegram Chat ID"
+                      variant="outlined"
+                      hint="Only messages from this numeric chat/group ID are processed"
+                      persistent-hint
+                      class="mb-4"
+                    />
+
+                    <v-switch
+                      v-model="settingsStore.deviceSettings.telegramPairingEnabled"
+                      label="Combine mismatched-orientation photos instead of showing one alone"
+                      color="primary"
+                      class="mb-2"
+                      hide-details
+                    />
+                    <div class="text-caption text-medium-emphasis mb-4">
+                      Two portrait photos on a landscape frame (or two landscape photos on a
+                      portrait frame) are combined side by side / stacked. A lone mismatched
+                      photo is held back until its partner arrives. Also togglable via the
+                      "/pairing" bot command.
+                    </div>
+
+                    <v-switch
+                      v-model="settingsStore.deviceSettings.telegramWakeNotifyEnabled"
+                      label="Send a status ping on every wake"
+                      color="primary"
+                      class="mb-2"
+                      hide-details
+                    />
+                    <div class="text-caption text-medium-emphasis mb-4">
+                      Sends SSID, IP, battery, reset/wake reason and rotation schedule to the bot
+                      on every poll, even when there are no new messages. Also togglable via the
+                      "/wake_notify" bot command.
+                    </div>
+
+                    <v-alert
+                      v-if="settingsStore.deviceSettings.lastFetchError"
+                      type="error"
+                      variant="tonal"
+                      density="compact"
+                      class="mb-2"
+                    >
+                      Last fetch error: {{ settingsStore.deviceSettings.lastFetchError }}
+                    </v-alert>
+
+                    <div class="text-caption text-medium-emphasis">
+                      Send a photo or image file to the bot, or a "/" command
+                      (/status, /restart, /clear). Send /telegram_reset to
+                      immediately clear a stuck message queue.
+                    </div>
+                  </v-card-text>
+                </v-card>
+              </v-expand-transition>
             </div>
           </v-tabs-window-item>
 
@@ -737,10 +832,59 @@ async function performFactoryReset() {
                 power consumption. Only disable if permanently powered via USB.
               </v-alert>
             </v-expand-transition>
+
+            <v-switch
+              v-model="settingsStore.deviceSettings.otaCheckEnabled"
+              label="Enable automatic update checks"
+              color="primary"
+              class="mb-2 mt-4"
+              hide-details
+            />
+            <div class="text-caption text-medium-emphasis mb-4">
+              Checks for a new firmware release once a day and on every cold boot. A manually
+              triggered "Check for updates" (below) always works regardless of this setting.
+              Useful to turn off for self-built/dev firmware, which otherwise always reports an
+              "update available".
+            </div>
+
+            <v-switch
+              v-model="settingsStore.deviceSettings.wifiPerformanceModeEnabled"
+              label="Enable WiFi performance mode"
+              color="primary"
+              class="mb-2"
+              hide-details
+            />
+            <div class="text-caption text-medium-emphasis mb-4">
+              When on (default), the frame automatically switches to full WiFi receive power
+              (~60-70 mA extra draw, but a much snappier web UI) whenever someone might be
+              looking - an interactive wake or USB power - and drops back to WiFi power-save
+              otherwise. Turn off to always stay in power-save, even during interactive use,
+              trading web UI responsiveness for lower battery draw.
+            </div>
+
+            <v-switch
+              v-model="settingsStore.deviceSettings.errorOverlayEnabled"
+              label="Show error overlay on display for persistent failures"
+              color="primary"
+              hide-details
+            />
+            <div class="text-caption text-medium-emphasis">
+              After 3 consecutive failed WiFi connection attempts on a scheduled wake, overlays a
+              short error message on the currently displayed image (without modifying the saved
+              file) so the problem is visible on the frame itself, not just in logs. Also
+              togglable via the "/error_overlay" Telegram bot command.
+            </div>
           </v-tabs-window-item>
 
           <!-- Home Assistant Tab -->
           <v-tabs-window-item class="mt-2" value="homeAssistant">
+            <v-switch
+              v-model="settingsStore.deviceSettings.haEnabled"
+              label="Enable Home Assistant integration"
+              color="primary"
+              class="mb-4"
+              hide-details
+            />
             <v-text-field
               v-model="settingsStore.deviceSettings.haUrl"
               label="Home Assistant URL"
@@ -748,6 +892,7 @@ async function performFactoryReset() {
               placeholder="http://homeassistant.local:8123"
               hint="Configure for dynamic image serving and battery level reporting"
               persistent-hint
+              :disabled="!settingsStore.deviceSettings.haEnabled"
             />
           </v-tabs-window-item>
 

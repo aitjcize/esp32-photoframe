@@ -7,6 +7,7 @@
 #include "board_hal.h"
 #include "cJSON.h"
 #include "config.h"
+#include "config_manager.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
@@ -539,6 +540,13 @@ void ota_update_last_check_time(void)
 
 static esp_err_t ota_check_periodic_callback(void)
 {
+    if (!config_manager_get_ota_check_enabled()) {
+        ESP_LOGI(TAG, "Automatic OTA check disabled, skipping periodic check");
+        // Still counts as "run" so it doesn't retry every wake while disabled.
+        ota_update_last_check_time();
+        return ESP_OK;
+    }
+
     ESP_LOGI(TAG, "Periodic OTA check triggered");
 
     // Check for updates without notifying HA (HA will poll for status)

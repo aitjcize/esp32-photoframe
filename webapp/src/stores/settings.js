@@ -46,12 +46,22 @@ export const useSettingsStore = defineStore("settings", () => {
     httpHeaderKey: "",
     httpHeaderValue: "",
     saveDownloadedImages: true,
+    // Auto Rotate - Telegram
+    telegramBotToken: "",
+    telegramChatId: "",
+    telegramConfigured: false,
+    telegramPairingEnabled: true,
+    telegramWakeNotifyEnabled: false,
     // Home Assistant
     haUrl: "",
+    haEnabled: false,
     // Power
     deepSleepEnabled: true,
+    otaCheckEnabled: true,
+    wifiPerformanceModeEnabled: true,
     // Debugging
     debugLogEnabled: false,
+    errorOverlayEnabled: false,
     // AI API Keys (for client-side AI generation)
     aiCredentials: {
       openaiApiKey: "",
@@ -191,8 +201,12 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.caCertSet = data.ca_cert_set || false;
       deviceSettings.value.lastFetchError = data.last_fetch_error || "";
       deviceSettings.value.deepSleepEnabled = data.deep_sleep_enabled !== false;
+      deviceSettings.value.otaCheckEnabled = data.ota_check_enabled !== false;
+      deviceSettings.value.wifiPerformanceModeEnabled = data.wifi_performance_mode_enabled !== false;
       deviceSettings.value.debugLogEnabled = data.debug_log_enabled === true;
+      deviceSettings.value.errorOverlayEnabled = data.error_overlay_enabled === true;
       deviceSettings.value.haUrl = data.ha_url || "";
+      deviceSettings.value.haEnabled = data.ha_enabled === true;
       deviceSettings.value.saveDownloadedImages = data.save_downloaded_images !== false;
       deviceSettings.value.accessToken = data.access_token || "";
       deviceSettings.value.httpHeaderKey = data.http_header_key || "";
@@ -201,6 +215,11 @@ export const useSettingsStore = defineStore("settings", () => {
       appliedOrientation.value = deviceSettings.value.displayOrientation;
       deviceSettings.value.rotationMode = data.rotation_mode || "storage";
       deviceSettings.value.sdRotationMode = data.sd_rotation_mode || "random";
+      deviceSettings.value.telegramBotToken = data.telegram_bot_token || "";
+      deviceSettings.value.telegramChatId = data.telegram_chat_id || "";
+      deviceSettings.value.telegramConfigured = data.telegram_configured === true;
+      deviceSettings.value.telegramWakeNotifyEnabled = data.telegram_wake_notify_enabled === true;
+      deviceSettings.value.telegramPairingEnabled = data.telegram_pairing_enabled !== false;
       deviceSettings.value.deviceName = data.device_name || "PhotoFrame";
       deviceSettings.value.ntpServer = data.ntp_server || "pool.ntp.org";
       deviceSettings.value.ipMode = data.ip_mode || "dhcp";
@@ -256,9 +275,17 @@ export const useSettingsStore = defineStore("settings", () => {
       rotation_mode: deviceSettings.value.rotationMode,
       sd_rotation_mode: deviceSettings.value.sdRotationMode,
       image_url: deviceSettings.value.imageUrl,
+      telegram_bot_token: deviceSettings.value.telegramBotToken,
+      telegram_chat_id: deviceSettings.value.telegramChatId,
+      telegram_pairing_enabled: deviceSettings.value.telegramPairingEnabled,
+      telegram_wake_notify_enabled: deviceSettings.value.telegramWakeNotifyEnabled,
       ha_url: deviceSettings.value.haUrl,
+      ha_enabled: deviceSettings.value.haEnabled,
       deep_sleep_enabled: deviceSettings.value.deepSleepEnabled,
+      ota_check_enabled: deviceSettings.value.otaCheckEnabled,
+      wifi_performance_mode_enabled: deviceSettings.value.wifiPerformanceModeEnabled,
       debug_log_enabled: deviceSettings.value.debugLogEnabled,
+      error_overlay_enabled: deviceSettings.value.errorOverlayEnabled,
       save_downloaded_images: deviceSettings.value.saveDownloadedImages,
       display_orientation: deviceSettings.value.displayOrientation,
       device_name: deviceSettings.value.deviceName,

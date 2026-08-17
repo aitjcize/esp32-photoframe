@@ -43,6 +43,13 @@ const char *utils_consume_config_error(void);
 esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path, size_t path_size,
                                         bool *not_modified);
 
+// Tracks consecutive scheduled-wake WiFi connection failures. Call with the
+// result of every connect attempt in the deep-sleep wake path; once the
+// count reaches WIFI_FAIL_OVERLAY_THRESHOLD, overlays a short error message
+// on the currently displayed image (if the error-overlay setting is
+// enabled) so a problem is visible on the frame itself, not just in logs.
+void utils_handle_wifi_connect_result(bool connected);
+
 // Trigger image rotation based on configured rotation mode
 // Handles both URL and SD card rotation modes
 // Returns ESP_OK on success, error code on failure

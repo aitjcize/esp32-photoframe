@@ -66,6 +66,15 @@ async function deleteImage() {
 function getThumbnailUrl(image) {
   return `/api/image?filepath=${encodeURIComponent(image.album + "/" + image.thumbnail)}`;
 }
+
+// Loading many thumbnails at once noticeably slows down the device's own
+// HTTP server, so thumbnail rendering in the grid defaults to off; the
+// preference is remembered per-browser (not synced to the device).
+const showThumbnails = ref(localStorage.getItem("photoframe_show_thumbnails") === "true");
+function onShowThumbnailsChange(val) {
+  showThumbnails.value = val;
+  localStorage.setItem("photoframe_show_thumbnails", val ? "true" : "false");
+}
 </script>
 
 <template>
@@ -128,6 +137,15 @@ function getThumbnailUrl(image) {
         <v-spacer />
         <v-progress-circular v-if="displayLoading" indeterminate size="24" class="mr-2" />
         <span v-if="displayLoading" class="text-body-2 text-grey"> Updating display... </span>
+        <v-switch
+          :model-value="showThumbnails"
+          label="Show thumbnails"
+          color="primary"
+          density="compact"
+          hide-details
+          class="flex-grow-0 ml-2"
+          @update:model-value="onShowThumbnailsChange"
+        />
       </div>
 
       <div v-if="appStore.loading.images" class="d-flex justify-center align-center py-12">
@@ -146,6 +164,7 @@ function getThumbnailUrl(image) {
           >
             <v-card variant="outlined" class="image-card">
               <v-img
+                v-if="showThumbnails"
                 :src="getThumbnailUrl(image)"
                 :alt="image.filename"
                 aspect-ratio="1"
@@ -159,6 +178,17 @@ function getThumbnailUrl(image) {
                   </div>
                 </template>
               </v-img>
+              <div
+                v-else
+                class="d-flex flex-column align-center justify-center cursor-pointer bg-grey-lighten-3 pa-2 thumbnail-placeholder"
+                style="aspect-ratio: 1"
+                @click="confirmDisplayImage(image)"
+              >
+                <v-icon icon="mdi-image-outline" size="32" color="grey" />
+                <span class="text-caption text-grey text-truncate" style="max-width: 100%">{{
+                  image.filename
+                }}</span>
+              </div>
               <div class="delete-hotspot">
                 <v-btn
                   icon="mdi-delete"
