@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "board_hal.h"
 #include "config.h"
 #include "config_manager.h"
 #include "esp_event.h"
@@ -221,6 +222,23 @@ esp_err_t wifi_manager_connect(const char *ssid, const char *password)
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+
+    // On battery, associating with an AP draws a brief high-current TX burst
+    // that a marginal battery/PMIC rail may not sustain without a voltage dip
+    // severe enough to glitch a concurrent SPI flash/PSRAM read (a real ESP32
+    // failure mode: it can trigger a CPU exception without ever tripping the
+    // brownout detector's own reset). Capping TX power measurably lowers that
+    // peak, at some cost to range - only applied off USB, where the extra
+    // headroom isn't needed. Best-effort: failure here shouldn't block
+    // connecting at default power.
+    if (!board_hal_is_usb_connected()) {
+        esp_err_t tx_err = esp_wifi_set_max_tx_power(WIFI_BATTERY_MAX_TX_POWER_QUARTER_DBM);
+        if (tx_err != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to cap TX power for battery operation: %s",
+                     esp_err_to_name(tx_err));
+        }
+    }
+
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));  // Enable power save at boot/connect
 
     s_retry_num = 0;

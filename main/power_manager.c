@@ -115,7 +115,11 @@ static void sleep_timer_task(void *arg)
         bool usb_powered = board_hal_is_usb_connected();
         bool interactive_wake =
             (wakeup_source == WAKEUP_SOURCE_BOOT_BUTTON || wakeup_source == WAKEUP_SOURCE_NONE);
-        if (config_manager_get_deep_sleep_enabled()) {
+        if (!config_manager_get_wifi_performance_mode_enabled()) {
+            // User override: always stay in power-save, regardless of the
+            // tiered policy below (lower draw, slower web UI).
+            wifi_manager_set_performance_mode(false);
+        } else if (config_manager_get_deep_sleep_enabled()) {
             wifi_manager_set_performance_mode(interactive_wake || usb_powered);
         } else {
             wifi_manager_set_performance_mode(usb_powered);
@@ -179,20 +183,26 @@ static void power_manager_enable_auto_light_sleep(void)
     // and scale CPU frequency down to save power while maintaining WiFi connectivity
     esp_pm_config_t pm_config = {
         .max_freq_mhz = 160,  // Maximum CPU frequency (160MHz for ESP32-S3)
-        .min_freq_mhz = 40,   // Minimum CPU frequency (40MHz when idle)
 #ifdef BOARD_HAL_DISABLE_AUTO_LIGHT_SLEEP
-        // This board shares the SPI bus between the e-paper panel and the SD
-        // card; automatic light sleep disturbs the bus mid-transaction and
-        // corrupts SD reads. Keep CPU frequency scaling, but no light sleep.
+        // Pinning min == max disables esp_pm's dynamic frequency scaling
+        // outright, not just light sleep. Coredumps on this board show the
+        // crash (spinlock_acquire assert in esp_pm_impl_isr_hook ->
+        // leave_idle -> esp_pm_lock_acquire) still happens with light sleep
+        // off as long as min/max differ, i.e. DFS's lock/ISR-hook machinery
+        // is itself the trigger when a WiFi interrupt lands mid-transition,
+        // not specifically the light-sleep transition.
+        .min_freq_mhz = 160,
         .light_sleep_enable = false,
 #else
+        .min_freq_mhz = 40,   // Minimum CPU frequency (40MHz when idle)
         .light_sleep_enable = true,  // Enable automatic light sleep
 #endif
     };
 
     esp_err_t pm_ret = esp_pm_configure(&pm_config);
     if (pm_ret == ESP_OK) {
-        ESP_LOGI(TAG, "Power management configured (CPU: 160MHz -> 40MHz, light sleep %s)",
+        ESP_LOGI(TAG, "Power management configured (CPU: %dMHz -> %dMHz, light sleep %s)",
+                 pm_config.max_freq_mhz, pm_config.min_freq_mhz,
                  pm_config.light_sleep_enable ? "enabled" : "disabled");
     } else {
         ESP_LOGW(TAG, "Failed to configure power management: %s", esp_err_to_name(pm_ret));
@@ -203,7 +213,11 @@ static void power_manager_disable_auto_light_sleep(void)
 {
     esp_pm_config_t pm_config = {
         .max_freq_mhz = 160,  // Maximum CPU frequency (160MHz for ESP32-S3)
+#ifdef BOARD_HAL_DISABLE_AUTO_LIGHT_SLEEP
+        .min_freq_mhz = 160,  // Pin frequency: fully disables DFS, see above
+#else
         .min_freq_mhz = 40,   // Minimum CPU frequency (40MHz when idle)
+#endif
         .light_sleep_enable = false,
     };
 

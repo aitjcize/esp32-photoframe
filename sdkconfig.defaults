@@ -32,8 +32,11 @@ CONFIG_FATFS_MAX_LFN=255
 # FreeRTOS
 CONFIG_FREERTOS_HZ=1000
 
-# Main task stack size - Increase for WiFi and HTTP client operations
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
+# Main task stack size - the deep-sleep wake path runs the whole Telegram
+# pipeline (HTTPS/TLS + JSON + image composition + file I/O) synchronously
+# on this task; 6144 was coredump-confirmed too small (vApplicationStackOverflowHook,
+# task 'main'). Doubled with margin rather than trimming individual buffers.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288
 
 # Component config
 CONFIG_LWIP_MAX_SOCKETS=16

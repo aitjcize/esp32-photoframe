@@ -46,4 +46,16 @@
 // Display Configuration
 #define BOARD_HAL_DISPLAY_ROTATION_DEG 180
 
+// esp_pm's dynamic frequency scaling races with WiFi interrupt handling on
+// this board: a WiFi interrupt landing mid frequency-transition reliably
+// crashes with a spinlock_acquire() assertion failure (coredump confirmed:
+// esp_pm_impl_isr_hook -> leave_idle -> esp_pm_lock_acquire ->
+// spinlock_acquire, from a level-1 interrupt as the radio starts
+// generating interrupts). Disabling light_sleep_enable alone did NOT fix
+// this - the trigger is DFS's lock/ISR-hook machinery itself, not
+// specifically the light-sleep transition, since it still runs whenever
+// min_freq_mhz != max_freq_mhz. power_manager.c reads this macro to also
+// pin min_freq_mhz == max_freq_mhz, disabling DFS outright on this board.
+#define BOARD_HAL_DISABLE_AUTO_LIGHT_SLEEP 1
+
 #endif  // BOARD_WAVESHARE_PHOTOPAINTER_73_H
