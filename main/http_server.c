@@ -2122,6 +2122,11 @@ static esp_err_t processing_settings_handler(httpd_req_t *req)
             httpd_resp_send_500(req);
             return ESP_FAIL;
         }
+        // Advance the shared config revision: the remote sync only pulls
+        // device state whose timestamp moved forward, so without this a
+        // later server-side edit would push the server's stale processing
+        // settings back over this change
+        config_manager_touch_config();
 
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, "{\"success\":true}");
@@ -2138,26 +2143,19 @@ static esp_err_t processing_settings_handler(httpd_req_t *req)
             httpd_resp_send_500(req);
             return ESP_FAIL;
         }
+        config_manager_touch_config();
 
-        // Return the default values
-        cJSON *response = cJSON_CreateObject();
-        cJSON_AddNumberToObject(response, "exposure", settings.exposure);
-        cJSON_AddNumberToObject(response, "saturation", settings.saturation);
-        cJSON_AddStringToObject(response, "toneMode", settings.tone_mode);
-        cJSON_AddNumberToObject(response, "contrast", settings.contrast);
-        cJSON_AddNumberToObject(response, "strength", settings.strength);
-        cJSON_AddNumberToObject(response, "shadowBoost", settings.shadow_boost);
-        cJSON_AddNumberToObject(response, "highlightCompress", settings.highlight_compress);
-        cJSON_AddNumberToObject(response, "midpoint", settings.midpoint);
-        cJSON_AddStringToObject(response, "colorMethod", settings.color_method);
-        cJSON_AddStringToObject(response, "ditherAlgorithm", settings.dither_algorithm);
-
-        char *json_str = cJSON_Print(response);
+        // Return the full default settings via the shared serializer so the
+        // response can never drift from the persisted fields (the previous
+        // hand-built list had already fallen behind)
+        char *json_str = processing_settings_to_json(&settings);
+        if (!json_str) {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, json_str);
-
         free(json_str);
-        cJSON_Delete(response);
         return ESP_OK;
     }
 
@@ -2299,6 +2297,8 @@ static esp_err_t color_palette_handler(httpd_req_t *req)
             httpd_resp_send_500(req);
             return ESP_FAIL;
         }
+        // Same revision rule as the processing settings above
+        config_manager_touch_config();
 
         // Reload palette in image processor so subsequent uploads use the new calibration
         image_processor_reload_palette();
@@ -2316,6 +2316,7 @@ static esp_err_t color_palette_handler(httpd_req_t *req)
             httpd_resp_send_500(req);
             return ESP_FAIL;
         }
+        config_manager_touch_config();
 
         // Reload palette in image processor
         image_processor_reload_palette();

@@ -73,6 +73,7 @@ add_executable(
   stubs/esp_stubs.c
   stubs/fake_display_manager.c
   stubs/fake_config_manager.c
+  stubs/fake_processing_settings.c
 )
 
 target_include_directories(
@@ -102,6 +103,7 @@ add_executable(
   stubs/esp_stubs.c
   stubs/fake_display_manager.c
   stubs/fake_config_manager.c
+  stubs/fake_processing_settings.c
   stubs/fake_storage.c
 )
 

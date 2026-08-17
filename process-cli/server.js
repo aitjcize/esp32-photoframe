@@ -193,11 +193,28 @@ export async function createImageServer(
             {
               verbose: options.verbose,
               skipDithering: serveFormat === "jpg",
+              // The device reports how it is mounted; without this a
+              // portrait frame would be laid out (and letterboxed) in
+              // landscape
+              orientation: orientation || "landscape",
+              // Layout comes from the device's synced settings, not the
+              // tone/dither params object the pipeline reads separately
+              scaleMode: currentProcessingParams.scaleMode || "cover",
+              backgroundColor:
+                currentProcessingParams.backgroundColor || "white",
             },
           );
 
-        // Generate and cache thumbnail
-        if (!thumbnailCache.has(image.name)) {
+        // Cache the thumbnail under the full render signature (panel
+        // dimensions, orientation, layout) keyed on the unique file PATH:
+        // concurrent frames with different geometry or layout must each get
+        // a thumbnail matching their own rendering, and identical basenames
+        // in different albums must not collide
+        const thumbSig = `${width}x${height}|${orientation || "landscape"}|${
+          currentProcessingParams.scaleMode || "cover"
+        }-${currentProcessingParams.backgroundColor || "white"}`;
+        const thumbCacheKey = `${image.path}|${thumbSig}`;
+        if (!thumbnailCache.has(thumbCacheKey)) {
           const thumbCanvas = generateThumbnail(
             originalCanvas,
             400,
@@ -206,7 +223,12 @@ export async function createImageServer(
           const thumbBuffer = thumbCanvas.toBuffer("image/jpeg", {
             quality: 0.8,
           });
-          thumbnailCache.set(image.name, thumbBuffer);
+          // Crude bound: the signature space is per-panel finite, but keep a
+          // hard cap so the cache can never grow without limit
+          if (thumbnailCache.size >= 200) {
+            thumbnailCache.clear();
+          }
+          thumbnailCache.set(thumbCacheKey, thumbBuffer);
         }
 
         // Convert to requested format
@@ -230,7 +252,10 @@ export async function createImageServer(
         }
 
         // Set headers
-        const thumbnailUrl = `http://${req.headers.host}/thumbnail?file=${encodeURIComponent(image.name)}`;
+        // Compact index id (allImages is fixed at startup): the absolute
+        // path would leak the filesystem layout and can overflow the
+        // firmware's 512-byte URL buffer on deep album trees
+        const thumbnailUrl = `http://${req.headers.host}/thumbnail?file=${encodeURIComponent(image.name)}&id=${allImages.indexOf(image)}&sig=${encodeURIComponent(thumbSig)}`;
         res.setHeader("X-Thumbnail-URL", thumbnailUrl);
         res.setHeader("Content-Type", contentType);
         res.setHeader("Content-Length", imageBuffer.length);
@@ -254,6 +279,36 @@ export async function createImageServer(
     if (pathname === "/thumbnail" && req.method === "GET") {
       const fileName = parsedUrl.query.file;
 
+      // The signature from the /image response's X-Thumbnail-URL:
+      // "WxH|orientation|scale-bg". Every component is validated against an
+      // allowlist -- arbitrary values would each mint a new cache key.
+      const sigParts = (parsedUrl.query.sig || "").split("|");
+      const dimsMatch = /^(\d{2,4})x(\d{2,4})$/.exec(sigParts[0] || "");
+      // Clamp to plausible panel sizes: unchecked values would flow into
+      // canvas allocations
+      const dimsValid =
+        dimsMatch &&
+        parseInt(dimsMatch[1], 10) <= 4096 &&
+        parseInt(dimsMatch[2], 10) <= 4096;
+      const thumbWidth = dimsValid
+        ? parseInt(dimsMatch[1], 10)
+        : DEFAULT_DISPLAY_WIDTH;
+      const thumbHeight = dimsValid
+        ? parseInt(dimsMatch[2], 10)
+        : DEFAULT_DISPLAY_HEIGHT;
+      const thumbOrientation = ["landscape", "portrait"].includes(sigParts[1])
+        ? sigParts[1]
+        : "landscape";
+      const layoutParts = (sigParts[2] || "").split("-");
+      const thumbScaleMode =
+        layoutParts[0] === "fit" || layoutParts[0] === "cover"
+          ? layoutParts[0]
+          : processingParams.scaleMode || "cover";
+      const thumbBackground = ["white", "black"].includes(layoutParts[1])
+        ? layoutParts[1]
+        : processingParams.backgroundColor || "white";
+      const thumbSig = `${thumbWidth}x${thumbHeight}|${thumbOrientation}|${thumbScaleMode}-${thumbBackground}`;
+
       if (!fileName) {
         res.writeHead(400);
         res.end("Missing file parameter");
@@ -261,9 +316,23 @@ export async function createImageServer(
       }
 
       try {
+        // Resolve by the compact index id when given (identical basenames
+        // can exist in different albums); fall back to the name for manual
+        // requests
+        const qId = parseInt(parsedUrl.query.id, 10);
+        const image =
+          (Number.isInteger(qId) && qId >= 0 && allImages[qId]) ||
+          allImages.find((img) => img.name === fileName);
+        if (!image) {
+          res.writeHead(404);
+          res.end("Image not found");
+          return;
+        }
+        const thumbKey = `${image.path}|${thumbSig}`;
+
         // Check cache
-        if (thumbnailCache.has(fileName)) {
-          const thumbBuffer = thumbnailCache.get(fileName);
+        if (thumbnailCache.has(thumbKey)) {
+          const thumbBuffer = thumbnailCache.get(thumbKey);
           res.setHeader("Content-Type", "image/jpeg");
           res.setHeader("Content-Length", thumbBuffer.length);
           res.writeHead(200);
@@ -277,21 +346,19 @@ export async function createImageServer(
           return;
         }
 
-        // Find and generate thumbnail
-        const image = allImages.find((img) => img.name === fileName);
-        if (!image) {
-          res.writeHead(404);
-          res.end("Image not found");
-          return;
-        }
-
+        // Generate with the validated signature's geometry and layout
         const { originalCanvas } = await processImagePipeline(
           image.path,
           processingParams,
-          DEFAULT_DISPLAY_WIDTH,
-          DEFAULT_DISPLAY_HEIGHT,
+          thumbWidth,
+          thumbHeight,
           devicePalette,
-          { skipDithering: true },
+          {
+            skipDithering: true,
+            orientation: thumbOrientation,
+            scaleMode: thumbScaleMode,
+            backgroundColor: thumbBackground,
+          },
         );
 
         const thumbCanvas = generateThumbnail(
@@ -303,7 +370,10 @@ export async function createImageServer(
           quality: 0.8,
         });
 
-        thumbnailCache.set(fileName, thumbBuffer);
+        if (thumbnailCache.size >= 200) {
+          thumbnailCache.clear();
+        }
+        thumbnailCache.set(thumbKey, thumbBuffer);
 
         res.setHeader("Content-Type", "image/jpeg");
         res.setHeader("Content-Length", thumbBuffer.length);

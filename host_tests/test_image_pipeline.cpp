@@ -27,11 +27,14 @@ extern "C" {
 #include "config_manager.h"
 #include "fake_display_manager.h"
 #include "image_processor.h"
+#include "processing_settings.h"
 
 extern int test_board_display_width;
 extern int test_board_display_height;
 extern const char *test_board_display_type;
 extern display_orientation_t test_display_orientation;
+extern scale_mode_t test_scale_mode;
+extern const char *test_background_color;
 }
 
 namespace
@@ -234,6 +237,8 @@ class ImagePipelineTest : public ::testing::Test
         test_board_display_height = 480;
         test_board_display_type = "spectra6";
         test_display_orientation = DISPLAY_ORIENTATION_LANDSCAPE;
+        test_scale_mode = SCALE_MODE_COVER;
+        test_background_color = "white";
         fake_display_reset();
         ASSERT_EQ(image_processor_init(), ESP_OK);
     }
@@ -481,6 +486,99 @@ TEST_F(ImagePipelineTest, GarbageInputFails)
     EXPECT_NE(err, ESP_OK);
 }
 
+// --- Fit (letterbox) scale mode -------------------------------------------
+
+TEST_F(ImagePipelineTest, FitModeLetterboxesPortraitSource)
+{
+    test_scale_mode = SCALE_MODE_FIT;
+    // Portrait source on a landscape frame: content centered, white bars on
+    // both sides. 240x480 content at scale 1.0 -> bars are x<280 and x>=520.
+    auto png = EncodePng(240, 480, [](int, int) { return kRed; });
+    Processed p = RunPipeline(png);
+    ASSERT_EQ(p.w, 800);
+    ASSERT_EQ(p.h, 480);
+    // Bars are EXACTLY the background color -- no dither speckle
+    for (int y = 0; y < p.h; y++) {
+        for (int x = 0; x < 280; x++)
+            ASSERT_EQ(p.at(x, y), kWhite) << "left bar at " << x << "," << y;
+        for (int x = 520; x < 800; x++)
+            ASSERT_EQ(p.at(x, y), kWhite) << "right bar at " << x << "," << y;
+    }
+    EXPECT_EQ(p.dominant(380, 220, 40, 40), kRed) << "content center";
+}
+
+TEST_F(ImagePipelineTest, FitModeBackgroundColorIsConfigurable)
+{
+    test_scale_mode = SCALE_MODE_FIT;
+    test_background_color = "black";
+    auto png = EncodePng(240, 480, [](int, int) { return kWhite; });
+    Processed p = RunPipeline(png);
+    EXPECT_EQ(p.at(10, 240), kBlack) << "left bar";
+    EXPECT_EQ(p.at(790, 240), kBlack) << "right bar";
+    EXPECT_EQ(p.dominant(380, 220, 40, 40), kWhite) << "content center";
+}
+
+TEST_F(ImagePipelineTest, FitModeTopBottomBars)
+{
+    test_scale_mode = SCALE_MODE_FIT;
+    // Very wide source: bars above and below. 800x240 content centered ->
+    // bars are y<120 and y>=360.
+    auto png = EncodePng(1600, 480, [](int, int) { return kBlue; });
+    Processed p = RunPipeline(png);
+    for (int x = 0; x < p.w; x += 7) {
+        ASSERT_EQ(p.at(x, 60), kWhite) << "top bar";
+        ASSERT_EQ(p.at(x, 420), kWhite) << "bottom bar";
+    }
+    EXPECT_EQ(p.dominant(380, 220, 40, 40), kBlue) << "content center";
+}
+
+TEST_F(ImagePipelineTest, FitModeWithPortraitOrientationRotates)
+{
+    test_scale_mode = SCALE_MODE_FIT;
+    test_display_orientation = DISPLAY_ORIENTATION_PORTRAIT;
+    // Landscape source in portrait processing space (480x800): fits to
+    // 480x240 centered -> processing-space bars above/below become left and
+    // right regions after the clockwise rotation onto the 800x480 panel.
+    auto png = EncodePng(960, 480, [](int, int) { return kRed; });
+    Processed p = RunPipeline(png);
+    ASSERT_EQ(p.w, 800);
+    ASSERT_EQ(p.h, 480);
+    EXPECT_EQ(p.at(100, 240), kWhite) << "bar";
+    EXPECT_EQ(p.at(700, 240), kWhite) << "bar";
+    EXPECT_EQ(p.dominant(380, 220, 40, 40), kRed) << "content center";
+}
+
+TEST_F(ImagePipelineTest, FitModeHighResolutionPortraitStreamsUncorrupted)
+{
+    test_scale_mode = SCALE_MODE_FIT;
+    // A large aspect-mismatched source exercises the streamed PNG decoder's
+    // row ring: fit's smaller scale needs more source rows per output row
+    // than cover mode, and an undersized ring smears rows into each other.
+    // 3000x4000 quadrants -> content 360x480 centered at x [220,580).
+    auto png = EncodePng(3000, 4000, [](int x, int y) {
+        if (y < 2000)
+            return x < 1500 ? kWhite : kRed;
+        return x < 1500 ? kBlue : kBlack;
+    });
+    Processed p = RunPipeline(png);
+    ASSERT_EQ(p.w, 800);
+    ASSERT_EQ(p.h, 480);
+    EXPECT_EQ(p.dominant(260, 80, 40, 40), kWhite) << "content top-left";
+    EXPECT_EQ(p.dominant(500, 80, 40, 40), kRed) << "content top-right";
+    EXPECT_EQ(p.dominant(260, 360, 40, 40), kBlue) << "content bottom-left";
+    EXPECT_EQ(p.dominant(500, 360, 40, 40), kBlack) << "content bottom-right";
+    EXPECT_EQ(p.at(100, 240), kWhite) << "left bar";
+    EXPECT_EQ(p.at(700, 240), kWhite) << "right bar";
+}
+
+TEST_F(ImagePipelineTest, CoverModeIsUnchangedByDefault)
+{
+    // Default scale mode: the same portrait source cover-crops (no bars)
+    auto png = EncodePng(240, 480, [](int, int) { return kRed; });
+    Processed p = RunPipeline(png);
+    EXPECT_GT(p.fraction(kRed), 0.95);
+}
+
 // --- GC16 grayscale panels (new in the streaming rewrite) ------------------
 
 class Gc16PipelineTest : public ImagePipelineTest
@@ -542,6 +640,18 @@ TEST_F(Gc16PipelineTest, MidGrayStaysInRamp)
     // remap coincide for neutral inputs
     EXPECT_GT(mean, 145.0);
     EXPECT_LT(mean, 161.0);
+}
+
+TEST_F(Gc16PipelineTest, FitModeBarsAreExactWhite)
+{
+    test_scale_mode = SCALE_MODE_FIT;
+    auto png = EncodePng(240, 480, [](int, int) { return kBlack; });
+    Processed p = RunPipeline(png);
+    for (int y = 0; y < p.h; y += 7) {
+        ASSERT_EQ(p.at(10, y), kWhite) << "left bar";
+        ASSERT_EQ(p.at(790, y), kWhite) << "right bar";
+    }
+    EXPECT_EQ(p.dominant(380, 220, 40, 40), kBlack) << "content center";
 }
 
 TEST_F(Gc16PipelineTest, PhotoStaysInGrayRamp)

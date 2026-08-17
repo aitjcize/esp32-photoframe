@@ -40,6 +40,17 @@ const isDragging = ref(false);
 // Scale mode state
 const scaleMode = ref("cover");
 
+// Follow edits to the configured defaults live (e.g. the settings controls
+// on the same page); a per-image override is simply replaced by the newer
+// default the user just chose
+watch(
+  () => [props.params?.scaleMode, props.params?.backgroundColor],
+  ([mode, bg]) => {
+    if (mode) scaleMode.value = mode;
+    if (bg) bgColorMode.value = bg;
+  }
+);
+
 // Background color for uncovered areas (fit/custom modes)
 // Uses perceived palette colors so dithering maps them cleanly.
 const bgColorMode = ref("white"); // "black" | "white"
@@ -283,16 +294,12 @@ async function loadAndProcessImage(file) {
     const sourceCtx = sourceCanvas.getContext("2d");
     sourceCtx.drawImage(img, 0, 0);
 
-    // Auto-select scale mode: use fit if source orientation doesn't match
-    // display orientation, cover otherwise
-    const { frameWidth, frameHeight } = getFrameDimensions();
-    const isSourcePortrait = img.height > img.width;
-    const isTargetPortrait = frameHeight > frameWidth;
-    if (isSourcePortrait !== isTargetPortrait) {
-      scaleMode.value = "fit";
-    } else {
-      scaleMode.value = "cover";
-    }
+    // Default to the configured scale mode and background from the shared
+    // processing params (the device settings, or the page-local params on
+    // the landing-page demo); the user's per-image override below never
+    // writes back to the config
+    scaleMode.value = props.params?.scaleMode || "cover";
+    bgColorMode.value = props.params?.backgroundColor || "white";
 
     // Reinitialize custom mode if active
     if (scaleMode.value === "custom") {

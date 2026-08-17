@@ -19,6 +19,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "jpeg_decoder.h"
+#include "processing_settings.h"
 
 static const char *TAG = "image_processor";
 
@@ -501,6 +502,15 @@ typedef struct {
     int off_x;
     int off_y;
     bool box;  // downscale: box-average the source footprint; upscale: bilinear
+    // Fit (letterbox) mode: pixels outside the processing-space content rect
+    // are background bars
+    bool fit;
+    int content_x0;
+    int content_y0;
+    int content_x1;
+    int content_y1;
+    uint8_t bg[3];      // theoretical background, fed through CDR + dither
+    uint8_t bg_out[3];  // exact output-palette background, repainted post-dither
     // Emitted row geometry: native panel rows by default, processing-space
     // rows when the sink accepts processing order (see
     // geometry_set_processing_order)
@@ -513,6 +523,14 @@ typedef struct {
     const uint8_t *(*get_row)(void *ctx, int src_y);
     void *row_ctx;
 } geometry_t;
+
+// Map the background name to its theoretical output color. Only white and
+// black are supported; anything else falls back to white.
+static void background_theoretical_rgb(const char *name, uint8_t rgb[3])
+{
+    uint8_t v = strcmp(name, "black") == 0 ? 0 : 255;
+    rgb[0] = rgb[1] = rgb[2] = v;
+}
 
 // rotate is passed in (not re-read from config) so one snapshot governs the
 // whole pass -- geometry, decoder gating, and sink must agree even if the
@@ -539,6 +557,46 @@ static void geometry_init(geometry_t *geo, const uint8_t *src, int src_w, int sr
     geo->off_x = ((int) (src_w * geo->scale) - geo->proc_w) / 2;
     geo->off_y = ((int) (src_h * geo->scale) - geo->proc_h) / 2;
 
+    // Fit mode: scale to fit inside the processing space instead, centering
+    // the content and letterboxing the rest with the configured background
+    // color (the same layout epaper-image-convert's scaleMode "fit"
+    // produces). The resample math is shared with cover mode -- off_x/off_y
+    // just become the (negative) content origin.
+    char bg_name[12] = "";
+    geo->fit = processing_settings_get_scale_mode() == SCALE_MODE_FIT;
+    geo->content_x0 = 0;
+    geo->content_y0 = 0;
+    geo->content_x1 = geo->proc_w;
+    geo->content_y1 = geo->proc_h;
+    if (geo->fit) {
+        geo->scale = fminf(scale_x, scale_y);
+        int content_w = (int) (src_w * geo->scale + 0.5f);
+        int content_h = (int) (src_h * geo->scale + 0.5f);
+        if (content_w > geo->proc_w)
+            content_w = geo->proc_w;
+        if (content_h > geo->proc_h)
+            content_h = geo->proc_h;
+        geo->content_x0 = (geo->proc_w - content_w) / 2;
+        geo->content_y0 = (geo->proc_h - content_h) / 2;
+        geo->content_x1 = geo->content_x0 + content_w;
+        geo->content_y1 = geo->content_y0 + content_h;
+        geo->off_x = -geo->content_x0;
+        geo->off_y = -geo->content_y0;
+
+        processing_settings_get_background_color(bg_name, sizeof(bg_name));
+        background_theoretical_rgb(bg_name, geo->bg);
+        if (board_is_grayscale()) {
+            // Grayscale output palette: quantize the background to its ramp
+            // level the same way content pixels are matched
+            int level = find_closest_gray16(geo->bg[0], geo->bg[1], geo->bg[2]);
+            geo->bg_out[0] = gray_theoretical[level].r;
+            geo->bg_out[1] = gray_theoretical[level].g;
+            geo->bg_out[2] = gray_theoretical[level].b;
+        } else {
+            memcpy(geo->bg_out, geo->bg, sizeof(geo->bg_out));
+        }
+    }
+
     // Resampling policy, matching epaper-image-convert's canvas resize:
     // downscales box-average the footprint so the ditherer receives correct
     // local means (nearest-neighbor skips pixels -- thin features vanish and
@@ -547,9 +605,17 @@ static void geometry_init(geometry_t *geo, const uint8_t *src, int src_w, int sr
     // device-processed and tool-converted images resample identically.
     geo->box = geo->scale < 1.0f;
 
-    ESP_LOGI(TAG, "Geometry: %dx%d -> %dx%d%s, scale %.2f, offset (%d,%d), %s", src_w, src_h,
-             geo->proc_w, geo->proc_h, geo->rotate ? " (rotated to native)" : "", geo->scale,
-             geo->off_x, geo->off_y, geo->box ? "box" : "bilinear");
+    if (geo->fit) {
+        ESP_LOGI(
+            TAG, "Geometry: %dx%d -> %dx%d%s, fit: content %dx%d at (%d,%d) on %s, scale %.2f, %s",
+            src_w, src_h, geo->proc_w, geo->proc_h, geo->rotate ? " (rotated to native)" : "",
+            geo->content_x1 - geo->content_x0, geo->content_y1 - geo->content_y0, geo->content_x0,
+            geo->content_y0, bg_name, geo->scale, geo->box ? "box" : "bilinear");
+    } else {
+        ESP_LOGI(TAG, "Geometry: %dx%d -> %dx%d%s, cover, scale %.2f, offset (%d,%d), %s", src_w,
+                 src_h, geo->proc_w, geo->proc_h, geo->rotate ? " (rotated to native)" : "",
+                 geo->scale, geo->off_x, geo->off_y, geo->box ? "box" : "bilinear");
+    }
 }
 
 // Emit rows in processing-space order instead of native order: the sink
@@ -597,6 +663,14 @@ static void geometry_fill_row(const geometry_t *geo, int out_y, uint8_t *row)
         } else {
             x = out_x;
             y = out_y;
+        }
+
+        if (geo->fit && (x < geo->content_x0 || x >= geo->content_x1 || y < geo->content_y0 ||
+                         y >= geo->content_y1)) {
+            out[0] = geo->bg[0];
+            out[1] = geo->bg[1];
+            out[2] = geo->bg[2];
+            continue;
         }
 
         if (geo->box) {
@@ -651,6 +725,33 @@ static void geometry_fill_row(const geometry_t *geo, int out_y, uint8_t *row)
     }
 }
 
+// Restore fit-mode letterbox bars to the exact output palette color after
+// dithering (the row-local equivalent of epaper-image-convert's background
+// repaint): diffusion error crossing the content boundary must not leave
+// stray dots in the bars.
+static void geometry_repaint_background(const geometry_t *geo, int out_y, uint8_t *row)
+{
+    if (!geo->fit) {
+        return;
+    }
+    for (int out_x = 0; out_x < geo->out_w; out_x++) {
+        int x, y;
+        if (geo->rotate && !geo->processing_order) {
+            x = out_y;
+            y = geo->proc_h - 1 - out_x;
+        } else {
+            x = out_x;
+            y = out_y;
+        }
+        if (x < geo->content_x0 || x >= geo->content_x1 || y < geo->content_y0 ||
+            y >= geo->content_y1) {
+            row[out_x * 3] = geo->bg_out[0];
+            row[out_x * 3 + 1] = geo->bg_out[1];
+            row[out_x * 3 + 2] = geo->bg_out[2];
+        }
+    }
+}
+
 static esp_err_t run_stream(geometry_t *geo, dither_algorithm_t dither_algorithm, row_sink_fn sink,
                             void *sink_ctx)
 {
@@ -681,6 +782,7 @@ static esp_err_t run_stream(geometry_t *geo, dither_algorithm_t dither_algorithm
         geometry_fill_row(geo, y, row);
         cdr_apply_row(cdr, row, geo->out_w);
         dither_row(&dither, row);
+        geometry_repaint_background(geo, y, row);
         err = sink(sink_ctx, y, row);
 
         // Yield periodically so the IDLE task can feed the watchdog; dense
@@ -1094,13 +1196,16 @@ static esp_err_t png_stream_open(png_stream_src_t *src, const uint8_t *png_data,
         return ESP_OK;
     }
 
-    // Ring sized for the widest resample window (box footprint), plus slack;
-    // the cover scale is against the processing-space dimensions
+    // Ring sized for the widest resample window (box footprint), plus slack.
+    // Fit mode scales by the SMALLER ratio, so each output row's footprint
+    // spans more source rows than in cover mode; size for that
+    // unconditionally rather than re-reading the scale-mode setting here (a
+    // config flip mid-stream must not shrink the ring under the geometry).
     int proc_w = rotated ? BOARD_HAL_DISPLAY_HEIGHT : BOARD_HAL_DISPLAY_WIDTH;
     int proc_h = rotated ? BOARD_HAL_DISPLAY_WIDTH : BOARD_HAL_DISPLAY_HEIGHT;
     float scale_x = (float) proc_w / src->width;
     float scale_y = (float) proc_h / src->height;
-    float scale = fmaxf(scale_x, scale_y);
+    float scale = fminf(scale_x, scale_y);
     int window = scale < 1.0f ? (int) ceilf(1.0f / scale) + 2 : 3;
     if (window > src->height) {
         window = src->height;
