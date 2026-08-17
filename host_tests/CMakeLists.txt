@@ -61,3 +61,32 @@ target_include_directories(
 include(GoogleTest)
 gtest_discover_tests(cron_test)
 gtest_discover_tests(wake_schedule_test)
+
+# On-device image pipeline characterization tests (host build of
+# main/image_processor.c against ESP-IDF stubs + system libpng)
+find_package(PNG REQUIRED)
+
+add_executable(
+  image_pipeline_test
+  test_image_pipeline.cpp
+  ../main/image_processor.c
+  stubs/esp_stubs.c
+  stubs/fake_display_manager.c
+  stubs/fake_config_manager.c
+)
+
+target_include_directories(
+  image_pipeline_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
+target_link_libraries(
+  image_pipeline_test
+  GTest::gtest_main
+  PNG::PNG
+  m
+)
+
+gtest_discover_tests(image_pipeline_test)
