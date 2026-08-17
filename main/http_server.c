@@ -1601,6 +1601,13 @@ static esp_err_t current_image_handler(httpd_req_t *req)
     FILE *fp = fopen(thumbnail_path, "rb");
 
     if (!fp) {
+        // Raw packed panel data is not renderable by a browser; report no
+        // thumbnail rather than serving .epdgz bytes as an image
+        if (orig_ext && strcasecmp(orig_ext, ".epdgz") == 0) {
+            httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No thumbnail for current image");
+            return ESP_FAIL;
+        }
+
         // Fall back to original file (BMP or PNG) if JPG doesn't exist
         fp = fopen(image_to_serve, "rb");
         if (orig_ext && strcasecmp(orig_ext, ".png") == 0) {

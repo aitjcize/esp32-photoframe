@@ -41,7 +41,7 @@ const char *utils_consume_config_error(void);
 // the caller should skip display refresh because the eInk already holds the
 // correct image. not_modified may be NULL if the caller doesn't care.
 esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path, size_t path_size,
-                                        bool *not_modified);
+                                        bool *not_modified, bool *thumbnail_fresh);
 
 // Trigger image rotation based on configured rotation mode
 // Handles both URL and SD card rotation modes

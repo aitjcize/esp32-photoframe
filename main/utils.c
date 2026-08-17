@@ -536,8 +536,11 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 }
 
 esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path, size_t path_size,
-                                        bool *not_modified)
+                                        bool *not_modified, bool *thumbnail_fresh)
 {
+    if (thumbnail_fresh) {
+        *thumbnail_fresh = false;
+    }
     ESP_LOGI(TAG, "Fetching image from URL: %s", url);
 
     if (not_modified) {
@@ -1009,21 +1012,16 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
                     return ESP_ERR_INVALID_SIZE;
                 }
 
-                // For JPEG: save as thumbnail
-                if (image_format == IMAGE_FORMAT_JPG && !thumbnail_downloaded) {
-                    unlink(temp_jpg_path);
-                    if (rename(temp_upload_path, temp_jpg_path) == 0) {
-                        ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
-                    } else {
-                        unlink(temp_upload_path);
-                    }
-                } else {
-                    unlink(temp_upload_path);
-                }
+                // MemFS-backed /storage: don't retain the full original (it
+                // would consume the PSRAM the next fetch needs); the small
+                // downloaded thumbnail, when present, stays as .current.jpg
+                unlink(temp_upload_path);
 
-                // Process and stream the result straight to the display
+                // Process and stream the result straight to the display. The
+                // logical name lets /api/current_image resolve the downloaded
+                // thumbnail via the .jpg extension swap.
                 err = image_processor_process_to_display(file_buffer, file_size, image_format, algo,
-                                                         NULL);
+                                                         temp_png_path);
                 heap_caps_free(file_buffer);
 
                 if (err != ESP_OK) {
@@ -1032,6 +1030,16 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
                 }
 
                 ESP_LOGI(TAG, "Image displayed from buffer");
+                // Only now that the new image is on the panel may a stale
+                // thumbnail from the previous display be dropped; a failure
+                // above must keep the previous image's thumbnail valid
+                if (!thumbnail_downloaded) {
+                    unlink(temp_jpg_path);
+                }
+                // Signal the caller that no file display is needed
+                if (path_size > 0) {
+                    saved_image_path[0] = '\0';
+                }
                 return ESP_OK;
             }
         }
@@ -1054,6 +1062,13 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
         ESP_LOGE(TAG, "Unsupported image format: %d", image_format);
         unlink(temp_upload_path);
         return ESP_FAIL;
+    }
+
+    // The thumbnail is fresh when it was downloaded for this image or the
+    // JPG original became its own thumbnail; a stale leftover is removed by
+    // the caller only after the new image is actually displayed
+    if (thumbnail_fresh) {
+        *thumbnail_fresh = thumbnail_downloaded || image_format == IMAGE_FORMAT_JPG;
     }
 
     // ========== STEP 2: Optionally save to Downloads album ==========
@@ -1155,28 +1170,50 @@ esp_err_t trigger_image_rotation(void)
         const char *image_url = config_manager_get_image_url();
         ESP_LOGI(TAG, "URL rotation mode - downloading from: %s", image_url);
 
-        char saved_bmp_path[512];
+        char saved_bmp_path[512] = {0};
         bool not_modified = false;
+        bool thumbnail_fresh = false;
         if (fetch_and_save_image_from_url(image_url, saved_bmp_path, sizeof(saved_bmp_path),
-                                          &not_modified) == ESP_OK) {
+                                          &not_modified, &thumbnail_fresh) == ESP_OK) {
             if (not_modified) {
                 // Server confirmed cached image still current (HTTP 304).
                 // Keep the existing eInk image — do not refresh, do not fall
                 // back to SD rotation.
                 ESP_LOGI(TAG, "Image unchanged on server, skipping display refresh");
+            } else if (saved_bmp_path[0] == '\0') {
+                // Fetch already streamed the image to the display (MemFS path)
+                ESP_LOGI(TAG, "Image already displayed during fetch");
             } else {
                 ESP_LOGI(TAG, "Successfully downloaded and saved image, displaying...");
-                display_manager_show_image(saved_bmp_path);
-
-                // Delete rendered temp image after display to save storage space,
-                // but only if it wasn't saved to the Downloads album.
-                if (!config_manager_get_save_downloaded_images()) {
-                    unlink(CURRENT_BMP_PATH);
-                    unlink(CURRENT_PNG_PATH);
+                if (display_manager_show_image(saved_bmp_path) == ESP_OK) {
+                    // Keep the displayed .current file so /api/current_image
+                    // can serve the original (matching the direct-display
+                    // policy); drop the stale siblings. Album saves already
+                    // moved theirs. MemFS-backed /storage retains nothing:
+                    // the panel keeps the image, and the file would occupy
+                    // the PSRAM the next fetch needs. Cleanup runs only
+                    // after a successful display, so a failure keeps the
+                    // previous image's files (and thumbnail) intact.
+                    if (storage_has_persistent_storage()) {
+                        if (strcmp(saved_bmp_path, CURRENT_BMP_PATH) != 0)
+                            unlink(CURRENT_BMP_PATH);
+                        if (strcmp(saved_bmp_path, CURRENT_PNG_PATH) != 0)
+                            unlink(CURRENT_PNG_PATH);
+                        if (strcmp(saved_bmp_path, CURRENT_EPD_PATH) != 0)
+                            unlink(CURRENT_EPD_PATH);
+                    } else {
+                        unlink(CURRENT_BMP_PATH);
+                        unlink(CURRENT_PNG_PATH);
+                        unlink(CURRENT_EPD_PATH);
+                    }
+                    if (!thumbnail_fresh) {
+                        unlink(CURRENT_JPG_PATH);
+                    }
+                } else {
+                    ESP_LOGE(TAG, "Failed to display fetched image");
+                    result = ESP_FAIL;
                 }
             }
-
-            result = ESP_OK;
         } else {
             ESP_LOGE(TAG, "Failed to download image from URL, falling back to local rotation");
             display_manager_rotate_from_storage();
