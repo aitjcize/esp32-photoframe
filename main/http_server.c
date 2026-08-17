@@ -17,6 +17,7 @@
 #include "config.h"
 #include "config_manager.h"
 #include "debug_log.h"
+#include "display_flow.h"
 #include "display_manager.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
@@ -364,37 +365,197 @@ static esp_err_t parse_multipart_upload(httpd_req_t *req, const char *base_dir,
 }
 
 // Read a whole file into a PSRAM buffer (caller frees with heap_caps_free)
-static esp_err_t read_file_to_psram(const char *path, uint8_t **out_buf, size_t *out_size)
+// ---------- Direct display flow ----------
+
+static esp_err_t send_display_success(httpd_req_t *req)
 {
-    FILE *fp = fopen(path, "rb");
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "status", "success");
+    cJSON_AddStringToObject(response, "message", "Image displayed successfully");
+    char *json_str = cJSON_Print(response);
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t send_err = httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(response);
+    if (send_err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to send response (connection likely closed): %d", send_err);
+    }
+    return ESP_OK;
+}
+
+// Map a processing failure to the right HTTP error, with detail when the
+// image processor recorded any
+static void send_process_error(httpd_req_t *req, esp_err_t err)
+{
+    ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
+    if (err == ESP_ERR_INVALID_SIZE) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "Image is too large. Please resize and try again.");
+    } else if (err == ESP_ERR_NO_MEM) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                            "Image requires too much memory to process.");
+    } else {
+        const char *detail = image_processor_get_last_error();
+        char errmsg[160];
+        snprintf(errmsg, sizeof(errmsg), "Failed to process image%s%s", detail[0] ? ": " : "",
+                 detail);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, errmsg);
+    }
+}
+
+// Common tail of both direct display arms once the source image (and an
+// optional thumbnail) sit in files: put the image on the panel, retire the
+// original into the .current.* scheme, and answer the request. Consumes
+// both files.
+static esp_err_t display_received_image(httpd_req_t *req, const char *image_path,
+                                        image_format_t format, const char *thumbnail_path)
+{
+    bool has_thumbnail = thumbnail_path != NULL;
+
+    if (format == IMAGE_FORMAT_EPD_GZ || format == IMAGE_FORMAT_BMP) {
+        // Display-ready file formats: move into the .current.* slot and let
+        // display_manager decode from there
+        const char *display_path = display_flow_stage_file(image_path, format);
+        if (!display_path) {
+            if (has_thumbnail)
+                unlink(thumbnail_path);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                format == IMAGE_FORMAT_EPD_GZ ? "Failed to process EPDGZ"
+                                                              : "Failed to process BMP");
+            return ESP_FAIL;
+        }
+
+        if (display_manager_show_image(display_path) != ESP_OK) {
+            // Drop the staged file: a previous display's link may point at
+            // this .current.* name, and it must not resolve to the failed
+            // upload
+            unlink(display_path);
+            if (has_thumbnail)
+                unlink(thumbnail_path);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to display image");
+            return ESP_FAIL;
+        }
+
+        // Stage the provided thumbnail only after a successful display so a
+        // failed request can't clobber the previous image's thumbnail
+        if (has_thumbnail) {
+            unlink(CURRENT_JPG_PATH);
+            if (rename(thumbnail_path, CURRENT_JPG_PATH) != 0) {
+                ESP_LOGW(TAG, "Failed to save thumbnail");
+                unlink(thumbnail_path);
+                has_thumbnail = false;
+            }
+        }
+
+        display_flow_drop_stale_current(display_path, has_thumbnail);
+        // EPDGZ is not servable by /api/current_image and is deleted as
+        // before
+        unlink(CURRENT_EPD_PATH);
+    } else {
+        // Raw PNG or JPG: process and stream rows straight to the display --
+        // no rendered-file round-trip. /api/current_image tries the .jpg
+        // sibling first, then falls back to the published name with its
+        // native content type.
+        display_publish_t pub = {.display_name = (format == IMAGE_FORMAT_JPG) ? CURRENT_JPG_PATH
+                                                                              : CURRENT_PNG_PATH};
+
+        esp_err_t err = display_flow_stream_file(image_path, format,
+                                                 processing_settings_get_dithering_algorithm(),
+                                                 &pub, !storage_has_persistent_storage());
+        if (err != ESP_OK) {
+            unlink(image_path);
+            if (has_thumbnail)
+                unlink(thumbnail_path);
+            send_process_error(req, err);
+            return ESP_FAIL;
+        }
+
+        // The device cannot encode JPEG, so the displayed original becomes
+        // the /api/current_image source; a provided thumbnail wins over a
+        // JPG original
+        display_flow_retire_source(image_path, format, has_thumbnail);
+        if (has_thumbnail) {
+            unlink(CURRENT_JPG_PATH);
+            if (rename(thumbnail_path, CURRENT_JPG_PATH) != 0) {
+                ESP_LOGW(TAG, "Failed to save thumbnail");
+                unlink(thumbnail_path);
+            }
+        }
+    }
+
+    ha_notify_update();
+    return send_display_success(req);
+}
+
+// Receive a raw request body into dest_path (the error response is sent
+// here on failure)
+static esp_err_t receive_raw_body(httpd_req_t *req, const char *dest_path)
+{
+    size_t content_len = req->content_len;
+    const size_t MAX_UPLOAD_SIZE = 5 * 1024 * 1024;  // 5MB max
+
+    if (content_len == 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty request body");
+        return ESP_FAIL;
+    }
+
+    if (content_len > MAX_UPLOAD_SIZE) {
+        ESP_LOGW(TAG, "Upload rejected: %zu bytes exceeds limit of %zu bytes", content_len,
+                 MAX_UPLOAD_SIZE);
+        char error_msg[128];
+        snprintf(error_msg, sizeof(error_msg),
+                 "File too large: %zu KB (max: %zu KB). Please compress or resize your image.",
+                 content_len / 1024, MAX_UPLOAD_SIZE / 1024);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, error_msg);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Receiving image for direct display, size: %zu bytes (%.1f KB)", content_len,
+             content_len / 1024.0);
+
+    // Only the upload temp is cleared up front; the current-image files are
+    // replaced on success so a failed upload can't break /api/current_image
+    unlink(dest_path);
+
+    FILE *fp = fopen(dest_path, "wb");
     if (!fp) {
-        ESP_LOGE(TAG, "Failed to open %s", path);
+        ESP_LOGE(TAG, "Failed to create temporary file");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                            "Failed to create temporary file");
         return ESP_FAIL;
     }
 
-    fseek(fp, 0, SEEK_END);
-    long size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    if (size <= 0) {
-        fclose(fp);
-        return ESP_FAIL;
-    }
-
-    uint8_t *buf = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
+    char *buf = malloc(4096);
     if (!buf) {
         fclose(fp);
-        return ESP_ERR_NO_MEM;
-    }
-
-    size_t read_bytes = fread(buf, 1, size, fp);
-    fclose(fp);
-    if (read_bytes != (size_t) size) {
-        heap_caps_free(buf);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
         return ESP_FAIL;
     }
 
-    *out_buf = buf;
-    *out_size = (size_t) size;
+    size_t received = 0;
+    while (received < content_len) {
+        size_t to_read = MIN(4096, content_len - received);
+        int ret = httpd_req_recv(req, buf, to_read);
+        if (ret <= 0) {
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
+            ESP_LOGE(TAG, "Failed to receive data");
+            free(buf);
+            fclose(fp);
+            unlink(dest_path);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive data");
+            return ESP_FAIL;
+        }
+
+        fwrite(buf, 1, ret, fp);
+        received += ret;
+    }
+
+    free(buf);
+    fclose(fp);
+
+    ESP_LOGI(TAG, "Image received successfully");
     return ESP_OK;
 }
 
@@ -432,13 +593,8 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
         strcpy(content_type, "image/jpeg");  // Default to JPEG
     }
 
-    image_format_t image_format = IMAGE_FORMAT_UNKNOWN;
-
-    // Check if this is a multipart upload (with optional thumbnail)
-    bool is_multipart = (strstr(content_type, "multipart/form-data") != NULL);
-
-    if (is_multipart) {
-        // Handle multipart upload with optional thumbnail using shared helper
+    if (strstr(content_type, "multipart/form-data") != NULL) {
+        // Multipart upload with an optional pre-rendered thumbnail
         multipart_result_t result;
         esp_err_t err = parse_multipart_upload(req, FS_MOUNT_POINT, ".current_upload.tmp",
                                                ".current_thumb.tmp", &result, false);
@@ -451,520 +607,45 @@ static esp_err_t display_image_direct_handler(httpd_req_t *req)
             return ESP_FAIL;
         }
 
-        image_format = image_processor_detect_format(result.image_path);
-        if (image_format == IMAGE_FORMAT_UNKNOWN) {
-            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Unsupported image format");
-            return ESP_FAIL;
-        }
-
-        const char *temp_bmp_path = CURRENT_BMP_PATH;
-        const char *temp_png_path = CURRENT_PNG_PATH;
-        const char *temp_jpg_path = CURRENT_JPG_PATH;
-        const char *display_path = NULL;
-
-        // Load processing settings to get dithering algorithm
-        processing_settings_t proc_settings;
-        if (processing_settings_load(&proc_settings) != ESP_OK) {
-            processing_settings_get_defaults(&proc_settings);
-        }
-
-        // Process the uploaded image
-        if (image_format == IMAGE_FORMAT_EPD_GZ) {
-            unlink(CURRENT_EPD_PATH);
-            if (rename(result.image_path, CURRENT_EPD_PATH) != 0) {
-                ESP_LOGE(TAG, "Failed to move EPDGZ");
-                unlink(result.image_path);
-                if (result.has_thumbnail)
-                    unlink(result.thumbnail_path);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                    "Failed to process EPDGZ");
-                return ESP_FAIL;
-            }
-            display_path = CURRENT_EPD_PATH;
-        } else if (image_format == IMAGE_FORMAT_BMP) {
-            unlink(temp_bmp_path);
-            if (rename(result.image_path, temp_bmp_path) != 0) {
-                ESP_LOGE(TAG, "Failed to move BMP");
-                unlink(result.image_path);
-                if (result.has_thumbnail)
-                    unlink(result.thumbnail_path);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to process BMP");
-                return ESP_FAIL;
-            }
-            display_path = temp_bmp_path;
-        } else {
-            // Raw PNG or JPG: process and stream rows straight to the
-            // display -- no rendered-file round-trip
-            dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
-
-            // /api/current_image tries the .jpg sibling first, then falls
-            // back to this exact name with its native content type
-            const char *display_name =
-                (image_format == IMAGE_FORMAT_JPG) ? temp_jpg_path : temp_png_path;
-
-            display_publish_t pub = {.display_name = display_name};
-
-            if (image_format == IMAGE_FORMAT_PNG) {
-                // File-backed fused path: no RAM copy of the upload
-                // MemFS-backed sources are released once an in-RAM copy exists
-                err = image_processor_process_or_display_png(result.image_path, algo, &pub,
-                                                             !storage_has_persistent_storage());
-            } else {
-                uint8_t *file_buffer = NULL;
-                size_t file_size = 0;
-                if (read_file_to_psram(result.image_path, &file_buffer, &file_size) != ESP_OK) {
-                    unlink(result.image_path);
-                    if (result.has_thumbnail)
-                        unlink(result.thumbnail_path);
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                        "Failed to read image");
-                    return ESP_FAIL;
-                }
-                if (!storage_has_persistent_storage()) {
-                    // MemFS-backed source lives in PSRAM; drop the file now
-                    // that the compressed copy exists
-                    unlink(result.image_path);
-                }
-                err = image_processor_process_to_display(file_buffer, file_size, image_format, algo,
-                                                         &pub);
-                heap_caps_free(file_buffer);
-            }
-
-            if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
-                unlink(result.image_path);
-                if (result.has_thumbnail)
-                    unlink(result.thumbnail_path);
-                if (err == ESP_ERR_INVALID_SIZE) {
-                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                        "Image is too large. Please resize and try again.");
-                } else if (err == ESP_ERR_NO_MEM) {
-                    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                        "Image requires too much memory to process.");
-                } else {
-                    const char *detail = image_processor_get_last_error();
-                    char errmsg[160];
-                    snprintf(errmsg, sizeof(errmsg), "Failed to process image%s%s",
-                             detail[0] ? ": " : "", detail);
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, errmsg);
-                }
-                return ESP_FAIL;
-            }
-
-            // The device cannot encode JPEG, so the original upload becomes
-            // the /api/current_image source: a JPG original is kept as the
-            // thumbnail, a PNG original is kept full-size for the .png
-            // fallback. A provided thumbnail wins; stale siblings from
-            // earlier displays are dropped.
-            if (image_format == IMAGE_FORMAT_JPG) {
-                unlink(temp_png_path);
-                if (result.has_thumbnail) {
-                    unlink(result.image_path);
-                } else if (storage_has_persistent_storage()) {
-                    unlink(temp_jpg_path);
-                    if (rename(result.image_path, temp_jpg_path) != 0) {
-                        // current_image will 404 rather than lie; the panel
-                        // itself displayed fine
-                        ESP_LOGW(TAG, "Failed to keep original JPEG as thumbnail");
-                        unlink(result.image_path);
-                    }
-                } else {
-                    // MemFS-backed /storage: retaining the full original
-                    // would consume the PSRAM the next upload needs
-                    unlink(result.image_path);
-                    unlink(temp_jpg_path);
-                }
-            } else if (storage_has_persistent_storage()) {
-                unlink(temp_png_path);
-                if (rename(result.image_path, temp_png_path) != 0) {
-                    // current_image will 404 rather than lie; the panel
-                    // itself displayed fine
-                    ESP_LOGW(TAG, "Failed to keep original PNG for current image");
-                    unlink(result.image_path);
-                }
-            } else {
-                // MemFS-backed /storage: retaining the full-size original
-                // would consume the PSRAM the next upload needs
-                unlink(result.image_path);
-                unlink(temp_png_path);
-            }
-            if (result.has_thumbnail) {
-                unlink(temp_jpg_path);
-                if (rename(result.thumbnail_path, temp_jpg_path) != 0) {
-                    ESP_LOGW(TAG, "Failed to save thumbnail");
-                    unlink(result.thumbnail_path);
-                }
-            } else if (image_format != IMAGE_FORMAT_JPG) {
-                unlink(temp_jpg_path);  // stale thumbnail from an earlier display
-            }
-            unlink(temp_bmp_path);
-            unlink(CURRENT_EPD_PATH);
-
-            ha_notify_update();
-
-            cJSON *response = cJSON_CreateObject();
-            cJSON_AddStringToObject(response, "status", "success");
-            char *json_str = cJSON_Print(response);
-            httpd_resp_set_type(req, "application/json");
-            httpd_resp_sendstr(req, json_str);
-            free(json_str);
-            cJSON_Delete(response);
-
-            return ESP_OK;
-        }
-
-        // Handle thumbnail if provided
-        if (result.has_thumbnail) {
-            unlink(temp_jpg_path);
-            if (rename(result.thumbnail_path, temp_jpg_path) != 0) {
-                ESP_LOGW(TAG, "Failed to save thumbnail");
+        image_format_t format = image_processor_detect_format(result.image_path);
+        if (format == IMAGE_FORMAT_UNKNOWN) {
+            unlink(result.image_path);
+            if (result.has_thumbnail)
                 unlink(result.thumbnail_path);
-            } else {
-                ESP_LOGI(TAG, "Thumbnail saved: %s", temp_jpg_path);
-            }
-        }
-
-        // Display the image
-        err = display_manager_show_image(display_path);
-        if (err != ESP_OK) {
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to display image");
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Unsupported image format");
             return ESP_FAIL;
         }
 
-        // Keep the displayed PNG/BMP so /api/current_image can serve the
-        // original when no thumbnail exists (the device cannot encode JPEG);
-        // drop the stale siblings. EPDGZ is not servable and is deleted as
-        // before.
-        if (storage_has_persistent_storage()) {
-            if (display_path != temp_png_path)
-                unlink(temp_png_path);
-            if (display_path != temp_bmp_path)
-                unlink(temp_bmp_path);
-        } else {
-            // MemFS-backed /storage: don't retain full-size images in RAM
-            unlink(temp_png_path);
-            unlink(temp_bmp_path);
-        }
-        unlink(CURRENT_EPD_PATH);
-        if (!result.has_thumbnail)
-            unlink(temp_jpg_path);
-
-        ha_notify_update();
-
-        cJSON *response = cJSON_CreateObject();
-        cJSON_AddStringToObject(response, "status", "success");
-        char *json_str = cJSON_Print(response);
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, json_str);
-        free(json_str);
-        cJSON_Delete(response);
-
-        return ESP_OK;
+        return display_received_image(req, result.image_path, format,
+                                      result.has_thumbnail ? result.thumbnail_path : NULL);
     }
 
+    // Raw body upload: the format comes from the content type, or from the
+    // file magic when the header is missing/generic
+    image_format_t format = IMAGE_FORMAT_UNKNOWN;
     if (strstr(content_type, "image/png")) {
-        image_format = IMAGE_FORMAT_PNG;
+        format = IMAGE_FORMAT_PNG;
     } else if (strstr(content_type, "image/bmp")) {
-        image_format = IMAGE_FORMAT_BMP;
+        format = IMAGE_FORMAT_BMP;
     } else if (strstr(content_type, "image/jpeg")) {
-        image_format = IMAGE_FORMAT_JPG;
+        format = IMAGE_FORMAT_JPG;
     }
 
-    // Get content length
-    size_t content_len = req->content_len;
-    const size_t MAX_UPLOAD_SIZE = 5 * 1024 * 1024;  // 5MB max
-
-    if (content_len == 0) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty request body");
+    if (receive_raw_body(req, CURRENT_UPLOAD_PATH) != ESP_OK) {
         return ESP_FAIL;
     }
 
-    if (content_len > MAX_UPLOAD_SIZE) {
-        ESP_LOGW(TAG, "Upload rejected: %zu bytes exceeds limit of %zu bytes", content_len,
-                 MAX_UPLOAD_SIZE);
-        char error_msg[128];
-        snprintf(error_msg, sizeof(error_msg),
-                 "File too large: %zu KB (max: %zu KB). Please compress or resize your image.",
-                 content_len / 1024, MAX_UPLOAD_SIZE / 1024);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, error_msg);
-        return ESP_FAIL;
-    }
-
-    ESP_LOGI(TAG, "Receiving image for direct display, size: %zu bytes (%.1f KB)", content_len,
-             content_len / 1024.0);
-
-    const char *temp_upload_path = CURRENT_UPLOAD_PATH;
-    const char *temp_jpg_path = CURRENT_JPG_PATH;
-    const char *temp_bmp_path = CURRENT_BMP_PATH;
-    const char *temp_png_path = CURRENT_PNG_PATH;
-
-    // Only the upload temp is cleared up front; the current-image files are
-    // replaced on success so a failed upload can't break /api/current_image
-    unlink(temp_upload_path);
-
-    // Open file for writing
-    FILE *fp = fopen(temp_upload_path, "wb");
-    if (!fp) {
-        ESP_LOGE(TAG, "Failed to create temporary file");
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                            "Failed to create temporary file");
-        return ESP_FAIL;
-    }
-
-    // Receive and write data in chunks
-    char *buf = malloc(4096);
-    if (!buf) {
-        fclose(fp);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
-        return ESP_FAIL;
-    }
-
-    size_t received = 0;
-    while (received < content_len) {
-        size_t to_read = MIN(4096, content_len - received);
-        int ret = httpd_req_recv(req, buf, to_read);
-        if (ret <= 0) {
-            if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
-                continue;
-            }
-            ESP_LOGE(TAG, "Failed to receive data");
-            free(buf);
-            fclose(fp);
-            unlink(temp_upload_path);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive data");
-            return ESP_FAIL;
-        }
-
-        fwrite(buf, 1, ret, fp);
-        received += ret;
-    }
-
-    free(buf);
-    fclose(fp);
-
-    ESP_LOGI(TAG, "Image received successfully");
-
-    // Helper function to detect format
-    if (image_format == IMAGE_FORMAT_UNKNOWN) {
-        image_format = image_processor_detect_format(temp_upload_path);
-        if (image_format == IMAGE_FORMAT_PNG) {
-            ESP_LOGI(TAG, "Detected PNG format from file");
-        } else if (image_format == IMAGE_FORMAT_BMP) {
-            ESP_LOGI(TAG, "Detected BMP format from file");
-        } else if (image_format == IMAGE_FORMAT_JPG) {
-            ESP_LOGI(TAG, "Detected JPG format from file");
-        } else if (image_format == IMAGE_FORMAT_EPD_GZ) {
-            ESP_LOGI(TAG, "Detected EPDGZ format from file");
-        } else {
+    if (format == IMAGE_FORMAT_UNKNOWN) {
+        format = image_processor_detect_format(CURRENT_UPLOAD_PATH);
+        if (format == IMAGE_FORMAT_UNKNOWN) {
             ESP_LOGE(TAG, "Unsupported image format or format detection failed");
-            unlink(temp_upload_path);
+            unlink(CURRENT_UPLOAD_PATH);
             httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Unsupported image format");
             return ESP_FAIL;
         }
     }
 
-    // Load processing settings to get dithering algorithm
-    processing_settings_t proc_settings;
-    if (processing_settings_load(&proc_settings) != ESP_OK) {
-        processing_settings_get_defaults(&proc_settings);
-    }
-
-    esp_err_t err = ESP_OK;
-    const char *display_path = NULL;
-
-    if (image_format == IMAGE_FORMAT_EPD_GZ) {
-        unlink(CURRENT_EPD_PATH);
-        if (rename(temp_upload_path, CURRENT_EPD_PATH) != 0) {
-            ESP_LOGE(TAG, "Failed to move uploaded EPDGZ to temp location");
-            unlink(temp_upload_path);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to process EPDGZ");
-            return ESP_FAIL;
-        }
-        display_path = CURRENT_EPD_PATH;
-    } else if (image_format == IMAGE_FORMAT_BMP) {
-        // Move uploaded BMP to temp location
-        unlink(temp_bmp_path);
-        if (rename(temp_upload_path, temp_bmp_path) != 0) {
-            ESP_LOGE(TAG, "Failed to move uploaded BMP to temp location");
-            unlink(temp_upload_path);
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to process BMP");
-            return ESP_FAIL;
-        }
-        display_path = temp_bmp_path;
-    } else {
-        {
-            // PNG or JPG: read the upload into RAM,
-            // then process and stream rows straight to the display on every
-            // storage type. The panel retains the image without power, and
-            // the rendered .current.png was deleted right after display
-            // anyway, so the old process-to-file round-trip (encode plus
-            // re-decode of a panel-size PNG) bought nothing.
-            dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
-
-            {
-                // The file on disk is only disposed of after processing
-                // succeeds -- a failed upload must not clobber the current
-                // thumbnail. /api/current_image tries the .jpg sibling
-                // first, then falls back to the exact name with its native
-                // content type.
-                const char *display_name =
-                    (image_format == IMAGE_FORMAT_JPG) ? temp_jpg_path : temp_png_path;
-
-                display_publish_t pub = {.display_name = display_name};
-
-                if (image_format == IMAGE_FORMAT_PNG) {
-                    // File-backed fused path: no RAM copy of the upload
-                    // MemFS-backed sources are released once an in-RAM copy exists
-                    err = image_processor_process_or_display_png(temp_upload_path, algo, &pub,
-                                                                 !storage_has_persistent_storage());
-                } else {
-                    uint8_t *file_buffer = NULL;
-                    size_t file_size = 0;
-                    esp_err_t read_err =
-                        read_file_to_psram(temp_upload_path, &file_buffer, &file_size);
-                    if (read_err != ESP_OK) {
-                        ESP_LOGE(TAG, "Failed to read uploaded file");
-                        unlink(temp_upload_path);
-                        if (read_err == ESP_ERR_NO_MEM) {
-                            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                                "Image requires too much memory to process");
-                        } else {
-                            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
-                                                "Failed to read image file");
-                        }
-                        return ESP_FAIL;
-                    }
-                    if (!storage_has_persistent_storage()) {
-                        // MemFS-backed source lives in PSRAM; drop the file
-                        // now that the compressed copy exists
-                        unlink(temp_upload_path);
-                    }
-                    err = image_processor_process_to_display(file_buffer, file_size, image_format,
-                                                             algo, &pub);
-                    heap_caps_free(file_buffer);
-                }
-
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
-                    unlink(temp_upload_path);
-                    if (err == ESP_ERR_INVALID_SIZE) {
-                        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                            "Image is too large. Please resize and try again.");
-                    } else if (err == ESP_ERR_NO_MEM) {
-                        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
-                                            "Image requires too much memory to process.");
-                    } else {
-                        const char *detail = image_processor_get_last_error();
-                        char errmsg[160];
-                        snprintf(errmsg, sizeof(errmsg), "Failed to process image%s%s",
-                                 detail[0] ? ": " : "", detail);
-                        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, errmsg);
-                    }
-                    return ESP_FAIL;
-                }
-
-                // The device cannot encode JPEG, so the original upload
-                // becomes the /api/current_image source: a JPG original is
-                // kept as the thumbnail, a PNG original is kept full-size
-                // for the .png fallback. Drop stale siblings from earlier
-                // displays.
-                if (image_format == IMAGE_FORMAT_JPG) {
-                    if (storage_has_persistent_storage()) {
-                        unlink(temp_jpg_path);
-                        if (rename(temp_upload_path, temp_jpg_path) != 0) {
-                            ESP_LOGW(TAG, "Failed to keep original JPEG as thumbnail");
-                            unlink(temp_upload_path);
-                        } else {
-                            ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
-                        }
-                    } else {
-                        // MemFS-backed /storage: retaining the full original
-                        // would consume the PSRAM the next upload needs
-                        unlink(temp_upload_path);
-                        unlink(temp_jpg_path);
-                    }
-                    unlink(temp_png_path);
-                } else if (storage_has_persistent_storage()) {
-                    unlink(temp_png_path);
-                    if (rename(temp_upload_path, temp_png_path) != 0) {
-                        ESP_LOGW(TAG, "Failed to keep original PNG for current image");
-                        unlink(temp_upload_path);
-                    }
-                    unlink(temp_jpg_path);  // stale thumbnail from an earlier display
-                } else {
-                    // MemFS-backed /storage: retaining the full-size original
-                    // would consume the PSRAM the next upload needs
-                    unlink(temp_upload_path);
-                    unlink(temp_png_path);
-                    unlink(temp_jpg_path);
-                }
-                unlink(temp_bmp_path);
-                unlink(CURRENT_EPD_PATH);
-
-                ha_notify_update();
-                ESP_LOGI(TAG, "Image displayed from buffer");
-
-                cJSON *response = cJSON_CreateObject();
-                cJSON_AddStringToObject(response, "status", "success");
-                cJSON_AddStringToObject(response, "message", "Image displayed successfully");
-                char *json_str = cJSON_Print(response);
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_sendstr(req, json_str);
-                free(json_str);
-                cJSON_Delete(response);
-
-                return ESP_OK;
-            }
-        }
-    }
-
-    // Display the image (BMP or EPDGZ) - display_manager handles both
-    err = display_manager_show_image(display_path);
-    if (err != ESP_OK) {
-        unlink(temp_bmp_path);
-        unlink(temp_png_path);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to display image");
-        return ESP_FAIL;
-    }
-
-    // Keep the displayed PNG/BMP so /api/current_image can serve the
-    // original (the device cannot encode JPEG); drop the stale siblings.
-    // EPDGZ is not servable and is deleted as before. Raw-body uploads
-    // carry no thumbnail, so any .current.jpg here is stale.
-    if (storage_has_persistent_storage()) {
-        if (display_path != temp_png_path)
-            unlink(temp_png_path);
-        if (display_path != temp_bmp_path)
-            unlink(temp_bmp_path);
-    } else {
-        // MemFS-backed /storage: don't retain full-size images in RAM
-        unlink(temp_png_path);
-        unlink(temp_bmp_path);
-    }
-    unlink(CURRENT_EPD_PATH);
-    unlink(temp_jpg_path);
-
-    ha_notify_update();
-
-    ESP_LOGI(TAG, "Image displayed: %s", display_path);
-
-    cJSON *response = cJSON_CreateObject();
-    cJSON_AddStringToObject(response, "status", "success");
-    cJSON_AddStringToObject(response, "message", "Image displayed successfully");
-
-    char *json_str = cJSON_Print(response);
-    httpd_resp_set_type(req, "application/json");
-
-    esp_err_t send_err = httpd_resp_sendstr(req, json_str);
-
-    free(json_str);
-    cJSON_Delete(response);
-
-    if (send_err != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to send response (connection likely closed): %d", send_err);
-    }
-
-    return ESP_OK;
+    return display_received_image(req, CURRENT_UPLOAD_PATH, format, NULL);
 }
 
 // URL decode helper function to handle encoded characters like %20 for space

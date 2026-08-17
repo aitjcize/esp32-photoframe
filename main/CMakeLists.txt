@@ -4,6 +4,7 @@ set(SOURCES
     "color_palette.c"
     "config_manager.c"
     "debug_log.c"
+    "display_flow.c"
     "display_manager.c"
     "dns_server.c"
     "ha_integration.c"
