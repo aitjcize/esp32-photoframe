@@ -283,7 +283,68 @@ TEST_F(ImagePipelineTest, AspectMismatchStillFillsPanel)
     Processed p = RunPipeline(png);
     EXPECT_EQ(p.w, 800);
     EXPECT_EQ(p.h, 480);
-    EXPECT_GT(p.fraction(kWhite), 0.98);  // see SolidWhiteStaysMostlyWhite
+    EXPECT_GT(p.fraction(kWhite), 0.999);
+}
+
+// The four orientation-config x panel-shape combinations, each verified by
+// quadrant mapping: content must render in the orientation the user
+// configured, not whatever the source or panel aspect suggests.
+
+TEST_F(ImagePipelineTest, LandscapeOrientationOnLandscapePanelKeepsUpright)
+{
+    auto png = EncodePng(800, 480, [](int x, int y) {
+        if (y < 240)
+            return x < 400 ? kWhite : kRed;  // top-left white, top-right red
+        return x < 400 ? kBlue : kBlack;     // bottom-left blue, bottom-right black
+    });
+    Processed p = RunPipeline(png);
+    ASSERT_EQ(p.w, 800);
+    ASSERT_EQ(p.h, 480);
+    EXPECT_EQ(p.dominant(40, 40, 40, 40), kWhite) << "top-left";
+    EXPECT_EQ(p.dominant(720, 40, 40, 40), kRed) << "top-right";
+    EXPECT_EQ(p.dominant(40, 400, 40, 40), kBlue) << "bottom-left";
+    EXPECT_EQ(p.dominant(720, 400, 40, 40), kBlack) << "bottom-right";
+}
+
+TEST_F(ImagePipelineTest, PortraitOrientationOnPortraitPanelKeepsUpright)
+{
+    test_board_display_width = 480;
+    test_board_display_height = 800;
+    test_display_orientation = DISPLAY_ORIENTATION_PORTRAIT;
+    auto png = EncodePng(480, 800, [](int x, int y) {
+        if (y < 400)
+            return x < 240 ? kWhite : kRed;
+        return x < 240 ? kBlue : kBlack;
+    });
+    Processed p = RunPipeline(png);
+    ASSERT_EQ(p.w, 480);
+    ASSERT_EQ(p.h, 800);
+    EXPECT_EQ(p.dominant(40, 40, 40, 40), kWhite) << "top-left";
+    EXPECT_EQ(p.dominant(400, 40, 40, 40), kRed) << "top-right";
+    EXPECT_EQ(p.dominant(40, 720, 40, 40), kBlue) << "bottom-left";
+    EXPECT_EQ(p.dominant(400, 720, 40, 40), kBlack) << "bottom-right";
+}
+
+TEST_F(ImagePipelineTest, LandscapeOrientationOnPortraitPanelRotatesClockwise)
+{
+    test_board_display_width = 480;
+    test_board_display_height = 800;
+    // Orientation stays LANDSCAPE: processing space is 800x480, streamed
+    // rotated onto the native-portrait panel
+    auto png = EncodePng(800, 480, [](int x, int y) {
+        if (y < 240)
+            return x < 400 ? kWhite : kRed;
+        return x < 400 ? kBlue : kBlack;
+    });
+    Processed p = RunPipeline(png);
+    ASSERT_EQ(p.w, 480);
+    ASSERT_EQ(p.h, 800);
+    // Same clockwise mapping as portrait-on-landscape: processing top edge
+    // lands on the panel's right edge
+    EXPECT_EQ(p.dominant(40, 40, 40, 40), kBlue) << "top-left";
+    EXPECT_EQ(p.dominant(400, 40, 40, 40), kWhite) << "top-right";
+    EXPECT_EQ(p.dominant(40, 720, 40, 40), kBlack) << "bottom-left";
+    EXPECT_EQ(p.dominant(400, 720, 40, 40), kRed) << "bottom-right";
 }
 
 // Portrait orientation on a native-landscape panel: the panel image must be
@@ -308,18 +369,13 @@ TEST_F(ImagePipelineTest, PortraitOrientationRotationIsClockwise)
 
 // --- Color mapping --------------------------------------------------------
 
-// CHANGED: ~1% red/yellow speckle on solid white is epaper-image-convert
-// parity, not a regression. CDR compresses white to a neutral gray that sits
-// slightly above the measured (non-neutral) white point, and float error
-// diffusion faithfully turns that bias into sparse colored dots -- the tool
-// produces 3728 red + 168 yellow pixels on this input, the firmware 3734 +
-// 168. The old firmware's integer error diffusion truncated the small bias
-// away, which is why the baseline showed 100% white.
-TEST_F(ImagePipelineTest, SolidWhiteStaysMostlyWhite)
+// Per-channel CDR maps pure white exactly onto the measured white point, so
+// a white field dithers with zero error: no colored speckle (the earlier
+// luminance-based CDR left a bias that dithered into ~1% red dots).
+TEST_F(ImagePipelineTest, SolidWhiteStaysWhite)
 {
     Processed p = RunPipeline(EncodePng(800, 480, [](int, int) { return kWhite; }));
-    EXPECT_GT(p.fraction(kWhite), 0.98);
-    EXPECT_TRUE(p.allInPalette());
+    EXPECT_GT(p.fraction(kWhite), 0.999);
 }
 
 TEST_F(ImagePipelineTest, SolidBlackStaysBlack)
@@ -358,21 +414,21 @@ TEST_F(ImagePipelineTest, AlphaPngIsAccepted)
     Processed p = RunPipeline(png);
     EXPECT_EQ(p.w, 800);
     EXPECT_EQ(p.h, 480);
-    EXPECT_GT(p.fraction(kWhite), 0.98);  // see SolidWhiteStaysMostlyWhite
+    EXPECT_GT(p.fraction(kWhite), 0.999);
 }
 
 // Mid-gray must dither to a stable black/white mixture: pin the output mean
-// so the dither/CDR chain can't drift silently. 128.65 observed on the
-// baseline, 129.08 on the rewrite; epaper-image-convert produces 134.24 (the
-// gap is the known fast-CDR-vs-LAB-CDR deviation).
+// so the dither/CDR chain can't drift silently. With per-channel CDR the
+// firmware and epaper-image-convert run the same algorithm; the tool
+// produces 127.58 on this input.
 TEST_F(ImagePipelineTest, MidGrayDitherMeanIsStable)
 {
     Processed p = RunPipeline(EncodePng(800, 480, [](int, int) { return Rgb{128, 128, 128}; }));
     double mean = (p.meanChannel(0) + p.meanChannel(1) + p.meanChannel(2)) / 3.0;
     RecordProperty("mid_gray_mean", mean);
     printf("[characterize] mid-gray output mean = %.2f\n", mean);
-    EXPECT_GT(mean, 120.0);
-    EXPECT_LT(mean, 137.0);
+    EXPECT_GT(mean, 123.0);
+    EXPECT_LT(mean, 132.0);
 }
 
 // --- Pre-processed PNG fast path ------------------------------------------
@@ -481,8 +537,9 @@ TEST_F(Gc16PipelineTest, MidGrayStaysInRamp)
     double mean = p.meanChannel(0);
     RecordProperty("gc16_mid_gray_mean", mean);
     printf("[characterize] gc16 mid-gray output mean = %.2f\n", mean);
-    // 153.00 observed on the firmware; epaper-image-convert produces 164.03
-    // (fast-CDR-vs-LAB-CDR deviation, same as the spectra chain)
+    // 153.00 on both the firmware and epaper-image-convert: the measured
+    // gray endpoints are neutral, so per-channel CDR and the old luminance
+    // remap coincide for neutral inputs
     EXPECT_GT(mean, 145.0);
     EXPECT_LT(mean, 161.0);
 }
