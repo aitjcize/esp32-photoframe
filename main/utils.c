@@ -533,6 +533,12 @@ esp_err_t apply_config_from_json(cJSON *root)
         config_manager_set_rotation_pairing_enabled(cJSON_IsTrue(item));
     }
 
+    // Telegram notification on fallback-rotation display changes
+    item = cJSON_GetObjectItem(root, "telegram_rotation_notify_enabled");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_telegram_rotation_notify_enabled(cJSON_IsTrue(item));
+    }
+
     return ESP_OK;
 }
 
@@ -1354,7 +1360,21 @@ esp_err_t trigger_image_rotation(void)
                 // Telegram download folder, which shows up as a regular
                 // album - see telegram_bot_poll()).
                 ESP_LOGI(TAG, "No new Telegram image, falling back to local rotation");
+
+                char prev_image[64];
+                const char *before = display_manager_get_current_image();
+                strncpy(prev_image, before ? before : "", sizeof(prev_image) - 1);
+                prev_image[sizeof(prev_image) - 1] = '\0';
+
                 display_manager_rotate_from_storage();
+
+                // Only notify if the display actually changed - rotation is
+                // a no-op when there are no enabled albums / no images.
+                const char *after = display_manager_get_current_image();
+                if (config_manager_get_telegram_rotation_notify_enabled() && after &&
+                    after[0] != '\0' && strcmp(after, prev_image) != 0) {
+                    telegram_bot_notify_fallback_image(after);
+                }
             }
             result = ESP_OK;
         } else {

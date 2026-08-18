@@ -6,9 +6,12 @@ import AlbumGallery from "../components/AlbumGallery.vue";
 import ImageUpload from "../components/ImageUpload.vue";
 import SettingsPanel from "../components/SettingsPanel.vue";
 import OtaUpdate from "../components/OtaUpdate.vue";
+import BatteryHistory from "../components/BatteryHistory.vue";
 
 const appStore = useAppStore();
 const settingsStore = useSettingsStore();
+
+const mainTab = ref("gallery");
 
 onMounted(async () => {
   // Load system info first to check for SD card
@@ -124,15 +127,34 @@ onUnmounted(() => {
           text="This device supports an SD card. To upload images and create multiple albums, please insert one and restart the device."
         ></v-alert>
 
-        <AlbumGallery
-          v-if="appStore.systemInfo.sdcard_inserted || appStore.systemInfo.has_flash_storage"
-        />
+        <v-tabs v-model="mainTab" color="primary" show-arrows class="mb-6">
+          <v-tab value="gallery">Gallery</v-tab>
+          <v-tab value="settings">Settings</v-tab>
+          <v-tab value="battery">Battery History</v-tab>
+          <v-tab value="updates">Updates</v-tab>
+        </v-tabs>
 
-        <ImageUpload class="mt-6" />
+        <v-tabs-window v-model="mainTab">
+          <v-tabs-window-item value="gallery">
+            <AlbumGallery
+              v-if="appStore.systemInfo.sdcard_inserted || appStore.systemInfo.has_flash_storage"
+            />
 
-        <SettingsPanel class="mt-6" />
+            <ImageUpload class="mt-6" />
+          </v-tabs-window-item>
 
-        <OtaUpdate class="mt-6" />
+          <v-tabs-window-item value="settings">
+            <SettingsPanel />
+          </v-tabs-window-item>
+
+          <v-tabs-window-item value="battery">
+            <BatteryHistory />
+          </v-tabs-window-item>
+
+          <v-tabs-window-item value="updates">
+            <OtaUpdate />
+          </v-tabs-window-item>
+        </v-tabs-window>
       </v-container>
     </v-main>
 

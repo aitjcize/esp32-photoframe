@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "album_manager.h"
+#include "battery_history.h"
 #include "board_hal.h"
 #include "cJSON.h"
 #include "config.h"
@@ -867,6 +868,137 @@ static esp_err_t read_whole_file(const char *path, uint8_t **out_data, long *out
     return ESP_OK;
 }
 
+// Uploads a local file as a brand-new Telegram photo (multipart/form-data
+// POST to sendPhoto) - unlike telegram_bot_send_photo_reply() above, which
+// re-references an existing Telegram-hosted file_id, this actually uploads
+// bytes Telegram has never seen (e.g. a locally generated thumbnail). Kept
+// to small files (thumbnails) - buffers the whole multipart body in SPIRAM
+// rather than streaming, which keeps this simple and is fine at that size.
+static esp_err_t telegram_bot_send_photo_file(const char *file_path, const char *caption)
+{
+    if (!config_manager_telegram_is_configured() || !file_path) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    uint8_t *file_data = NULL;
+    long file_size = 0;
+    if (read_whole_file(file_path, &file_data, &file_size) != ESP_OK) {
+        ESP_LOGW(TAG, "send_photo_file: failed to read %s", file_path);
+        return ESP_FAIL;
+    }
+
+    const char *boundary = "----ESP32PhotoFrameBoundary";
+    const char *filename = strrchr(file_path, '/');
+    filename = filename ? filename + 1 : file_path;
+    const char *chat_id = config_manager_get_telegram_chat_id();
+
+    char part1[512];
+    int part1_len =
+        snprintf(part1, sizeof(part1),
+                 "--%s\r\n"
+                 "Content-Disposition: form-data; name=\"chat_id\"\r\n\r\n%s\r\n"
+                 "--%s\r\n"
+                 "Content-Disposition: form-data; name=\"caption\"\r\n\r\n%.900s\r\n"
+                 "--%s\r\n"
+                 "Content-Disposition: form-data; name=\"photo\"; filename=\"%.100s\"\r\n"
+                 "Content-Type: image/jpeg\r\n\r\n",
+                 boundary, chat_id ? chat_id : "", boundary, caption ? caption : "", boundary,
+                 filename);
+    if (part1_len < 0 || (size_t) part1_len >= sizeof(part1)) {
+        heap_caps_free(file_data);
+        return ESP_FAIL;
+    }
+
+    char part2[64];
+    int part2_len = snprintf(part2, sizeof(part2), "\r\n--%s--\r\n", boundary);
+
+    size_t total_len = (size_t) part1_len + (size_t) file_size + (size_t) part2_len;
+    uint8_t *multipart_body = (uint8_t *) heap_caps_malloc(total_len, MALLOC_CAP_SPIRAM);
+    if (!multipart_body) {
+        heap_caps_free(file_data);
+        return ESP_ERR_NO_MEM;
+    }
+    memcpy(multipart_body, part1, (size_t) part1_len);
+    memcpy(multipart_body + part1_len, file_data, (size_t) file_size);
+    memcpy(multipart_body + part1_len + file_size, part2, (size_t) part2_len);
+    heap_caps_free(file_data);
+
+    char url[256];
+    build_api_url("sendPhoto", url, sizeof(url));
+    char content_type[64];
+    snprintf(content_type, sizeof(content_type), "multipart/form-data; boundary=%s", boundary);
+
+    esp_err_t result = ESP_FAIL;
+    for (int attempt = 1; attempt <= TELEGRAM_HTTP_RETRY_COUNT; attempt++) {
+        if (attempt > 1) {
+            ESP_LOGW(TAG, "Retrying sendPhoto upload (%d/%d) after %d ms...", attempt,
+                     TELEGRAM_HTTP_RETRY_COUNT, TELEGRAM_HTTP_RETRY_DELAY_MS);
+            vTaskDelay(pdMS_TO_TICKS(TELEGRAM_HTTP_RETRY_DELAY_MS));
+        }
+
+        esp_http_client_config_t config = {
+            .url = url,
+            .method = HTTP_METHOD_POST,
+            .timeout_ms = TELEGRAM_HTTP_TIMEOUT_MS,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+        };
+        esp_http_client_handle_t client = esp_http_client_init(&config);
+        if (!client) {
+            continue;
+        }
+
+        esp_http_client_set_header(client, "Content-Type", content_type);
+        esp_http_client_set_post_field(client, (const char *) multipart_body, (int) total_len);
+
+        esp_err_t err = esp_http_client_perform(client);
+        int status = esp_http_client_get_status_code(client);
+        esp_http_client_cleanup(client);
+
+        if (err != ESP_OK || status != 200) {
+            ESP_LOGW(TAG, "sendPhoto upload failed (err=%s, status=%d)", esp_err_to_name(err),
+                     status);
+            continue;
+        }
+        result = ESP_OK;
+        break;
+    }
+
+    heap_caps_free(multipart_body);
+    return result;
+}
+
+// Notifies Telegram about an image that was displayed via fallback album
+// rotation (i.e. NOT from a Telegram push) - see
+// config_manager_get_telegram_rotation_notify_enabled(). Sends the image's
+// thumbnail sidecar if one exists (much smaller/faster to upload than the
+// full display-resolution image), falling back to the full image otherwise.
+esp_err_t telegram_bot_notify_fallback_image(const char *image_path)
+{
+    if (!image_path || image_path[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char thumb_path[320];
+    strncpy(thumb_path, image_path, sizeof(thumb_path) - 1);
+    thumb_path[sizeof(thumb_path) - 1] = '\0';
+    char *ext = strrchr(thumb_path, '.');
+    const char *send_path = image_path;
+    if (ext && (size_t) (ext - thumb_path) + 4 < sizeof(thumb_path)) {
+        strcpy(ext, ".jpg");
+        struct stat st;
+        if (strcmp(thumb_path, image_path) != 0 && stat(thumb_path, &st) == 0) {
+            send_path = thumb_path;
+        }
+    }
+
+    const char *fname = strrchr(image_path, '/');
+    fname = fname ? fname + 1 : image_path;
+    char caption[192];
+    snprintf(caption, sizeof(caption), "[i] Auto-rotate (no new Telegram image): %.100s", fname);
+
+    return telegram_bot_send_photo_file(send_path, caption);
+}
+
 // Reads just enough of a file to determine its pixel dimensions (bounded
 // read - reuses the same header-scan window as the progressive-JPEG check).
 // Whether the frame is currently mounted in portrait as *actually rendered*.
@@ -1562,14 +1694,16 @@ static void format_toggles(char *out, size_t out_len)
              "[%c] Wake notification\n"
              "[%c] Error overlay\n"
              "[%c] WiFi performance\n"
-             "[%c] Rotation pairing (random mode only)",
+             "[%c] Rotation pairing (random mode only)\n"
+             "[%c] Rotation notify (thumbnail on fallback display)",
              config_manager_get_telegram_pairing_enabled() ? 'x' : ' ',
              config_manager_get_deep_sleep_enabled() ? 'x' : ' ',
              config_manager_get_auto_rotate() ? 'x' : ' ',
              config_manager_get_telegram_wake_notify_enabled() ? 'x' : ' ',
              config_manager_get_error_overlay_enabled() ? 'x' : ' ',
              config_manager_get_wifi_performance_mode_enabled() ? 'x' : ' ',
-             config_manager_get_rotation_pairing_enabled() ? 'x' : ' ');
+             config_manager_get_rotation_pairing_enabled() ? 'x' : ' ',
+             config_manager_get_telegram_rotation_notify_enabled() ? 'x' : ' ');
 }
 
 static void format_rotation_schedule(char *out, size_t out_len)
@@ -1600,12 +1734,29 @@ static void format_rotation_schedule(char *out, size_t out_len)
 
 // Shared by /status and the optional wake-up notification - `title` is the
 // only thing that differs between the two use sites.
+static void format_battery_estimate(char *out, size_t out_len)
+{
+    double days;
+    if (!battery_history_estimate_days_remaining(&days)) {
+        snprintf(out, out_len, "not enough history yet");
+        return;
+    }
+    if (days <= 0) {
+        snprintf(out, out_len, "already at or below %d%%", BATTERY_HISTORY_TARGET_PERCENT);
+    } else {
+        snprintf(out, out_len, "~%.1f days until %d%%", days, BATTERY_HISTORY_TARGET_PERCENT);
+    }
+}
+
 static void build_status_message(const char *title, char *out, size_t out_len)
 {
     const esp_app_desc_t *app_desc = esp_app_get_description();
 
     char battery[64];
     format_battery(battery, sizeof(battery));
+
+    char battery_estimate[64];
+    format_battery_estimate(battery_estimate, sizeof(battery_estimate));
 
     char ip_str[16] = "n/a";
     wifi_manager_get_ip(ip_str, sizeof(ip_str));
@@ -1619,7 +1770,7 @@ static void build_status_message(const char *title, char *out, size_t out_len)
     char schedule[160];
     format_rotation_schedule(schedule, sizeof(schedule));
 
-    char toggles[224];
+    char toggles[320];
     format_toggles(toggles, sizeof(toggles));
 
     const char *ssid = config_manager_get_wifi_ssid();
@@ -1630,6 +1781,7 @@ static void build_status_message(const char *title, char *out, size_t out_len)
              "Reset reason: %s\n"
              "\n"
              "Battery: %s\n"
+             "Battery estimate: %s\n"
              "WiFi: %s (%s)\n"
              "\n"
              "Storage: %s\n"
@@ -1640,7 +1792,7 @@ static void build_status_message(const char *title, char *out, size_t out_len)
              "Settings:\n"
              "%s",
              title, app_desc->version, BOARD_HAL_NAME, reset_reason_string(), battery,
-             ssid ? ssid : "n/a", ip_str, storage, heap, schedule, toggles);
+             battery_estimate, ssid ? ssid : "n/a", ip_str, storage, heap, schedule, toggles);
 }
 
 // Executes one queued "/"-command and sends a sendMessage reply. Strips an
@@ -1788,6 +1940,19 @@ static void execute_command(const char *raw_text)
         } else {
             telegram_bot_send_message("[i] Usage: /rotation_pairing on|off");
         }
+    } else if (strcmp(cmd, "/rotation_notify") == 0) {
+        if (args && strcasecmp(args, "on") == 0) {
+            config_manager_set_telegram_rotation_notify_enabled(true);
+            telegram_bot_send_message(
+                "[x] Fallback-rotation notification enabled\n"
+                "(sends a thumbnail whenever a wake shows an image that didn't come from "
+                "Telegram).");
+        } else if (args && strcasecmp(args, "off") == 0) {
+            config_manager_set_telegram_rotation_notify_enabled(false);
+            telegram_bot_send_message("[ ] Fallback-rotation notification disabled.");
+        } else {
+            telegram_bot_send_message("[i] Usage: /rotation_notify on|off");
+        }
     } else if (strcmp(cmd, "/list_albums") == 0) {
         char **albums = NULL;
         int count = 0;
@@ -1880,6 +2045,8 @@ static void execute_command(const char *raw_text)
             "/wifi_perf on|off - WiFi performance mode\n"
             "/rotation_pairing on|off - Combine mismatched-orientation images\n"
             "  during auto-rotation (random mode only, no effect in sequential mode)\n"
+            "/rotation_notify on|off - Send a thumbnail when a wake displays an\n"
+            "  image that didn't come from Telegram (i.e. fallback rotation)\n"
             "\n"
             "Emergency:\n"
             "/telegram_reset - Clear the queue immediately\n"

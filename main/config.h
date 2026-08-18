@@ -80,6 +80,15 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 // before repeating. See history_manager.[ch].
 #define DISPLAY_HISTORY_PATH FS_MOUNT_POINT "/.display_history"
 
+// Battery history log (one "<unix_ts>,<percent>,<charging 0|1>" line per
+// recorded reading, appended once per successfully displayed image). See
+// battery_history.[ch]. Cleared automatically on a fresh full charge or
+// after BATTERY_HISTORY_MAX_AGE_DAYS, whichever comes first.
+#define BATTERY_HISTORY_PATH FS_MOUNT_POINT "/.battery_history"
+#define BATTERY_HISTORY_RESET_PERCENT 95
+#define BATTERY_HISTORY_MAX_AGE_DAYS 180
+#define BATTERY_HISTORY_TARGET_PERCENT 20
+
 #ifdef DEBUG_DEEP_SLEEP_WAKE
 #define AUTO_SLEEP_TIMEOUT_SEC 60
 #else
@@ -209,6 +218,12 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 // of showing one letterboxed. Opt-in, off by default. Random rotation mode
 // only - sequential mode's deterministic index cursor is left untouched.
 #define NVS_ROTATION_PAIRING_ENABLED_KEY "rot_pairing_en"
+
+// When a Telegram-mode wake falls back to normal album rotation (no new
+// Telegram image this cycle), send a thumbnail of whatever got displayed to
+// the chat, so it stays visible what the frame is showing even without a
+// push. Opt-in, off by default.
+#define NVS_TELEGRAM_ROTATION_NOTIFY_KEY "tg_rot_notify"
 
 // On battery, WiFi association draws a brief high-current TX burst; capping
 // TX power lowers that peak (at some cost to range). Value is in units of

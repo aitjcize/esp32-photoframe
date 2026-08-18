@@ -14,6 +14,7 @@
 #include "GUI_Paint.h"
 #include "GUI_RawBuffer.h"
 #include "album_manager.h"
+#include "battery_history.h"
 #include "board_hal.h"
 #include "config.h"
 #include "config_manager.h"
@@ -180,6 +181,10 @@ esp_err_t display_manager_show_image(const char *filename)
     // repeated path (e.g. the fixed URL-rotation temp file) is a no-op after
     // the first call.
     history_manager_mark_shown(filename);
+
+    // One battery reading per successfully displayed image - see
+    // battery_history.c for the persisted log and reset policy.
+    battery_history_record();
 
     ESP_LOGI(TAG, "Image displayed successfully");
     return ESP_OK;

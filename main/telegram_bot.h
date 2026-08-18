@@ -61,4 +61,12 @@ void telegram_bot_run_pending_commands(void);
 // success. No-op (ESP_ERR_INVALID_STATE) if Telegram isn't configured.
 esp_err_t telegram_bot_send_message(const char *text);
 
+// Sends a thumbnail (or, failing that, the full image) of an image that was
+// just displayed via fallback album rotation - i.e. NOT from a Telegram
+// push - so the chat still sees what the frame is showing even when nothing
+// new was sent. Call only when
+// config_manager_get_telegram_rotation_notify_enabled() is true. No-op
+// (ESP_ERR_INVALID_STATE) if Telegram isn't configured.
+esp_err_t telegram_bot_notify_fallback_image(const char *image_path);
+
 #endif

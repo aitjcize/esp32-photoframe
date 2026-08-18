@@ -844,6 +844,20 @@ async function performFactoryReset() {
                       "/wake_notify" bot command.
                     </div>
 
+                    <v-switch
+                      v-model="settingsStore.deviceSettings.telegramRotationNotifyEnabled"
+                      label="Notify when a wake shows a non-Telegram image"
+                      color="primary"
+                      class="mb-2"
+                      hide-details
+                    />
+                    <div class="text-caption text-medium-emphasis mb-4">
+                      When a wake falls back to normal album rotation (no new Telegram image that
+                      cycle), sends a thumbnail of whatever got displayed instead, so the chat
+                      still shows what's currently on the frame. Also togglable via the
+                      "/rotation_notify" bot command.
+                    </div>
+
                     <v-alert
                       v-if="settingsStore.deviceSettings.lastFetchError"
                       type="error"

@@ -84,6 +84,7 @@ rotation cursor too).
 | `/error_overlay on\|off` | Toggles an on-display warning banner after repeated WiFi failures |
 | `/wifi_perf on\|off` | Toggles the WiFi performance mode (see below) |
 | `/rotation_pairing on\|off` | Toggles auto-rotate orientation pairing (random mode only) |
+| `/rotation_notify on\|off` | Sends a thumbnail when a wake displays an image via fallback rotation |
 | `/help` | Lists all commands |
 | `/telegram_reset` | **Emergency**: clears the queue immediately, highest priority |
 
@@ -113,6 +114,17 @@ expressions to avoid silently failing to send.
 - Optional wake-up ping (`/wake_notify`): sends a full `/status`-style report to Telegram on every
   wake, so you can confirm the device is alive without opening the web UI.
 
+## Battery history
+
+A "Battery History" tab in the Web UI plots battery percentage over time (a plain SVG chart, no
+external charting library), marking charging/USB periods separately from on-battery readings. One
+reading is recorded after every displayed image, to a small persisted log
+(`/storage/.battery_history`) that resets automatically once the battery reaches 95% (a fresh full
+charge) or after 180 days, whichever comes first.
+
+An estimate of days remaining until 20% - based on the drain rate observed since the last charge -
+is shown next to the Web UI chart, in `/status`, and in the optional wake-up notification.
+
 ## Settings (Web UI + Telegram)
 
 All default to preserving existing behavior for users who don't configure Telegram at all.
@@ -129,6 +141,7 @@ All default to preserving existing behavior for users who don't configure Telegr
 | Home Assistant integration | **off** | Master switch for all HA features (see below) |
 | OTA auto-check | on | Automatic update check on cold boot |
 | Auto-rotate orientation pairing | **off** | See [below](#auto-rotate-orientation-pairing) - random mode only |
+| Fallback-rotation notification | **off** | See [below](#fallback-rotation-notification) |
 | Thumbnail gallery (Web UI) | **off** | Client-side toggle; large galleries slow down the device's HTTP server |
 
 ### WiFi performance mode
@@ -162,6 +175,14 @@ them instead of showing one letterboxed. The combined result is saved permanentl
 **Random rotation mode only** — sequential mode's deterministic image-order cursor is deliberately
 left untouched, so this setting has no effect there. The Web UI shows a warning if the toggle is
 on while Sequential mode is selected.
+
+### Fallback-rotation notification
+
+When a wake falls back to normal album rotation (no new Telegram image that cycle), optionally
+sends a thumbnail of whatever got displayed instead - so the chat still shows what's currently on
+the frame even when nothing was pushed to it. Only fires when the display actually changed (not
+when rotation was a no-op, e.g. no enabled albums). Off by default; toggle via Web UI or
+`/rotation_notify on|off`.
 
 ### Error overlay test
 

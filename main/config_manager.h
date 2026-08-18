@@ -215,6 +215,12 @@ bool config_manager_get_wifi_performance_mode_enabled(void);
 void config_manager_set_rotation_pairing_enabled(bool enabled);
 bool config_manager_get_rotation_pairing_enabled(void);
 
+// Send a thumbnail to Telegram whenever a Telegram-mode wake falls back to
+// album rotation (no new Telegram image). Defaults to false. See
+// NVS_TELEGRAM_ROTATION_NOTIFY_KEY in config.h.
+void config_manager_set_telegram_rotation_notify_enabled(bool enabled);
+bool config_manager_get_telegram_rotation_notify_enabled(void);
+
 // ============================================================================
 // OTA
 // ============================================================================

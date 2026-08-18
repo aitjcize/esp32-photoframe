@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "album_manager.h"
+#include "battery_history.h"
 #include "board_hal.h"
 #include "cJSON.h"
 #include "color_palette.h"
@@ -1338,6 +1339,31 @@ static esp_err_t battery_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t battery_history_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System is still initializing");
+        return ESP_FAIL;
+    }
+
+    cJSON *response = battery_history_build_json();
+    if (response == NULL) {
+        httpd_resp_set_status(req, HTTPD_500);
+        httpd_resp_sendstr(req, "Failed to build battery history JSON");
+        return ESP_FAIL;
+    }
+
+    char *json_str = cJSON_Print(response);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+
+    free(json_str);
+    cJSON_Delete(response);
+
+    return ESP_OK;
+}
+
 static esp_err_t sensor_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -1747,6 +1773,8 @@ static esp_err_t config_handler(httpd_req_t *req)
                               config_manager_get_wifi_performance_mode_enabled());
         cJSON_AddBoolToObject(root, "rotation_pairing_enabled",
                               config_manager_get_rotation_pairing_enabled());
+        cJSON_AddBoolToObject(root, "telegram_rotation_notify_enabled",
+                              config_manager_get_telegram_rotation_notify_enabled());
 
         char *json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");
@@ -2768,6 +2796,12 @@ esp_err_t http_server_init(void)
                                    .handler = battery_handler,
                                    .user_ctx = NULL};
         httpd_register_uri_handler(server, &battery_uri);
+
+        httpd_uri_t battery_history_uri = {.uri = "/api/battery-history",
+                                           .method = HTTP_GET,
+                                           .handler = battery_history_handler,
+                                           .user_ctx = NULL};
+        httpd_register_uri_handler(server, &battery_history_uri);
 
         httpd_uri_t sensor_uri = {
             .uri = "/api/sensor", .method = HTTP_GET, .handler = sensor_handler, .user_ctx = NULL};
