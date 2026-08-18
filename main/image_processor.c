@@ -910,6 +910,30 @@ static esp_err_t png_writer_close(png_writer_t *pw, bool success)
     return err;
 }
 
+// Writes a whole in-RAM RGB888 buffer to a PNG file in one call, for callers
+// that already have a complete buffer (Telegram pairing/thumbnail/caption
+// helpers) rather than a row-by-row source - built on the same png_writer_t
+// streaming primitives as the rest of this file, just driven in a loop
+// instead of from a decode callback.
+static esp_err_t write_png_file(const char *filename, uint8_t *rgb_data, int width, int height)
+{
+    png_writer_t pw;
+    esp_err_t err = png_writer_open(&pw, filename, width, height);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    bool ok = true;
+    for (int y = 0; y < height; y++) {
+        if (png_writer_row_sink(&pw, y, &rgb_data[(size_t) y * width * 3]) != ESP_OK) {
+            ok = false;
+            break;
+        }
+    }
+
+    return png_writer_close(&pw, ok);
+}
+
 // Decode JPG from buffer to RGB
 static esp_err_t decode_jpg_buffer(const uint8_t *jpg_data, size_t jpg_size, uint8_t **rgb_buffer,
                                    int *width, int *height)
@@ -1816,6 +1840,118 @@ esp_err_t image_processor_peek_dimensions(const uint8_t *data, size_t size, imag
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+bool image_processor_is_processed(const char *input_path)
+{
+    ESP_LOGD(TAG, "Checking if image is already processed: %s", input_path);
+
+    FILE *fp = fopen(input_path, "rb");
+    if (!fp) {
+        ESP_LOGE(TAG, "Failed to open input file: %s", input_path);
+        return false;
+    }
+
+    uint8_t sig[8];
+    size_t read = fread(sig, 1, 8, fp);
+    if (read != 8 || png_sig_cmp(sig, 0, 8) != 0) {
+        ESP_LOGD(TAG, "Not a PNG file");
+        fclose(fp);
+        return false;
+    }
+
+    png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (!png_ptr) {
+        fclose(fp);
+        return false;
+    }
+
+    png_infop info_ptr = png_create_info_struct(png_ptr);
+    if (!info_ptr) {
+        png_destroy_read_struct(&png_ptr, NULL, NULL);
+        fclose(fp);
+        return false;
+    }
+
+    if (setjmp(png_jmpbuf(png_ptr))) {
+        ESP_LOGE(TAG, "PNG error during check");
+        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+        fclose(fp);
+        return false;
+    }
+
+    png_init_io(png_ptr, fp);
+    png_set_sig_bytes(png_ptr, 8);
+    png_read_info(png_ptr, info_ptr);
+
+    int width = png_get_image_width(png_ptr, info_ptr);
+    int height = png_get_image_height(png_ptr, info_ptr);
+
+    if (width != BOARD_HAL_DISPLAY_WIDTH || height != BOARD_HAL_DISPLAY_HEIGHT) {
+        ESP_LOGI(TAG, "Dimensions mismatch: %dx%d (expected %dx%d)", width, height,
+                 BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT);
+        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+        fclose(fp);
+        return false;
+    }
+
+    // Force RGB format
+    png_set_expand(png_ptr);
+    png_set_strip_alpha(png_ptr);
+    png_set_packing(png_ptr);
+    png_set_palette_to_rgb(png_ptr);
+    png_read_update_info(png_ptr, info_ptr);
+
+    if (png_get_channels(png_ptr, info_ptr) != 3) {
+        ESP_LOGI(TAG, "Not RGB format");
+        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+        fclose(fp);
+        return false;
+    }
+
+    // Check pixels row by row against the fixed theoretical palette (see
+    // the header doc comment for why not the calibrated/measured one).
+    png_bytep row = (png_bytep) malloc(png_get_rowbytes(png_ptr, info_ptr));
+    if (!row) {
+        ESP_LOGE(TAG, "Failed to allocate row buffer");
+        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+        fclose(fp);
+        return false;
+    }
+
+    bool valid = true;
+    for (int y = 0; y < height; y++) {
+        png_read_row(png_ptr, row, NULL);
+
+        for (int x = 0; x < width; x++) {
+            uint8_t r = row[x * 3];
+            uint8_t g = row[x * 3 + 1];
+            uint8_t b = row[x * 3 + 2];
+
+            bool color_match = false;
+            for (int i = 0; i < 7; i++) {
+                if (i == 4)
+                    continue;  // Skip reserved
+                if (r == palette[i].r && g == palette[i].g && b == palette[i].b) {
+                    color_match = true;
+                    break;
+                }
+            }
+
+            if (!color_match) {
+                valid = false;
+                break;
+            }
+        }
+        if (!valid) {
+            break;
+        }
+    }
+
+    free(row);
+    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+    fclose(fp);
+    return valid;
+}
+
 esp_err_t image_processor_peek_file_dimensions(const char *path, image_format_t format, int *out_w,
                                                int *out_h)
 {
@@ -1839,6 +1975,180 @@ esp_err_t image_processor_peek_file_dimensions(const char *path, image_format_t 
     esp_err_t err = image_processor_peek_dimensions(buf, n, format, out_w, out_h);
     free(buf);
     return err;
+}
+
+// Nearest-neighbor "cover" resize (scale to fill dst, crop excess, centered)
+// of a whole in-RAM RGB888 buffer. Only used by image_processor_compose_pair_to_rgb() below -
+// everything else in this file resizes as part of the row-streaming pipeline instead.
+static uint8_t *resize_image(uint8_t *src, int src_w, int src_h, int dst_w, int dst_h)
+{
+    uint8_t *dst = (uint8_t *) heap_caps_malloc((size_t) dst_w * dst_h * 3, MALLOC_CAP_SPIRAM);
+    if (!dst) {
+        ESP_LOGE(TAG, "Failed to allocate resize buffer");
+        return NULL;
+    }
+
+    float scale_x = (float) dst_w / src_w;
+    float scale_y = (float) dst_h / src_h;
+    float scale = fmaxf(scale_x, scale_y);
+
+    int scaled_w = (int) (src_w * scale);
+    int scaled_h = (int) (src_h * scale);
+
+    int offset_x = (scaled_w - dst_w) / 2;
+    int offset_y = (scaled_h - dst_h) / 2;
+
+    for (int y = 0; y < dst_h; y++) {
+        for (int x = 0; x < dst_w; x++) {
+            float scaled_x = x + offset_x;
+            float scaled_y = y + offset_y;
+
+            float src_x_f = scaled_x / scale;
+            float src_y_f = scaled_y / scale;
+
+            int src_x = (int) src_x_f;
+            int src_y = (int) src_y_f;
+
+            if (src_x >= src_w)
+                src_x = src_w - 1;
+            if (src_y >= src_h)
+                src_y = src_h - 1;
+            if (src_x < 0)
+                src_x = 0;
+            if (src_y < 0)
+                src_y = 0;
+
+            int dst_idx = (y * dst_w + x) * 3;
+            int src_idx = (src_y * src_w + src_x) * 3;
+
+            dst[dst_idx] = src[src_idx];
+            dst[dst_idx + 1] = src[src_idx + 1];
+            dst[dst_idx + 2] = src[src_idx + 2];
+        }
+    }
+
+    return dst;
+}
+
+// Resize/rotate-to-fit a whole in-RAM RGB888 buffer to the panel's native
+// resolution, then apply CDR + dithering - the same per-row primitives
+// (cdr_apply_row / dither_row) the main row-streaming pipeline uses, just
+// driven in a loop here since the caller already has a complete buffer
+// rather than a row source. Keeps composed-pair/thumbnail output visually
+// consistent with every other image the device displays, using the same
+// measured-palette calibration.
+static esp_err_t process_rgb_buffer_core(uint8_t *rgb_buffer, int width, int height,
+                                         dither_algorithm_t dither_algorithm, uint8_t **out_buffer,
+                                         int *out_width, int *out_height)
+{
+    ESP_LOGI(TAG, "Processing RGB buffer: %dx%d", width, height);
+
+    uint8_t *resized = NULL;
+    uint8_t *rotated = NULL;
+    uint8_t *final_image = rgb_buffer;
+    int final_width = width;
+    int final_height = height;
+
+    bool image_is_portrait = height > width;
+    bool board_is_portrait = BOARD_HAL_DISPLAY_HEIGHT > BOARD_HAL_DISPLAY_WIDTH;
+    bool needs_rotation = image_is_portrait != board_is_portrait;
+
+    // STEP 1: Resize for target orientation
+    int target_width, target_height;
+    if (needs_rotation) {
+        target_width = (width * BOARD_HAL_DISPLAY_WIDTH) / height;
+        target_height = BOARD_HAL_DISPLAY_WIDTH;
+    } else {
+        target_width = BOARD_HAL_DISPLAY_WIDTH;
+        target_height = BOARD_HAL_DISPLAY_HEIGHT;
+    }
+
+    if (final_width != target_width || final_height != target_height) {
+        ESP_LOGI(TAG, "Resizing image to %dx%d", target_width, target_height);
+        resized = resize_image(final_image, final_width, final_height, target_width, target_height);
+        if (!resized) {
+            ESP_LOGE(TAG, "Failed to resize image to %dx%d", target_width, target_height);
+            return ESP_FAIL;
+        }
+        if (final_image != rgb_buffer)
+            heap_caps_free(final_image);
+        final_image = resized;
+        final_width = target_width;
+        final_height = target_height;
+    }
+
+    // STEP 2: Rotate
+    if (needs_rotation) {
+        ESP_LOGI(TAG, "Rotating image by 90 degrees");
+        size_t rotated_size = (size_t) final_width * final_height * 3;
+        rotated = (uint8_t *) heap_caps_malloc(rotated_size, MALLOC_CAP_SPIRAM);
+        if (!rotated) {
+            ESP_LOGE(TAG, "Failed to allocate rotation buffer of %zu bytes", rotated_size);
+            if (final_image != rgb_buffer)
+                heap_caps_free(final_image);
+            return ESP_FAIL;
+        }
+
+        for (int y = 0; y < final_height; y++) {
+            for (int x = 0; x < final_width; x++) {
+                int src_idx = (y * final_width + x) * 3;
+                int dst_x = final_height - 1 - y;
+                int dst_y = x;
+                int dst_idx = (dst_y * final_height + dst_x) * 3;
+                rotated[dst_idx] = final_image[src_idx];
+                rotated[dst_idx + 1] = final_image[src_idx + 1];
+                rotated[dst_idx + 2] = final_image[src_idx + 2];
+            }
+        }
+        if (final_image != rgb_buffer)
+            heap_caps_free(final_image);
+        final_image = rotated;
+        int temp = final_width;
+        final_width = final_height;
+        final_height = temp;
+    }
+
+    // STEP 3: Final fit check
+    if (final_width != BOARD_HAL_DISPLAY_WIDTH || final_height != BOARD_HAL_DISPLAY_HEIGHT) {
+        uint8_t *final_resized = resize_image(final_image, final_width, final_height,
+                                              BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT);
+        if (!final_resized) {
+            ESP_LOGE(TAG, "Failed to final resize image to %dx%d", BOARD_HAL_DISPLAY_WIDTH,
+                     BOARD_HAL_DISPLAY_HEIGHT);
+            if (final_image != rgb_buffer)
+                heap_caps_free(final_image);
+            return ESP_FAIL;
+        }
+        if (final_image != rgb_buffer)
+            heap_caps_free(final_image);
+        final_image = final_resized;
+        final_width = BOARD_HAL_DISPLAY_WIDTH;
+        final_height = BOARD_HAL_DISPLAY_HEIGHT;
+    }
+
+    // Apply fast CDR + dithering, row by row, via the shared engine.
+    cdr_state_t cdr;
+    cdr_init(&cdr);
+
+    dither_state_t dither_st;
+    esp_err_t derr = dither_init(&dither_st, final_width, dither_algorithm);
+    if (derr != ESP_OK) {
+        if (final_image != rgb_buffer)
+            heap_caps_free(final_image);
+        return derr;
+    }
+
+    for (int y = 0; y < final_height; y++) {
+        uint8_t *row = &final_image[(size_t) y * final_width * 3];
+        cdr_apply_row(&cdr, row, final_width);
+        dither_row(&dither_st, row);
+    }
+    dither_free(&dither_st);
+
+    *out_buffer = final_image;
+    *out_width = final_width;
+    *out_height = final_height;
+    return ESP_OK;
 }
 
 esp_err_t image_processor_compose_pair_to_rgb(const uint8_t *data_a, size_t size_a,

@@ -23,6 +23,21 @@ typedef enum {
     IMAGE_FORMAT_EPD_GZ
 } image_format_t;
 
+/**
+ * @brief Result structure for raw RGB buffer output (no PNG encoding)
+ *
+ * Only used by the Telegram-pairing/thumbnail helpers below, which need an
+ * in-RAM buffer to composite/downsample - everything else in this project
+ * uses the streaming, no-full-buffer path (image_processor_process_to_display
+ * / image_processor_process_or_display_png).
+ */
+typedef struct {
+    uint8_t *rgb_data;  // RGB888 buffer (caller must free with heap_caps_free)
+    size_t rgb_size;    // Size of RGB data in bytes (width * height * 3)
+    int width;          // Output image width
+    int height;         // Output image height
+} image_process_rgb_result_t;
+
 esp_err_t image_processor_init(void);
 
 /**
@@ -81,6 +96,20 @@ esp_err_t image_processor_reload_palette(void);
 const char *image_processor_get_last_error(void);
 
 image_format_t image_processor_detect_format(const char *input_path);
+
+/**
+ * @brief Whether a PNG file is already a fully processed, display-ready
+ * image: native panel dimensions and every pixel one of the panel's
+ * theoretical output colors. Used by the Telegram/pairing paths to decide
+ * whether a file can be shown as-is or needs (re-)processing first.
+ *
+ * Checks against the fixed theoretical palette only, not a board's
+ * calibrated/measured palette - a narrower check than
+ * image_processor_process_or_display_png()'s internal equivalent, but
+ * sufficient for its callers' purpose (avoid redundant reprocessing, not an
+ * exact calibration match).
+ */
+bool image_processor_is_processed(const char *input_path);
 
 /**
  * @brief Detect image format from buffer data
