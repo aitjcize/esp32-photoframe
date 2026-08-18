@@ -288,7 +288,7 @@ TEST_F(ImagePipelineTest, AspectMismatchStillFillsPanel)
     Processed p = RunPipeline(png);
     EXPECT_EQ(p.w, 800);
     EXPECT_EQ(p.h, 480);
-    EXPECT_GT(p.fraction(kWhite), 0.999);
+    EXPECT_GT(p.fraction(kWhite), 0.98);  // see SolidWhiteStaysMostlyWhite
 }
 
 // The four orientation-config x panel-shape combinations, each verified by
@@ -374,13 +374,18 @@ TEST_F(ImagePipelineTest, PortraitOrientationRotationIsClockwise)
 
 // --- Color mapping --------------------------------------------------------
 
-// Per-channel CDR maps pure white exactly onto the measured white point, so
-// a white field dithers with zero error: no colored speckle (the earlier
-// luminance-based CDR left a bias that dithered into ~1% red dots).
-TEST_F(ImagePipelineTest, SolidWhiteStaysWhite)
+// ~1% red/yellow speckle on solid white is inherent to the fast luminance
+// CDR: white compresses to a neutral gray slightly above the measured
+// (non-neutral) white point, and float error diffusion turns the bias into
+// sparse colored dots. epaper-image-convert's LAB CDR shows the same
+// artifact (tool: 3728 red + 168 yellow pixels on this input; firmware:
+// 3734 + 168). A per-channel CDR that fixed this was reverted -- it washed
+// out midtone chroma.
+TEST_F(ImagePipelineTest, SolidWhiteStaysMostlyWhite)
 {
     Processed p = RunPipeline(EncodePng(800, 480, [](int, int) { return kWhite; }));
-    EXPECT_GT(p.fraction(kWhite), 0.999);
+    EXPECT_GT(p.fraction(kWhite), 0.98);
+    EXPECT_TRUE(p.allInPalette());
 }
 
 TEST_F(ImagePipelineTest, SolidBlackStaysBlack)
@@ -419,21 +424,21 @@ TEST_F(ImagePipelineTest, AlphaPngIsAccepted)
     Processed p = RunPipeline(png);
     EXPECT_EQ(p.w, 800);
     EXPECT_EQ(p.h, 480);
-    EXPECT_GT(p.fraction(kWhite), 0.999);
+    EXPECT_GT(p.fraction(kWhite), 0.98);  // see SolidWhiteStaysMostlyWhite
 }
 
 // Mid-gray must dither to a stable black/white mixture: pin the output mean
-// so the dither/CDR chain can't drift silently. With per-channel CDR the
-// firmware and epaper-image-convert run the same algorithm; the tool
-// produces 127.58 on this input.
+// so the dither/CDR chain can't drift silently. 129.08 observed with the
+// fast luminance CDR; epaper-image-convert's LAB CDR produces 134.24 (the
+// known fast-CDR deviation).
 TEST_F(ImagePipelineTest, MidGrayDitherMeanIsStable)
 {
     Processed p = RunPipeline(EncodePng(800, 480, [](int, int) { return Rgb{128, 128, 128}; }));
     double mean = (p.meanChannel(0) + p.meanChannel(1) + p.meanChannel(2)) / 3.0;
     RecordProperty("mid_gray_mean", mean);
     printf("[characterize] mid-gray output mean = %.2f\n", mean);
-    EXPECT_GT(mean, 123.0);
-    EXPECT_LT(mean, 132.0);
+    EXPECT_GT(mean, 120.0);
+    EXPECT_LT(mean, 137.0);
 }
 
 // --- Pre-processed PNG fast path ------------------------------------------
@@ -635,9 +640,8 @@ TEST_F(Gc16PipelineTest, MidGrayStaysInRamp)
     double mean = p.meanChannel(0);
     RecordProperty("gc16_mid_gray_mean", mean);
     printf("[characterize] gc16 mid-gray output mean = %.2f\n", mean);
-    // 153.00 on both the firmware and epaper-image-convert: the measured
-    // gray endpoints are neutral, so per-channel CDR and the old luminance
-    // remap coincide for neutral inputs
+    // 153.00 observed with the fast luminance CDR; epaper-image-convert's
+    // LAB CDR produces 164.03 (the known fast-CDR deviation)
     EXPECT_GT(mean, 145.0);
     EXPECT_LT(mean, 161.0);
 }

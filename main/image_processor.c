@@ -179,59 +179,71 @@ static inline uint8_t linear_to_srgb(float lin)
     return linear_to_srgb_lut[idx];
 }
 
-// Compressed Dynamic Range: remap each channel in linear light onto the
-// panel's measured black..white range (relative colorimetric intent, same
-// algorithm as epaper-image-convert). Pure white lands exactly on the
-// measured white point and dithers with zero error -- no colored speckle on
-// white backgrounds -- and chromatic adaptation hides the panel white's
-// slight tint from the viewer. The mapping is a fixed per-channel byte
-// transform, so it collapses into three 256-entry LUTs built once per
-// image.
+// Fast Compressed Dynamic Range: map source luminance into the panel's
+// measured black..white range so shadows/highlights stay distinguishable.
+// This is the known deviation from epaper-image-convert, which compresses
+// CIELAB lightness and preserves chroma: scaling luminance proportionally
+// keeps chromaticity while avoiding a per-pixel Lab round-trip on device.
+// (A per-channel remap was tried and reverted -- it compresses chroma along
+// with lightness and visibly washes out midtones.)
 typedef struct {
-    uint8_t lut[3][256];
+    float black_Y;
+    float range;
 } cdr_state_t;
-
-// Exact conversion for LUT building (the fast 4096-entry linear_to_srgb
-// table would quantize the 256 entries and break byte parity with the tool)
-static uint8_t linear_to_srgb_exact(float lin)
-{
-    if (lin <= 0.0f)
-        return 0;
-    if (lin >= 1.0f)
-        return 255;
-    float s = lin > 0.0031308f ? 1.055f * powf(lin, 1.0f / 2.4f) - 0.055f : 12.92f * lin;
-    int v = (int) roundf(s * 255.0f);
-    return (uint8_t) (v < 0 ? 0 : (v > 255 ? 255 : v));
-}
 
 static void cdr_init(cdr_state_t *cdr)
 {
     init_gamma_luts();
 
+    // Compute display black/white luminance in linear space
     const rgb_t *mb = board_is_grayscale() ? &gray_measured[0] : &palette_measured[0];
     const rgb_t *mw = board_is_grayscale() ? &gray_measured[15] : &palette_measured[1];
-    const uint8_t black[3] = {mb->r, mb->g, mb->b};
-    const uint8_t white[3] = {mw->r, mw->g, mw->b};
+    cdr->black_Y = 0.2126729f * srgb_to_linear(mb->r) + 0.7151522f * srgb_to_linear(mb->g) +
+                   0.0721750f * srgb_to_linear(mb->b);
+    float white_Y = 0.2126729f * srgb_to_linear(mw->r) + 0.7151522f * srgb_to_linear(mw->g) +
+                    0.0721750f * srgb_to_linear(mw->b);
+    cdr->range = white_Y - cdr->black_Y;
 
-    for (int c = 0; c < 3; c++) {
-        float black_lin = srgb_to_linear(black[c]);
-        float range = srgb_to_linear(white[c]) - black_lin;
-        for (int v = 0; v < 256; v++) {
-            cdr->lut[c][v] = linear_to_srgb_exact(black_lin + srgb_to_linear((uint8_t) v) * range);
-        }
-    }
-
-    ESP_LOGI(TAG, "CDR: per-channel remap to (%d,%d,%d)..(%d,%d,%d)", black[0], black[1], black[2],
-             white[0], white[1], white[2]);
+    ESP_LOGI(TAG, "Fast CDR: Display black Y=%.4f, white Y=%.4f (range: %.4f)", cdr->black_Y,
+             white_Y, cdr->range);
 }
 
 static void cdr_apply_row(const cdr_state_t *cdr, uint8_t *row, int width)
 {
     for (int x = 0; x < width; x++) {
         int idx = x * 3;
-        row[idx] = cdr->lut[0][row[idx]];
-        row[idx + 1] = cdr->lut[1][row[idx + 1]];
-        row[idx + 2] = cdr->lut[2][row[idx + 2]];
+
+        float lr = srgb_to_linear(row[idx]);
+        float lg = srgb_to_linear(row[idx + 1]);
+        float lb = srgb_to_linear(row[idx + 2]);
+
+        // Original luminance
+        float Y = 0.2126729f * lr + 0.7151522f * lg + 0.0721750f * lb;
+
+        // Compressed luminance mapped to [black_Y, white_Y]
+        float compressed_Y = cdr->black_Y + Y * cdr->range;
+
+        // Scale RGB channels proportionally
+        float scale;
+        if (Y > 1e-6f) {
+            scale = compressed_Y / Y;
+        } else {
+            // Near-black pixel: just set to display black level
+            scale = 0.0f;
+            lr = cdr->black_Y;
+            lg = cdr->black_Y;
+            lb = cdr->black_Y;
+        }
+
+        if (scale != 0.0f) {
+            lr *= scale;
+            lg *= scale;
+            lb *= scale;
+        }
+
+        row[idx] = linear_to_srgb(lr);
+        row[idx + 1] = linear_to_srgb(lg);
+        row[idx + 2] = linear_to_srgb(lb);
     }
 }
 
@@ -758,18 +770,12 @@ static void geometry_repaint_background(const geometry_t *geo, int out_y, uint8_
 static esp_err_t run_stream(geometry_t *geo, dither_algorithm_t dither_algorithm, row_sink_fn sink,
                             void *sink_ctx)
 {
-    // The LUTs are too large for the task stack
-    cdr_state_t *cdr = (cdr_state_t *) heap_caps_malloc(sizeof(cdr_state_t), MALLOC_CAP_SPIRAM);
-    if (!cdr) {
-        ESP_LOGE(TAG, "Failed to allocate CDR state");
-        return ESP_ERR_NO_MEM;
-    }
-    cdr_init(cdr);
+    cdr_state_t cdr;
+    cdr_init(&cdr);
 
     dither_state_t dither;
     esp_err_t err = dither_init(&dither, geo->out_w, dither_algorithm);
     if (err != ESP_OK) {
-        heap_caps_free(cdr);
         return err;
     }
 
@@ -777,13 +783,12 @@ static esp_err_t run_stream(geometry_t *geo, dither_algorithm_t dither_algorithm
     if (!row) {
         ESP_LOGE(TAG, "Failed to allocate row buffer");
         dither_free(&dither);
-        heap_caps_free(cdr);
         return ESP_ERR_NO_MEM;
     }
 
     for (int y = 0; y < geo->out_h && err == ESP_OK; y++) {
         geometry_fill_row(geo, y, row);
-        cdr_apply_row(cdr, row, geo->out_w);
+        cdr_apply_row(&cdr, row, geo->out_w);
         dither_row(&dither, row);
         geometry_repaint_background(geo, y, row);
         err = sink(sink_ctx, y, row);
@@ -799,7 +804,6 @@ static esp_err_t run_stream(geometry_t *geo, dither_algorithm_t dither_algorithm
 
     heap_caps_free(row);
     dither_free(&dither);
-    heap_caps_free(cdr);
     return err;
 }
 
