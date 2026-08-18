@@ -63,6 +63,12 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 #define IMAGE_DIRECTORY FS_MOUNT_POINT "/images"
 #define DOWNLOAD_DIRECTORY IMAGE_DIRECTORY "/Downloads"
 #define TELEGRAM_DOWNLOAD_DIRECTORY IMAGE_DIRECTORY "/Telegram"
+// Optional archive of Telegram photos exactly as received, before e-paper
+// processing (dithering/palette quantization) overwrites them. Not a
+// subdirectory album manager/rotation ever look inside (they only enumerate
+// top-level album dirs and DT_REG files directly within them), so it never
+// shows up in the gallery or rotation. Opt-in, off by default.
+#define TELEGRAM_ORIGINALS_DIRECTORY TELEGRAM_DOWNLOAD_DIRECTORY "/Originals"
 
 #define CURRENT_UPLOAD_PATH FS_MOUNT_POINT "/.current.tmp"
 #define CURRENT_JPG_PATH FS_MOUNT_POINT "/.current.jpg"
@@ -70,11 +76,6 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 #define CURRENT_PNG_PATH FS_MOUNT_POINT "/.current.png"
 #define CURRENT_EPD_PATH FS_MOUNT_POINT "/.current.epdgz"
 #define CURRENT_IMAGE_LINK FS_MOUNT_POINT "/.current.lnk"
-// Scratch full-size PNG used only while generating a Telegram-image
-// thumbnail sidecar - kept separate from CURRENT_PNG_PATH so thumbnail
-// generation for a non-displayed image in a batch can never collide with
-// whichever image ends up actually being shown that same poll cycle.
-#define TELEGRAM_THUMB_SCRATCH_PATH FS_MOUNT_POINT "/.tg_thumb_scratch.png"
 #define TELEGRAM_THUMBNAIL_MAX_DIMENSION 300
 #define CURRENT_CALIBRATION_PATH FS_MOUNT_POINT "/.calibration.png"
 
@@ -227,6 +228,10 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 // the chat, so it stays visible what the frame is showing even without a
 // push. Opt-in, off by default.
 #define NVS_TELEGRAM_ROTATION_NOTIFY_KEY "tg_rot_notify"
+
+// Keep a copy of each Telegram photo exactly as received (pre-processing) in
+// TELEGRAM_ORIGINALS_DIRECTORY. Opt-in, off by default.
+#define NVS_TELEGRAM_KEEP_ORIGINALS_KEY "tg_keep_orig"
 
 // On battery, WiFi association draws a brief high-current TX burst; capping
 // TX power lowers that peak (at some cost to range). Value is in units of

@@ -221,6 +221,12 @@ bool config_manager_get_rotation_pairing_enabled(void);
 void config_manager_set_telegram_rotation_notify_enabled(bool enabled);
 bool config_manager_get_telegram_rotation_notify_enabled(void);
 
+// Keep a copy of each Telegram photo exactly as received (pre-processing) in
+// TELEGRAM_ORIGINALS_DIRECTORY. Defaults to false. See
+// NVS_TELEGRAM_KEEP_ORIGINALS_KEY in config.h.
+void config_manager_set_telegram_keep_originals_enabled(bool enabled);
+bool config_manager_get_telegram_keep_originals_enabled(void);
+
 // ============================================================================
 // OTA
 // ============================================================================

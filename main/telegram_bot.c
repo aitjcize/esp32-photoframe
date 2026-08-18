@@ -537,23 +537,73 @@ static esp_err_t make_unique_telegram_path(const char *ext, char *out, size_t ou
     return ESP_FAIL;
 }
 
-// Downloads a Telegram "photo" (array of re-encoded resolutions, ascending
-// size) trying the largest first. Falls back to the next smaller size when
-// the current one is too large for getFile, fails to download, or turns out
-// to be a progressive JPEG we can't decode - until one succeeds or the
-// smallest size has also failed.
+// Telegram documents the "photo" array only as "available sizes of the
+// photo" - in practice every client sends it smallest-to-largest, but that
+// ordering isn't a formal API guarantee, so this ranks entries by their own
+// width*height instead of trusting array position. Caps the number of sizes
+// considered; Telegram sends at most a handful (thumbnail/medium/large/
+// original) per photo.
+#define TELEGRAM_MAX_PHOTO_SIZES 8
+
+// Downloads a Telegram "photo" (multiple re-encoded resolutions of the same
+// image), trying the largest by pixel area first. Falls back to the next
+// smaller size when the current one is too large for getFile, fails to
+// download, or turns out to be a progressive JPEG we can't decode - until one
+// succeeds or every size has also failed.
 //
 // out_thumb_file_id is filled with the smallest available size's file_id
 // regardless of which size was actually saved - Telegram already hosts it,
 // so it can be echoed straight back via sendPhoto as a lightweight "saved"
 // confirmation without re-uploading anything.
+//
+// out_largest_file_id is filled with the LARGEST available size's file_id,
+// also regardless of which size was actually downloaded here - the largest
+// is often the one size that turns out to be an undecodable progressive
+// JPEG, in which case this function itself falls back to a smaller one for
+// display. Callers that want the best possible archival copy (not a
+// decode-capable one) can re-fetch this file_id directly; no decode is
+// needed to just save raw bytes to disk.
 static esp_err_t download_photo_with_fallback(cJSON *photo_array, char *out_path,
                                                size_t out_path_len, char *out_thumb_file_id,
-                                               size_t out_thumb_file_id_len)
+                                               size_t out_thumb_file_id_len,
+                                               char *out_largest_file_id,
+                                               size_t out_largest_file_id_len)
 {
+    int n = cJSON_GetArraySize(photo_array);
+    if (n <= 0) {
+        return ESP_FAIL;
+    }
+    if (n > TELEGRAM_MAX_PHOTO_SIZES) {
+        n = TELEGRAM_MAX_PHOTO_SIZES;
+    }
+
+    // order[0] = largest by area, order[n-1] = smallest.
+    int order[TELEGRAM_MAX_PHOTO_SIZES];
+    long long area[TELEGRAM_MAX_PHOTO_SIZES];
+    for (int i = 0; i < n; i++) {
+        order[i] = i;
+        cJSON *size_obj = cJSON_GetArrayItem(photo_array, i);
+        cJSON *w_item = size_obj ? cJSON_GetObjectItem(size_obj, "width") : NULL;
+        cJSON *h_item = size_obj ? cJSON_GetObjectItem(size_obj, "height") : NULL;
+        long long w = (w_item && cJSON_IsNumber(w_item)) ? (long long) w_item->valuedouble : 0;
+        long long h = (h_item && cJSON_IsNumber(h_item)) ? (long long) h_item->valuedouble : 0;
+        area[i] = w * h;
+    }
+    // Simple insertion sort (n is at most a handful of entries).
+    for (int i = 1; i < n; i++) {
+        int cur = order[i];
+        long long cur_area = area[cur];
+        int j = i - 1;
+        while (j >= 0 && area[order[j]] < cur_area) {
+            order[j + 1] = order[j];
+            j--;
+        }
+        order[j + 1] = cur;
+    }
+
     if (out_thumb_file_id && out_thumb_file_id_len > 0) {
         out_thumb_file_id[0] = '\0';
-        cJSON *smallest = cJSON_GetArrayItem(photo_array, 0);
+        cJSON *smallest = cJSON_GetArrayItem(photo_array, order[n - 1]);
         cJSON *smallest_id = smallest ? cJSON_GetObjectItem(smallest, "file_id") : NULL;
         if (smallest_id && cJSON_IsString(smallest_id)) {
             strncpy(out_thumb_file_id, smallest_id->valuestring, out_thumb_file_id_len - 1);
@@ -561,9 +611,19 @@ static esp_err_t download_photo_with_fallback(cJSON *photo_array, char *out_path
         }
     }
 
-    int n = cJSON_GetArraySize(photo_array);
-    for (int i = n - 1; i >= 0; i--) {
-        cJSON *size_obj = cJSON_GetArrayItem(photo_array, i);
+    if (out_largest_file_id && out_largest_file_id_len > 0) {
+        out_largest_file_id[0] = '\0';
+        cJSON *largest = cJSON_GetArrayItem(photo_array, order[0]);
+        cJSON *largest_id = largest ? cJSON_GetObjectItem(largest, "file_id") : NULL;
+        if (largest_id && cJSON_IsString(largest_id)) {
+            strncpy(out_largest_file_id, largest_id->valuestring, out_largest_file_id_len - 1);
+            out_largest_file_id[out_largest_file_id_len - 1] = '\0';
+        }
+    }
+
+    for (int rank = 0; rank < n; rank++) {
+        int idx = order[rank];
+        cJSON *size_obj = cJSON_GetArrayItem(photo_array, idx);
         cJSON *file_id_item = cJSON_GetObjectItem(size_obj, "file_id");
         if (!file_id_item || !cJSON_IsString(file_id_item)) {
             continue;
@@ -572,14 +632,15 @@ static esp_err_t download_photo_with_fallback(cJSON *photo_array, char *out_path
         cJSON *fsize_item = cJSON_GetObjectItem(size_obj, "file_size");
         int approx_kb =
             (fsize_item && cJSON_IsNumber(fsize_item)) ? (int) (fsize_item->valuedouble / 1024) : -1;
-        ESP_LOGI(TAG, "Trying Telegram photo size %d/%d (~%d KB)", i + 1, n, approx_kb);
+        ESP_LOGI(TAG, "Trying Telegram photo size %d/%d (%lldpx area, ~%d KB)", rank + 1, n,
+                 area[idx], approx_kb);
 
         if (make_unique_telegram_path("jpg", out_path, out_path_len) != ESP_OK) {
             return ESP_FAIL;
         }
 
         if (telegram_download_file_id(file_id_item->valuestring, out_path) != ESP_OK) {
-            ESP_LOGW(TAG, "Size %d/%d failed to download, falling back to smaller", i + 1, n);
+            ESP_LOGW(TAG, "Size %d/%d failed to download, falling back to smaller", rank + 1, n);
             continue;
         }
 
@@ -587,7 +648,7 @@ static esp_err_t download_photo_with_fallback(cJSON *photo_array, char *out_path
             ESP_LOGW(TAG,
                      "Size %d/%d is a progressive JPEG (unsupported by decoder), falling back to "
                      "smaller",
-                     i + 1, n);
+                     rank + 1, n);
             unlink(out_path);
             continue;
         }
@@ -738,106 +799,6 @@ static esp_err_t process_and_display_telegram_image(const char *path, const char
     return show_err;
 }
 
-// Generates a small preview thumbnail sidecar next to an already-persisted
-// (processed, display-ready) Telegram image, named "<basename>.jpg" - the
-// same sidecar convention the Web UI upload path uses (a client-generated
-// real JPEG there; here it's PNG-encoded bytes under a ".jpg" name, since
-// the firmware has no JPEG encoder - browsers render by sniffing content,
-// not by trusting the extension, so this displays fine). Using ".jpg"
-// unconditionally (not swapping to match the source's own extension) is
-// deliberate: the source is always finalized to ".png" by
-// finalize_telegram_image() before this runs, and a same-named ".png"
-// thumbnail would silently overwrite the full-size image it's a thumbnail
-// of. Best-effort: logs and returns on failure, never treated as fatal by
-// the caller - a missing thumbnail just falls back to the icon+filename
-// placeholder in the gallery.
-static void generate_telegram_thumbnail(const char *image_path)
-{
-    image_format_t format = image_processor_detect_format(image_path);
-    if (format != IMAGE_FORMAT_JPG && format != IMAGE_FORMAT_PNG) {
-        return;
-    }
-
-    const char *source_path = image_path;
-    if (format == IMAGE_FORMAT_JPG || !image_processor_is_processed(image_path)) {
-        // Shouldn't normally happen anymore (finalize_telegram_image() below
-        // converts to a processed PNG first) - kept as a defensive fallback
-        // for whatever it didn't convert (e.g. processing failed upstream).
-        dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
-        esp_err_t err = image_processor_process(image_path, TELEGRAM_THUMB_SCRATCH_PATH, algo);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "Thumbnail: failed to process %s: %s", image_path,
-                     esp_err_to_name(err));
-            return;
-        }
-        source_path = TELEGRAM_THUMB_SCRATCH_PATH;
-    }
-
-    char thumb_path[320];
-    strncpy(thumb_path, image_path, sizeof(thumb_path) - 1);
-    thumb_path[sizeof(thumb_path) - 1] = '\0';
-    char *ext = strrchr(thumb_path, '.');
-    if (!ext || (size_t) (ext - thumb_path) + 4 >= sizeof(thumb_path)) {
-        return;
-    }
-    strcpy(ext, ".jpg");
-
-    esp_err_t err = image_processor_make_thumbnail(source_path, TELEGRAM_THUMBNAIL_MAX_DIMENSION,
-                                                   thumb_path);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Thumbnail: failed to generate for %s: %s", image_path,
-                 esp_err_to_name(err));
-    }
-}
-
-// Converts a downloaded Telegram image to a permanent, properly persisted
-// PNG in place (same directory/basename, extension -> .png) if it isn't
-// already one, then generates its thumbnail sidecar. Raw downloaded JPEGs
-// (the normal case - Telegram "photo" sends are always JPEG) otherwise stay
-// invisible to the rest of the system: the Web UI gallery
-// (album_images_handler) and fallback album rotation (rotate_sequential /
-// rotate_random in display_manager.c) both only recognize .bmp/.png/.epdgz,
-// never a bare .jpg. This is what a manual Web UI upload already gets for
-// free (client-side conversion before upload); Telegram downloads need it
-// done here instead, since there's no client-side step in that path.
-//
-// Must be called AFTER any orientation-mismatch/pairing decision that needs
-// the image's original aspect ratio: a "processed" PNG is always padded to
-// the panel's fixed display resolution, which no longer reflects the source
-// photo's own portrait/landscape shape.
-//
-// `path` is updated in place if the file was converted. Best-effort: on
-// processing failure, leaves `path` untouched (falls back to the original
-// raw file, same as before this existed) and only logs a warning.
-static void finalize_telegram_image(char *path, size_t path_len)
-{
-    image_format_t format = image_processor_detect_format(path);
-    bool needs_conversion =
-        (format == IMAGE_FORMAT_JPG || (format == IMAGE_FORMAT_PNG && !image_processor_is_processed(path)));
-
-    if (needs_conversion) {
-        char png_path[320];
-        strncpy(png_path, path, sizeof(png_path) - 1);
-        png_path[sizeof(png_path) - 1] = '\0';
-        char *ext = strrchr(png_path, '.');
-        if (ext && (size_t) (ext - png_path) + 4 < sizeof(png_path)) {
-            strcpy(ext, ".png");
-            dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
-            esp_err_t err = image_processor_process(path, png_path, algo);
-            if (err == ESP_OK) {
-                unlink(path);
-                strncpy(path, png_path, path_len - 1);
-                path[path_len - 1] = '\0';
-            } else {
-                ESP_LOGW(TAG, "Failed to persist %s as PNG, keeping original: %s", path,
-                         esp_err_to_name(err));
-            }
-        }
-    }
-
-    generate_telegram_thumbnail(path);
-}
-
 // Reads an entire file into a heap_caps (SPIRAM) buffer.
 static esp_err_t read_whole_file(const char *path, uint8_t **out_data, long *out_size)
 {
@@ -866,6 +827,199 @@ static esp_err_t read_whole_file(const char *path, uint8_t **out_data, long *out
     *out_data = buf;
     *out_size = size;
     return ESP_OK;
+}
+
+// Generates a small preview thumbnail sidecar named "<basename-of-final_path>.jpg"
+// - the same sidecar convention the Web UI upload path uses (a client-generated
+// real JPEG there; here it's PNG-encoded bytes under a ".jpg" name, since the
+// firmware has no JPEG encoder - browsers render by sniffing content, not by
+// trusting the extension, so this displays fine). Decodes `image_path`
+// directly with NO e-paper processing (no CDR, no dithering, no palette
+// quantization) - the thumbnail must be generated from the original photo,
+// not the low-color-depth, palette-quantized display PNG, otherwise the Web
+// UI/Telegram preview looks posterized instead of like a normal photo.
+//
+// `final_path` is the eventual display file's path (may be `image_path`
+// itself when no conversion is needed) - the thumbnail is always named after
+// IT, never after `image_path` directly, so that when a raw ".jpg" download
+// is about to be recycled into its own display PNG's thumbnail sidecar (the
+// common case - see finalize_telegram_image()), the two intentionally end up
+// sharing a filename instead of colliding with some other, unintended file.
+//
+// Best-effort: logs and returns an error on failure, never treated as fatal
+// by the caller - a missing thumbnail just falls back to the icon+filename
+// placeholder in the gallery.
+static esp_err_t generate_original_thumbnail(const char *image_path, image_format_t format,
+                                              const char *final_path)
+{
+    if (format != IMAGE_FORMAT_JPG && format != IMAGE_FORMAT_PNG) {
+        return ESP_ERR_NOT_SUPPORTED;  // BMP/EPDGZ document - no true-color source to thumbnail
+    }
+
+    char thumb_path[320];
+    strncpy(thumb_path, final_path, sizeof(thumb_path) - 1);
+    thumb_path[sizeof(thumb_path) - 1] = '\0';
+    char *ext = strrchr(thumb_path, '.');
+    if (!ext || (size_t) (ext - thumb_path) + 4 >= sizeof(thumb_path)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    strcpy(ext, ".jpg");
+
+    esp_err_t err = image_processor_make_thumbnail_from_original(
+        image_path, format, TELEGRAM_THUMBNAIL_MAX_DIMENSION, thumb_path);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Thumbnail: failed to generate for %s: %s", image_path,
+                 esp_err_to_name(err));
+    }
+    return err;
+}
+
+// Same idea, but for a source that has already been through e-paper
+// processing and has no separate "original" (a freshly composed
+// orientation-pair) - thumbnails whatever's actually on disk instead.
+static void generate_processed_thumbnail(const char *image_path)
+{
+    char thumb_path[320];
+    strncpy(thumb_path, image_path, sizeof(thumb_path) - 1);
+    thumb_path[sizeof(thumb_path) - 1] = '\0';
+    char *ext = strrchr(thumb_path, '.');
+    if (!ext || (size_t) (ext - thumb_path) + 4 >= sizeof(thumb_path)) {
+        return;
+    }
+    strcpy(ext, ".jpg");
+
+    esp_err_t err = image_processor_make_thumbnail(image_path, TELEGRAM_THUMBNAIL_MAX_DIMENSION,
+                                                   thumb_path);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Thumbnail: failed to generate for %s: %s", image_path,
+                 esp_err_to_name(err));
+    }
+}
+
+// Preserves the original (pre-processing) image into TELEGRAM_ORIGINALS_DIRECTORY
+// - a plain subfolder, never an active album (album_manager only lists
+// directories directly under IMAGE_DIRECTORY, and rotation/gallery only list
+// files, never recurse into subdirectories - both silently ignore it). Only
+// called when config_manager_get_telegram_keep_originals_enabled() is on.
+//
+// `archival_file_id`, when non-empty, is a Telegram file_id for a "photo"
+// message's LARGEST size (see download_photo_with_fallback()) - fetched
+// fresh here rather than copying the locally saved `path`, because `path`
+// may only be a smaller fallback size (the true largest can be an
+// undecodable progressive JPEG that download_photo_with_fallback() itself
+// had to skip for display purposes). No decode is needed to archive raw
+// bytes, so the progressive/unsupported size is fine here. Pass an empty
+// string/NULL for "document" uploads (single size - already the original,
+// `path` itself is exactly right).
+//
+// Best-effort: logs and returns on failure, never blocks finalization.
+static void preserve_telegram_original(const char *path, const char *archival_file_id)
+{
+    mkdir(TELEGRAM_ORIGINALS_DIRECTORY, 0775);  // no-op if it already exists
+
+    const char *fname = strrchr(path, '/');
+    fname = fname ? fname + 1 : path;
+    char dest[320];
+    snprintf(dest, sizeof(dest), "%s/%s", TELEGRAM_ORIGINALS_DIRECTORY, fname);
+
+    if (archival_file_id && archival_file_id[0] != '\0') {
+        if (telegram_download_file_id(archival_file_id, dest) == ESP_OK) {
+            return;
+        }
+        ESP_LOGW(TAG, "Failed to fetch largest photo size for archival, falling back to local copy");
+    }
+
+    uint8_t *data = NULL;
+    long size = 0;
+    if (read_whole_file(path, &data, &size) != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to read %s to preserve original", path);
+        return;
+    }
+    FILE *out = fopen(dest, "wb");
+    if (!out) {
+        ESP_LOGW(TAG, "Failed to open %s to preserve original", dest);
+        heap_caps_free(data);
+        return;
+    }
+    size_t written = fwrite(data, 1, (size_t) size, out);
+    fclose(out);
+    heap_caps_free(data);
+    if (written != (size_t) size) {
+        ESP_LOGW(TAG, "Short write preserving original to %s", dest);
+        unlink(dest);
+    }
+}
+
+// Converts a downloaded Telegram image to a permanent, properly persisted
+// PNG in place (same directory/basename, extension -> .png) if it isn't
+// already one. Raw downloaded JPEGs (the normal case - Telegram "photo"
+// sends are always JPEG) otherwise stay invisible to the rest of the
+// system: the Web UI gallery (album_images_handler) and fallback album
+// rotation (rotate_sequential / rotate_random in display_manager.c) both
+// only recognize .bmp/.png/.epdgz, never a bare .jpg. This is what a manual
+// Web UI upload already gets for free (client-side conversion before
+// upload); Telegram downloads need it done here instead, since there's no
+// client-side step in that path.
+//
+// Must be called AFTER any orientation-mismatch/pairing decision that needs
+// the image's original aspect ratio: a "processed" PNG is always padded to
+// the panel's fixed display resolution, which no longer reflects the source
+// photo's own portrait/landscape shape.
+//
+// `path` is updated in place if the file was converted. Best-effort: on
+// processing failure, leaves `path` untouched (falls back to the original
+// raw file, same as before this existed) and only logs a warning.
+//
+// `archival_file_id`: see preserve_telegram_original() - the Telegram
+// file_id of a "photo" message's largest size, or NULL/empty for a document
+// upload (single size, `path` is already the original).
+static void finalize_telegram_image(char *path, size_t path_len, const char *archival_file_id)
+{
+    image_format_t format = image_processor_detect_format(path);
+    bool needs_conversion =
+        (format == IMAGE_FORMAT_JPG || (format == IMAGE_FORMAT_PNG && !image_processor_is_processed(path)));
+
+    if (!needs_conversion) {
+        // Already a processed, display-ready PNG - thumbnail it as-is. Its
+        // ".jpg" sidecar name can never collide with the ".png" source.
+        generate_original_thumbnail(path, format, path);
+        return;
+    }
+
+    if (config_manager_get_telegram_keep_originals_enabled()) {
+        preserve_telegram_original(path, archival_file_id);
+    }
+
+    char png_path[320];
+    strncpy(png_path, path, sizeof(png_path) - 1);
+    png_path[sizeof(png_path) - 1] = '\0';
+    char *ext = strrchr(png_path, '.');
+    if (!ext || (size_t) (ext - png_path) + 4 >= sizeof(png_path)) {
+        return;
+    }
+    strcpy(ext, ".png");
+
+    dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
+    esp_err_t err = image_processor_process(path, png_path, algo);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to persist %s as PNG, keeping original: %s", path,
+                 esp_err_to_name(err));
+        return;
+    }
+
+    // The raw download (still holding valid, undamaged bytes at this point -
+    // both the optional preserved original and the display PNG above were
+    // already produced from it) is recycled in place into the display PNG's
+    // ".jpg" thumbnail sidecar: generate_original_thumbnail() derives that
+    // exact filename from png_path, which - since `path` and png_path share
+    // a basename and only differ by extension - is exactly `path` itself. On
+    // thumbnail failure there's nothing worth keeping at `path` any more, so
+    // it's deleted instead (matching the old unconditional cleanup).
+    if (generate_original_thumbnail(path, format, png_path) != ESP_OK) {
+        unlink(path);
+    }
+    strncpy(path, png_path, path_len - 1);
+    path[path_len - 1] = '\0';
 }
 
 // Uploads a local file as a brand-new Telegram photo (multipart/form-data
@@ -1368,12 +1522,14 @@ esp_err_t telegram_bot_poll(telegram_poll_result_t *out_result)
         cJSON *document = cJSON_GetObjectItem(message, "document");
         char downloaded_path[320];
         char thumb_file_id[TELEGRAM_FILE_ID_MAX_LEN];
+        char largest_file_id[TELEGRAM_FILE_ID_MAX_LEN] = {0};
         bool got_image = false;
 
         if (photo && cJSON_IsArray(photo) && cJSON_GetArraySize(photo) > 0) {
             got_image = (download_photo_with_fallback(photo, downloaded_path,
                                                        sizeof(downloaded_path), thumb_file_id,
-                                                       sizeof(thumb_file_id)) == ESP_OK);
+                                                       sizeof(thumb_file_id), largest_file_id,
+                                                       sizeof(largest_file_id)) == ESP_OK);
             if (!got_image) {
                 image_attempt_failed = true;
             }
@@ -1414,7 +1570,7 @@ esp_err_t telegram_bot_poll(telegram_poll_result_t *out_result)
             // this image is visible to the Web UI gallery and fallback
             // album rotation, same as any other album image - see
             // finalize_telegram_image() for why a raw download isn't.
-            finalize_telegram_image(downloaded_path, sizeof(downloaded_path));
+            finalize_telegram_image(downloaded_path, sizeof(downloaded_path), largest_file_id);
 
             if (saved_image_count < TELEGRAM_MAX_TRACKED_IMAGES) {
                 telegram_saved_image_t *entry = &saved_images[saved_image_count++];
@@ -1473,7 +1629,7 @@ esp_err_t telegram_bot_poll(telegram_poll_result_t *out_result)
                         paired = true;
 
                         if (pr->ok) {
-                            generate_telegram_thumbnail(pr->composed_path);
+                            generate_processed_thumbnail(pr->composed_path);
                             ESP_LOGI(TAG, "Composed and saved paired image: %s", pr->composed_path);
                             strncpy(display_path, pr->composed_path, sizeof(display_path) - 1);
                             display_path[sizeof(display_path) - 1] = '\0';
@@ -1695,7 +1851,8 @@ static void format_toggles(char *out, size_t out_len)
              "[%c] Error overlay\n"
              "[%c] WiFi performance\n"
              "[%c] Rotation pairing (random mode only)\n"
-             "[%c] Rotation notify (thumbnail on fallback display)",
+             "[%c] Rotation notify (thumbnail on fallback display)\n"
+             "[%c] Keep originals (pre-processing copies)",
              config_manager_get_telegram_pairing_enabled() ? 'x' : ' ',
              config_manager_get_deep_sleep_enabled() ? 'x' : ' ',
              config_manager_get_auto_rotate() ? 'x' : ' ',
@@ -1703,7 +1860,8 @@ static void format_toggles(char *out, size_t out_len)
              config_manager_get_error_overlay_enabled() ? 'x' : ' ',
              config_manager_get_wifi_performance_mode_enabled() ? 'x' : ' ',
              config_manager_get_rotation_pairing_enabled() ? 'x' : ' ',
-             config_manager_get_telegram_rotation_notify_enabled() ? 'x' : ' ');
+             config_manager_get_telegram_rotation_notify_enabled() ? 'x' : ' ',
+             config_manager_get_telegram_keep_originals_enabled() ? 'x' : ' ');
 }
 
 static void format_rotation_schedule(char *out, size_t out_len)
@@ -1953,6 +2111,18 @@ static void execute_command(const char *raw_text)
         } else {
             telegram_bot_send_message("[i] Usage: /rotation_notify on|off");
         }
+    } else if (strcmp(cmd, "/keep_originals") == 0) {
+        if (args && strcasecmp(args, "on") == 0) {
+            config_manager_set_telegram_keep_originals_enabled(true);
+            telegram_bot_send_message(
+                "[x] Keep originals enabled\n"
+                "(each Telegram photo is also saved, as received, under Telegram/Originals).");
+        } else if (args && strcasecmp(args, "off") == 0) {
+            config_manager_set_telegram_keep_originals_enabled(false);
+            telegram_bot_send_message("[ ] Keep originals disabled.");
+        } else {
+            telegram_bot_send_message("[i] Usage: /keep_originals on|off");
+        }
     } else if (strcmp(cmd, "/list_albums") == 0) {
         char **albums = NULL;
         int count = 0;
@@ -2047,6 +2217,8 @@ static void execute_command(const char *raw_text)
             "  during auto-rotation (random mode only, no effect in sequential mode)\n"
             "/rotation_notify on|off - Send a thumbnail when a wake displays an\n"
             "  image that didn't come from Telegram (i.e. fallback rotation)\n"
+            "/keep_originals on|off - Save each Telegram photo as received,\n"
+            "  before e-paper processing, under Telegram/Originals\n"
             "\n"
             "Emergency:\n"
             "/telegram_reset - Clear the queue immediately\n"

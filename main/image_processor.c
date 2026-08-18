@@ -2533,16 +2533,11 @@ esp_err_t image_processor_write_rgb_to_png(const uint8_t *rgb_buffer, int width,
     return write_png_file(output_path, (uint8_t *) rgb_buffer, width, height);
 }
 
-esp_err_t image_processor_make_thumbnail(const char *source_png_path, int max_dimension,
-                                         const char *output_path)
+static esp_err_t read_file_into_buffer(const char *path, uint8_t **out_data, long *out_size)
 {
-    if (!source_png_path || !output_path || max_dimension <= 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    FILE *fp = fopen(source_png_path, "rb");
+    FILE *fp = fopen(path, "rb");
     if (!fp) {
-        ESP_LOGE(TAG, "Failed to open %s for thumbnail generation", source_png_path);
+        ESP_LOGE(TAG, "Failed to open %s", path);
         return ESP_FAIL;
     }
     fseek(fp, 0, SEEK_END);
@@ -2553,26 +2548,29 @@ esp_err_t image_processor_make_thumbnail(const char *source_png_path, int max_di
         return ESP_FAIL;
     }
 
-    uint8_t *file_buffer = (uint8_t *) heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
-    if (!file_buffer) {
+    uint8_t *buf = (uint8_t *) heap_caps_malloc((size_t) file_size, MALLOC_CAP_SPIRAM);
+    if (!buf) {
         fclose(fp);
         return ESP_ERR_NO_MEM;
     }
-    size_t read_bytes = fread(file_buffer, 1, file_size, fp);
+    size_t read_bytes = fread(buf, 1, (size_t) file_size, fp);
     fclose(fp);
     if (read_bytes != (size_t) file_size) {
-        heap_caps_free(file_buffer);
+        heap_caps_free(buf);
         return ESP_FAIL;
     }
+    *out_data = buf;
+    *out_size = file_size;
+    return ESP_OK;
+}
 
-    uint8_t *src_rgb = NULL;
-    int src_width = 0, src_height = 0;
-    esp_err_t err = decode_png_buffer(file_buffer, file_size, &src_rgb, &src_width, &src_height);
-    heap_caps_free(file_buffer);
-    if (err != ESP_OK) {
-        return err;
-    }
-
+// Nearest-neighbor downsample of a decoded RGB888 buffer, written out as a
+// PNG - a grid/chat preview doesn't need anything fancier, and this keeps
+// the extra CPU/RAM cost minimal. Shared by both thumbnail entry points
+// below; frees neither buffer.
+static esp_err_t make_thumbnail_from_rgb(const uint8_t *src_rgb, int src_width, int src_height,
+                                         int max_dimension, const char *output_path)
+{
     int dst_width, dst_height;
     if (src_width >= src_height) {
         dst_width = max_dimension;
@@ -2591,12 +2589,9 @@ esp_err_t image_processor_make_thumbnail(const char *source_png_path, int max_di
     uint8_t *dst_rgb =
         (uint8_t *) heap_caps_malloc((size_t) dst_width * dst_height * 3, MALLOC_CAP_SPIRAM);
     if (!dst_rgb) {
-        heap_caps_free(src_rgb);
         return ESP_ERR_NO_MEM;
     }
 
-    // Nearest-neighbor downsample - a grid preview doesn't need anything
-    // fancier, and this keeps the extra CPU/RAM cost minimal.
     for (int y = 0; y < dst_height; y++) {
         int src_y = (int) ((int64_t) y * src_height / dst_height);
         for (int x = 0; x < dst_width; x++) {
@@ -2608,9 +2603,68 @@ esp_err_t image_processor_make_thumbnail(const char *source_png_path, int max_di
             dp[2] = sp[2];
         }
     }
-    heap_caps_free(src_rgb);
 
-    err = write_png_file(output_path, dst_rgb, dst_width, dst_height);
+    esp_err_t err = write_png_file(output_path, dst_rgb, dst_width, dst_height);
     heap_caps_free(dst_rgb);
+    return err;
+}
+
+esp_err_t image_processor_make_thumbnail(const char *source_png_path, int max_dimension,
+                                         const char *output_path)
+{
+    if (!source_png_path || !output_path || max_dimension <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t *file_buffer = NULL;
+    long file_size = 0;
+    esp_err_t err = read_file_into_buffer(source_png_path, &file_buffer, &file_size);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint8_t *src_rgb = NULL;
+    int src_width = 0, src_height = 0;
+    err = decode_png_buffer(file_buffer, file_size, &src_rgb, &src_width, &src_height);
+    heap_caps_free(file_buffer);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = make_thumbnail_from_rgb(src_rgb, src_width, src_height, max_dimension, output_path);
+    heap_caps_free(src_rgb);
+    return err;
+}
+
+esp_err_t image_processor_make_thumbnail_from_original(const char *source_path,
+                                                        image_format_t format, int max_dimension,
+                                                        const char *output_path)
+{
+    if (!source_path || !output_path || max_dimension <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (format != IMAGE_FORMAT_JPG && format != IMAGE_FORMAT_PNG) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    uint8_t *file_buffer = NULL;
+    long file_size = 0;
+    esp_err_t err = read_file_into_buffer(source_path, &file_buffer, &file_size);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint8_t *src_rgb = NULL;
+    int src_width = 0, src_height = 0;
+    err = (format == IMAGE_FORMAT_JPG)
+             ? decode_jpg_buffer(file_buffer, file_size, &src_rgb, &src_width, &src_height)
+             : decode_png_buffer(file_buffer, file_size, &src_rgb, &src_width, &src_height);
+    heap_caps_free(file_buffer);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = make_thumbnail_from_rgb(src_rgb, src_width, src_height, max_dimension, output_path);
+    heap_caps_free(src_rgb);
     return err;
 }

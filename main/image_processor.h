@@ -179,10 +179,24 @@ esp_err_t image_processor_write_rgb_to_png(const uint8_t *rgb_buffer, int width,
 /**
  * @brief Generates a small preview thumbnail from an already-processed PNG,
  * nearest-neighbor downsampled to fit within max_dimension on its longer
- * edge (aspect ratio preserved). Used for images that don't otherwise get a
- * thumbnail sidecar generated client-side (e.g. Telegram downloads).
+ * edge (aspect ratio preserved). Use for images with no un-processed
+ * original available (e.g. a composed orientation-pair) - anything with an
+ * original should use image_processor_make_thumbnail_from_original()
+ * instead, so the preview reflects true colors, not the e-paper palette.
  */
 esp_err_t image_processor_make_thumbnail(const char *source_png_path, int max_dimension,
                                          const char *output_path);
+
+/**
+ * @brief Same as image_processor_make_thumbnail(), but decodes the source
+ * directly (JPG or PNG) with no e-paper processing (no CDR, no dithering,
+ * no palette quantization) - the thumbnail reflects the original photo's
+ * true colors, not the low-color-depth e-paper output. Use this for any
+ * source that still has an unprocessed original on disk (e.g. a freshly
+ * downloaded Telegram photo, before it's converted to a display-ready PNG).
+ */
+esp_err_t image_processor_make_thumbnail_from_original(const char *source_path,
+                                                        image_format_t format, int max_dimension,
+                                                        const char *output_path);
 
 #endif

@@ -552,6 +552,12 @@ esp_err_t apply_config_from_json(cJSON *root)
         config_manager_set_telegram_rotation_notify_enabled(cJSON_IsTrue(item));
     }
 
+    // Keep a copy of each Telegram photo as received, before e-paper processing
+    item = cJSON_GetObjectItem(root, "telegram_keep_originals_enabled");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_telegram_keep_originals_enabled(cJSON_IsTrue(item));
+    }
+
     return ESP_OK;
 }
 

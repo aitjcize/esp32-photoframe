@@ -859,6 +859,20 @@ async function performFactoryReset() {
                       "/rotation_notify" bot command.
                     </div>
 
+                    <v-switch
+                      v-model="settingsStore.deviceSettings.telegramKeepOriginalsEnabled"
+                      label="Keep original photos as received"
+                      color="primary"
+                      class="mb-2"
+                      hide-details
+                    />
+                    <div class="text-caption text-medium-emphasis mb-4">
+                      Saves a copy of each Telegram photo exactly as received, before e-paper
+                      processing (dithering/palette quantization), under Telegram/Originals on the
+                      SD card. Not shown in the gallery or rotation. Also togglable via the
+                      "/keep_originals" bot command.
+                    </div>
+
                     <v-alert
                       v-if="settingsStore.deviceSettings.lastFetchError"
                       type="error"

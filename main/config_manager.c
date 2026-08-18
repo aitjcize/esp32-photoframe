@@ -80,6 +80,7 @@ static int wifi_fail_count = 0;
 static bool wifi_performance_mode_enabled = true;
 static bool rotation_pairing_enabled = false;
 static bool telegram_rotation_notify_enabled = false;
+static bool telegram_keep_originals_enabled = false;
 
 // OTA
 static bool ota_check_enabled = true;
@@ -540,6 +541,12 @@ esp_err_t config_manager_init(void)
         if (nvs_get_u8(nvs_handle, NVS_TELEGRAM_ROTATION_NOTIFY_KEY, &stored_rotation_notify) ==
             ESP_OK) {
             telegram_rotation_notify_enabled = (stored_rotation_notify != 0);
+        }
+
+        uint8_t stored_keep_originals = 0;
+        if (nvs_get_u8(nvs_handle, NVS_TELEGRAM_KEEP_ORIGINALS_KEY, &stored_keep_originals) ==
+            ESP_OK) {
+            telegram_keep_originals_enabled = (stored_keep_originals != 0);
         }
 
         {
@@ -1580,6 +1587,25 @@ void config_manager_set_telegram_rotation_notify_enabled(bool enabled)
 bool config_manager_get_telegram_rotation_notify_enabled(void)
 {
     return telegram_rotation_notify_enabled;
+}
+
+void config_manager_set_telegram_keep_originals_enabled(bool enabled)
+{
+    telegram_keep_originals_enabled = enabled;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_TELEGRAM_KEEP_ORIGINALS_KEY, enabled ? 1 : 0);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Telegram keep-originals %s", enabled ? "enabled" : "disabled");
+}
+
+bool config_manager_get_telegram_keep_originals_enabled(void)
+{
+    return telegram_keep_originals_enabled;
 }
 
 // ============================================================================

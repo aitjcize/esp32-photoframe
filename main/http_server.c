@@ -1492,6 +1492,8 @@ static esp_err_t config_handler(httpd_req_t *req)
                               config_manager_get_rotation_pairing_enabled());
         cJSON_AddBoolToObject(root, "telegram_rotation_notify_enabled",
                               config_manager_get_telegram_rotation_notify_enabled());
+        cJSON_AddBoolToObject(root, "telegram_keep_originals_enabled",
+                              config_manager_get_telegram_keep_originals_enabled());
 
         char *json_str = cJSON_Print(root);
         httpd_resp_set_type(req, "application/json");
@@ -1853,7 +1855,7 @@ static esp_err_t album_images_handler(httpd_req_t *req)
                 // Check if a corresponding JPG-named thumbnail exists (Web UI
                 // uploads generate a real one client-side; Telegram downloads
                 // get one generated server-side - see
-                // generate_telegram_thumbnail() in telegram_bot.c - as
+                // generate_original_thumbnail() in telegram_bot.c - as
                 // PNG-encoded bytes under a ".jpg" name, since the firmware
                 // has no JPEG encoder; browsers sniff content, not
                 // extension, so this displays fine either way). Always a

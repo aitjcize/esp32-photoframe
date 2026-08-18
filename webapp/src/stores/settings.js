@@ -61,6 +61,7 @@ export const useSettingsStore = defineStore("settings", () => {
     wifiPerformanceModeEnabled: true,
     rotationPairingEnabled: false,
     telegramRotationNotifyEnabled: false,
+    telegramKeepOriginalsEnabled: false,
     // Debugging
     debugLogEnabled: false,
     errorOverlayEnabled: false,
@@ -208,6 +209,8 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.rotationPairingEnabled = data.rotation_pairing_enabled === true;
       deviceSettings.value.telegramRotationNotifyEnabled =
         data.telegram_rotation_notify_enabled === true;
+      deviceSettings.value.telegramKeepOriginalsEnabled =
+        data.telegram_keep_originals_enabled === true;
       deviceSettings.value.debugLogEnabled = data.debug_log_enabled === true;
       deviceSettings.value.errorOverlayEnabled = data.error_overlay_enabled === true;
       deviceSettings.value.haUrl = data.ha_url || "";
@@ -291,6 +294,7 @@ export const useSettingsStore = defineStore("settings", () => {
       wifi_performance_mode_enabled: deviceSettings.value.wifiPerformanceModeEnabled,
       rotation_pairing_enabled: deviceSettings.value.rotationPairingEnabled,
       telegram_rotation_notify_enabled: deviceSettings.value.telegramRotationNotifyEnabled,
+      telegram_keep_originals_enabled: deviceSettings.value.telegramKeepOriginalsEnabled,
       debug_log_enabled: deviceSettings.value.debugLogEnabled,
       error_overlay_enabled: deviceSettings.value.errorOverlayEnabled,
       save_downloaded_images: deviceSettings.value.saveDownloadedImages,

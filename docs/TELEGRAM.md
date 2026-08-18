@@ -17,9 +17,11 @@ firmware — no additional server required.
    photo (largest → smallest) until one succeeds, or asks for the image as a file instead.
 4. A caption sent with the image is drawn onto the photo as a text overlay (unless the caption
    itself is a `/`-command).
-5. Every downloaded image is converted to a processed, display-ready PNG (deleting the raw
-   original) and gets a preview thumbnail, exactly like a manual Web UI upload — so it shows up
-   correctly in the gallery and is a normal, rotatable album image, not just a one-off push.
+5. A preview thumbnail is generated from the raw download first (true colors, not the e-paper
+   palette), then the image is converted to a processed, display-ready PNG (deleting the raw
+   original by default), exactly like a manual Web UI upload — so it shows up correctly in the
+   gallery and is a normal, rotatable album image, not just a one-off push. Optionally, the raw
+   original can be kept instead of deleted (`/keep_originals`, see below).
 6. `last_update_id` is persisted in NVS (+1 offset) so restarts never re-process old messages, and
    an allowlisted chat ID filters out unsolicited senders.
 7. Filenames are short and collision-safe: `img_<unix-timestamp>.<ext>`.
@@ -85,6 +87,7 @@ rotation cursor too).
 | `/wifi_perf on\|off` | Toggles the WiFi performance mode (see below) |
 | `/rotation_pairing on\|off` | Toggles auto-rotate orientation pairing (random mode only) |
 | `/rotation_notify on\|off` | Sends a thumbnail when a wake displays an image via fallback rotation |
+| `/keep_originals on\|off` | Keeps a copy of each photo as received, before e-paper processing |
 | `/help` | Lists all commands |
 | `/telegram_reset` | **Emergency**: clears the queue immediately, highest priority |
 
@@ -183,6 +186,19 @@ sends a thumbnail of whatever got displayed instead - so the chat still shows wh
 the frame even when nothing was pushed to it. Only fires when the display actually changed (not
 when rotation was a no-op, e.g. no enabled albums). Off by default; toggle via Web UI or
 `/rotation_notify on|off`.
+
+### Keep originals
+
+Each incoming Telegram photo is normally converted straight to a display-ready PNG and the raw
+download is deleted. When enabled, a copy of the raw file is instead kept under `Telegram/Originals`
+on the SD card — a plain archive path, not an album, so it's invisible to the gallery and rotation.
+Off by default; toggle via Web UI or `/keep_originals on|off`.
+
+For "photo" messages (not files sent as a document), the archived copy is always re-fetched at
+Telegram's largest available size for that photo — even if the size actually used for the display
+conversion above had to fall back to a smaller one because the largest turned out to be a
+progressive JPEG the firmware's decoder can't read. Decoding isn't required to archive raw bytes, so
+the best quality available is kept regardless of that display-side limitation.
 
 ### Error overlay test
 
