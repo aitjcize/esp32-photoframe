@@ -55,7 +55,10 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 
 #include "board_hal.h"
 
+// Overridable so host tests can point the .current.* scheme at a local dir
+#ifndef FS_MOUNT_POINT
 #define FS_MOUNT_POINT "/storage"
+#endif
 
 #define IMAGE_DIRECTORY FS_MOUNT_POINT "/images"
 #define DOWNLOAD_DIRECTORY IMAGE_DIRECTORY "/Downloads"

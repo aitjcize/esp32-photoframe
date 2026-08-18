@@ -35,6 +35,16 @@ const colorMethodOptions = [
   { title: "LAB", value: "lab" },
 ];
 
+const scaleModeOptions = [
+  { title: "Cover (crop to fill)", value: "cover" },
+  { title: "Fit (letterbox)", value: "fit" },
+];
+
+const backgroundColorOptions = [
+  { title: "White", value: "white" },
+  { title: "Black", value: "black" },
+];
+
 const isScurveMode = computed(() => props.params.toneMode === "scurve");
 
 function onPresetChange(value) {
@@ -69,7 +79,38 @@ function updateParam(key, value) {
           </v-card-text>
         </v-card>
       </v-col>
+    </v-row>
 
+    <!-- Layout: scale mode first; background only matters in fit mode -->
+    <v-row>
+      <v-col cols="12" md="4">
+        <v-select
+          :model-value="params.scaleMode || 'cover'"
+          :items="scaleModeOptions"
+          item-title="title"
+          item-value="value"
+          label="Scale Mode"
+          variant="outlined"
+          density="compact"
+          @update:model-value="updateParam('scaleMode', $event)"
+        />
+      </v-col>
+
+      <v-col v-if="(params.scaleMode || 'cover') === 'fit'" cols="12" md="4">
+        <v-select
+          :model-value="params.backgroundColor || 'white'"
+          :items="backgroundColorOptions"
+          item-title="title"
+          item-value="value"
+          label="Background Color"
+          variant="outlined"
+          density="compact"
+          @update:model-value="updateParam('backgroundColor', $event)"
+        />
+      </v-col>
+    </v-row>
+
+    <v-row>
       <!-- Dither Algorithm -->
       <v-col cols="12" md="4">
         <v-select

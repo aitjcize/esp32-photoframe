@@ -474,6 +474,13 @@ void epaper_display(uint8_t *image)
             s_dma_buf[wi * 2 + 1] = sw[1];
         }
         spi_tx(s_dma_buf, row_bytes);
+        // The polling transmits busy-spin the CPU for the whole multi-second
+        // frame push, starving the IDLE task and tripping its watchdog on
+        // large panels. Yielding is safe mid-load: the bus is held, CS stays
+        // low, and the IT8951 has no inter-row deadline.
+        if ((y & 63) == 63) {
+            vTaskDelay(1);
+        }
     }
     cs_high();
     spi_device_release_bus(s_spi);

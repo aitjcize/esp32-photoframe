@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "display_manager.h"
 #include "esp_err.h"
 
 typedef enum {
@@ -22,16 +23,6 @@ typedef enum {
     IMAGE_FORMAT_EPD_GZ
 } image_format_t;
 
-/**
- * @brief Result structure for raw RGB buffer output (no PNG encoding)
- */
-typedef struct {
-    uint8_t *rgb_data;  // RGB888 buffer (caller must free with heap_caps_free)
-    size_t rgb_size;    // Size of RGB data in bytes (width * height * 3)
-    int width;          // Output image width
-    int height;         // Output image height
-} image_process_rgb_result_t;
-
 esp_err_t image_processor_init(void);
 
 /**
@@ -44,32 +35,50 @@ esp_err_t image_processor_process(const char *input_path, const char *output_pat
                                   dither_algorithm_t dither_algorithm);
 
 /**
- * @brief Process image from memory buffer to raw RGB buffer (no PNG encoding)
+ * @brief Process image from memory buffer and show it on the display
  *
- * This function takes raw image data (PNG or JPG), processes it, and returns
- * the processed RGB buffer directly. This is more efficient for SD-card-less
- * systems where the image can be displayed directly without PNG encode/decode.
- * The caller is responsible for freeing result->rgb_data with heap_caps_free().
+ * This function takes raw image data (PNG or JPG), processes it, and streams
+ * the result row by row straight into the display buffer, then refreshes the
+ * panel. The full-resolution processed image is never materialized in RAM.
  *
  * @param input_data Raw image data (PNG or JPG format)
  * @param input_size Size of input data in bytes
  * @param format Image format of input data
  * @param dither_algorithm Dithering algorithm to use
- * @param result Output structure containing processed RGB data
- * @return esp_err_t ESP_OK on success
+ * @param pub What to publish on completion (current-image name, optional
+ *            album snapshot and fallback; see display_publish_t); NULL for
+ *            an anonymous buffer display
+ * @return esp_err_t ESP_OK on success; ESP_ERR_NOT_FINISHED when displayed
+ *         but the requested snapshot failed
  */
-esp_err_t image_processor_process_to_rgb(const uint8_t *input_data, size_t input_size,
-                                         image_format_t format, dither_algorithm_t dither_algorithm,
-                                         image_process_rgb_result_t *result);
+esp_err_t image_processor_process_to_display(const uint8_t *input_data, size_t input_size,
+                                             image_format_t format,
+                                             dither_algorithm_t dither_algorithm,
+                                             const display_publish_t *pub);
+
+/**
+ * @brief Display a PNG file, processing it only when necessary
+ *
+ * A pre-processed PNG (native dimensions, every pixel a theoretical output
+ * color) is validated and painted straight from the file in a single decode
+ * with no RAM copy; anything else falls back to
+ * image_processor_process_to_display. Preferred entry point for PNG display
+ * requests. With release_source set, the file is unlinked as soon as an
+ * in-RAM copy exists (for MemFS-backed sources that live in PSRAM).
+ */
+esp_err_t image_processor_process_or_display_png(const char *path,
+                                                 dither_algorithm_t dither_algorithm,
+                                                 const display_publish_t *pub, bool release_source);
 
 esp_err_t image_processor_reload_palette(void);
 
-bool image_processor_is_processed(const char *input_path);
-
 /**
- * @brief Check if buffer contains a pre-processed image
+ * @brief Human-readable reason for the most recent processing failure
+ *
+ * Empty string when the last operation succeeded. Suitable for appending to
+ * HTTP error responses.
  */
-bool image_processor_is_processed_buffer(const uint8_t *data, size_t size);
+const char *image_processor_get_last_error(void);
 
 image_format_t image_processor_detect_format(const char *input_path);
 

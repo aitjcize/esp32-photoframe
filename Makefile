@@ -83,6 +83,12 @@ test:
 	@echo "Running C unit tests..."
 	@./host_tests/build/cron_test
 	@echo ""
+	@echo "Running image pipeline tests..."
+	@./host_tests/build/image_pipeline_test
+	@echo ""
+	@echo "Running display flow tests..."
+	@cd host_tests/build && ./display_flow_test
+	@echo ""
 	@echo "Running image orientation tests..."
 	@cd process-cli && npm install --silent && npm run test:orientation
 	@echo ""

@@ -87,13 +87,16 @@ static UBYTE read_png_mapped(const char *path, UWORD Xstart, UWORD Ystart, GUI_R
     }
     if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8)
         png_set_expand_gray_1_2_4_to_8(png_ptr);
-    if (png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS))
+    int has_trns = png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS) != 0;
+    if (has_trns)
         png_set_tRNS_to_alpha(png_ptr);
     if (bit_depth == 16)
         png_set_strip_16(png_ptr);
     if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA)
         png_set_gray_to_rgb(png_ptr);
-    if (color_type == PNG_COLOR_TYPE_RGB_ALPHA || color_type == PNG_COLOR_TYPE_GRAY_ALPHA)
+    // Strip alpha whether native or introduced by the tRNS expansion above
+    if (color_type == PNG_COLOR_TYPE_RGB_ALPHA || color_type == PNG_COLOR_TYPE_GRAY_ALPHA ||
+        has_trns)
         png_set_strip_alpha(png_ptr);
 
     png_read_update_info(png_ptr, info_ptr);

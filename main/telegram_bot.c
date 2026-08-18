@@ -687,8 +687,8 @@ static esp_err_t download_document_image(cJSON *document, char *out_path, size_t
 }
 
 // Runs the downloaded image through the existing processing pipeline (same
-// format handling as fetch_and_save_image_from_url in utils.c: EPDGZ/BMP are
-// already display-ready, PNG/JPG go through image_processor_process) and
+// format handling as fetch_and_display_image_from_url in utils.c: EPDGZ/BMP
+// are already display-ready, PNG/JPG go through image_processor_process) and
 // shows it. The original file under TELEGRAM_DOWNLOAD_DIRECTORY is left in
 // place for later rotation cycles.
 //

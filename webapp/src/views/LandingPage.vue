@@ -575,6 +575,8 @@ function scrollTo(id) {
                   (selectedVersion === 'stable' ? 'manifest.json' : 'manifest-dev.json')
                 "
               >
+                <!-- native web-component slot (not a Vue slot): the attribute must stay -->
+                <!-- eslint-disable-next-line vue/no-deprecated-slot-attribute -->
                 <button slot="activate" class="btn btn-primary btn-large">
                   ⚡ Install firmware
                   <span class="btn-arrow" aria-hidden="true">→</span>

@@ -14,12 +14,15 @@
 #include "config_manager.h"
 #include "cron.h"
 #include "debug_log.h"
+#include "display_flow.h"
 #include "display_manager.h"
 #include "esp_app_desc.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "image_processor.h"
 #include "mdns_service.h"
 #include "nvs.h"
@@ -297,8 +300,18 @@ esp_err_t apply_config_from_json(cJSON *root)
 
     item = cJSON_GetObjectItem(root, "display_rotation_deg");
     if (item && cJSON_IsNumber(item)) {
-        config_manager_set_display_rotation_deg(item->valueint);
-        display_manager_initialize_paint();
+        int deg = item->valueint;
+        // Only 0 and 180 are supported: 90/270 swap Paint's logical
+        // dimensions, which the panel-size decode paths and dimensionless
+        // .epdgz payloads cannot represent (portrait mounting is handled by
+        // display_orientation instead)
+        if (deg == 0 || deg == 180) {
+            config_manager_set_display_rotation_deg(deg);
+            display_manager_initialize_paint();
+        } else {
+            utils_set_config_error("Display rotation must be 0 or 180 degrees");
+            return ESP_FAIL;
+        }
     }
 
     // Auto Rotate
@@ -562,6 +575,13 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
         if (ctx->file) {
             fwrite(evt->data, 1, evt->data_len, ctx->file);
             ctx->total_read += evt->data_len;
+            // The SD write path busy-polls SPI; on a fast link this handler
+            // can run back-to-back for seconds, and together with another
+            // busy task it starves the IDLE watchdog. Yield at every 32 KB
+            // boundary so the idle task gets a window.
+            if ((ctx->total_read >> 15) != ((ctx->total_read - evt->data_len) >> 15)) {
+                vTaskDelay(1);
+            }
         }
         break;
     case HTTP_EVENT_ON_HEADER:
@@ -605,24 +625,19 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path, size_t path_size,
-                                        bool *not_modified)
+// Download `url` into CURRENT_UPLOAD_PATH with retries. On HTTP 304 sets
+// *not_modified and returns ESP_OK with nothing downloaded. On success,
+// detects the image format (falling back to the Content-Type header) and
+// hands out the optional thumbnail URL and remote-config payload the server
+// sent along (heap strings, caller frees; NULL/empty when absent).
+static esp_err_t fetch_perform_download(const char *url, bool *not_modified, image_format_t *format,
+                                        char **thumbnail_url_out, char **config_payload_out)
 {
-    ESP_LOGI(TAG, "Fetching image from URL: %s", url);
-
-    if (not_modified) {
-        *not_modified = false;
-    }
-
     // Reset per-fetch; the HTTP event handler sets it if the server sends the
     // X-Post-Rotate-Wait-Sec header (on either a 200 or a 304 response).
     post_rotate_wait_sec = 0;
 
-    // Use fixed paths for current image and upload
-    const char *temp_jpg_path = CURRENT_JPG_PATH;
     const char *temp_upload_path = CURRENT_UPLOAD_PATH;
-    const char *temp_bmp_path = CURRENT_BMP_PATH;
-    const char *temp_png_path = CURRENT_PNG_PATH;
 
     esp_err_t err = ESP_FAIL;
     int status_code = 0;
@@ -634,6 +649,9 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
 
     char *config_payload_buffer = NULL;
     char *etag_buffer = NULL;
+
+    *thumbnail_url_out = NULL;
+    *config_payload_out = NULL;
 
     // Allocate buffers once before retry loop
     thumbnail_url_buffer = calloc(512, 1);
@@ -797,12 +815,7 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
         if (err == ESP_OK && status_code == 304) {
             ESP_LOGI(TAG, "HTTP 304 Not Modified — skipping refresh");
             unlink(temp_upload_path);
-            if (not_modified) {
-                *not_modified = true;
-            }
-            if (saved_image_path && path_size > 0) {
-                saved_image_path[0] = '\0';
-            }
+            *not_modified = true;
             utils_set_last_fetch_error(NULL);
             free(content_type);
             free(thumbnail_url_buffer);
@@ -830,7 +843,6 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
         // Clean up failed download (don't free content_type - it's reused across retries)
         unlink(temp_upload_path);
     }
-
     // Check final result after all retries
     if (err != ESP_OK || status_code != 200 || total_downloaded <= 0) {
         ESP_LOGE(TAG, "Failed to download image after %d attempts", max_retries);
@@ -862,330 +874,332 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
     config_manager_set_image_etag(etag_buffer);
     free(etag_buffer);
 
-    // Detect format regardless of Content-Type (which might be unreliable)
-    image_format_t image_format = image_processor_detect_format(temp_upload_path);
-    if (image_format == IMAGE_FORMAT_UNKNOWN) {
-        // Fallback to Content-Type if detection failed or file is empty?
-        // Actually, detect_format is more reliable. If it fails, we trust it.
-        // But maybe we should check Content-Type as a hint if detection returned UNKNOWN?
-        // For now, let's respect the user request to use detect_format.
+    // Detect format regardless of Content-Type (which might be unreliable),
+    // falling back to the header only when the magic-byte check fails
+    *format = image_processor_detect_format(temp_upload_path);
+    if (*format == IMAGE_FORMAT_UNKNOWN) {
         if (strcmp(content_type, "image/bmp") == 0)
-            image_format = IMAGE_FORMAT_BMP;
+            *format = IMAGE_FORMAT_BMP;
         else if (strcmp(content_type, "image/png") == 0)
-            image_format = IMAGE_FORMAT_PNG;
+            *format = IMAGE_FORMAT_PNG;
         else if (strcmp(content_type, "image/jpeg") == 0)
-            image_format = IMAGE_FORMAT_JPG;
+            *format = IMAGE_FORMAT_JPG;
     }
-
-    // Free content_type after successful processing
     free(content_type);
 
-    // Track if thumbnail was successfully downloaded
-    bool thumbnail_downloaded = false;
+    *thumbnail_url_out = thumbnail_url_buffer;
+    *config_payload_out = config_payload_buffer;
+    return ESP_OK;
+}
 
-    // Download thumbnail if URL was provided in X-Thumbnail-URL header
-    if (thumbnail_url_buffer && strlen(thumbnail_url_buffer) > 0) {
-        ESP_LOGI(TAG, "Downloading thumbnail from: %s", thumbnail_url_buffer);
+// Fetch the server-provided thumbnail into the .current.jpg slot; returns
+// whether it now holds a thumbnail for the image being displayed
+static bool fetch_download_thumbnail(const char *thumbnail_url)
+{
+    ESP_LOGI(TAG, "Downloading thumbnail from: %s", thumbnail_url);
 
-        FILE *thumb_file = fopen(temp_jpg_path, "wb");
-        if (thumb_file) {
-            char thumb_content_type[128] = {0};
-            download_context_t thumb_ctx = {.file = thumb_file,
-                                            .total_read = 0,
-                                            .content_type = thumb_content_type,
-                                            .thumbnail_url = NULL,
-                                            .config_payload = NULL,
-                                            .etag = NULL};
+    const char *temp_jpg_path = CURRENT_JPG_PATH;
+    FILE *thumb_file = fopen(temp_jpg_path, "wb");
+    if (!thumb_file) {
+        return false;
+    }
 
-            esp_http_client_config_t thumb_config = {
-                .url = thumbnail_url_buffer,
-                .timeout_ms = 30000,
-                .event_handler = http_event_handler,
-                .user_data = &thumb_ctx,
-                .max_redirection_count = 5,
-                .user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            };
+    char thumb_content_type[128] = {0};
+    download_context_t thumb_ctx = {.file = thumb_file,
+                                    .total_read = 0,
+                                    .content_type = thumb_content_type,
+                                    .thumbnail_url = NULL,
+                                    .config_payload = NULL,
+                                    .etag = NULL};
 
-            esp_http_client_handle_t thumb_client = esp_http_client_init(&thumb_config);
-            if (thumb_client) {
-                // Authenticate the thumbnail fetch the same way as the image
-                // fetch -- the X-Thumbnail-URL is served by the same host, which
-                // may be token-gated.
-                const char *thumb_token = config_manager_get_access_token();
-                if (thumb_token && strlen(thumb_token) > 0) {
-                    char thumb_auth[ACCESS_TOKEN_MAX_LEN + 20];
-                    snprintf(thumb_auth, sizeof(thumb_auth), "Bearer %s", thumb_token);
-                    esp_http_client_set_header(thumb_client, "Authorization", thumb_auth);
-                }
-                const char *thumb_hk = config_manager_get_http_header_key();
-                const char *thumb_hv = config_manager_get_http_header_value();
-                if (thumb_hk && strlen(thumb_hk) > 0 && thumb_hv && strlen(thumb_hv) > 0 &&
-                    !(strcasecmp(thumb_hk, "Authorization") == 0 && thumb_token &&
-                      strlen(thumb_token) > 0)) {
-                    esp_http_client_set_header(thumb_client, thumb_hk, thumb_hv);
-                }
+    esp_http_client_config_t thumb_config = {
+        .url = thumbnail_url,
+        .timeout_ms = 30000,
+        .event_handler = http_event_handler,
+        .user_data = &thumb_ctx,
+        .max_redirection_count = 5,
+        .user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    };
 
-                esp_err_t thumb_err = esp_http_client_perform(thumb_client);
-                int thumb_status = esp_http_client_get_status_code(thumb_client);
+    esp_http_client_handle_t thumb_client = esp_http_client_init(&thumb_config);
+    if (!thumb_client) {
+        fclose(thumb_file);
+        unlink(temp_jpg_path);
+        return false;
+    }
 
-                fclose(thumb_file);
-                esp_http_client_cleanup(thumb_client);
+    // Authenticate the thumbnail fetch the same way as the image fetch --
+    // the X-Thumbnail-URL is served by the same host, which may be
+    // token-gated.
+    const char *thumb_token = config_manager_get_access_token();
+    if (thumb_token && strlen(thumb_token) > 0) {
+        char thumb_auth[ACCESS_TOKEN_MAX_LEN + 20];
+        snprintf(thumb_auth, sizeof(thumb_auth), "Bearer %s", thumb_token);
+        esp_http_client_set_header(thumb_client, "Authorization", thumb_auth);
+    }
+    const char *thumb_hk = config_manager_get_http_header_key();
+    const char *thumb_hv = config_manager_get_http_header_value();
+    if (thumb_hk && strlen(thumb_hk) > 0 && thumb_hv && strlen(thumb_hv) > 0 &&
+        !(strcasecmp(thumb_hk, "Authorization") == 0 && thumb_token && strlen(thumb_token) > 0)) {
+        esp_http_client_set_header(thumb_client, thumb_hk, thumb_hv);
+    }
 
-                if (thumb_err == ESP_OK && thumb_status == 200 && thumb_ctx.total_read > 0) {
-                    ESP_LOGI(TAG, "Thumbnail downloaded successfully: %d bytes",
-                             thumb_ctx.total_read);
-                    thumbnail_downloaded = true;
-                } else {
-                    ESP_LOGW(TAG, "Failed to download thumbnail (status: %d)", thumb_status);
-                    unlink(temp_jpg_path);
-                }
-            } else {
-                fclose(thumb_file);
-                unlink(temp_jpg_path);
-            }
+    esp_err_t thumb_err = esp_http_client_perform(thumb_client);
+    int thumb_status = esp_http_client_get_status_code(thumb_client);
+
+    fclose(thumb_file);
+    esp_http_client_cleanup(thumb_client);
+
+    if (thumb_err == ESP_OK && thumb_status == 200 && thumb_ctx.total_read > 0) {
+        ESP_LOGI(TAG, "Thumbnail downloaded successfully: %d bytes", thumb_ctx.total_read);
+        return true;
+    }
+
+    ESP_LOGW(TAG, "Failed to download thumbnail (status: %d)", thumb_status);
+    unlink(temp_jpg_path);
+    return false;
+}
+
+// Apply a remote config payload received from the server. Expected
+// structure: { "config": {...}, "processing_settings": {...},
+// "color_palette": {...} }
+static void fetch_apply_remote_config(const char *config_payload)
+{
+    cJSON *payload = cJSON_Parse(config_payload);
+    if (!payload) {
+        ESP_LOGE(TAG, "Failed to parse config payload JSON");
+        return;
+    }
+
+    bool applied = false;
+
+    cJSON *config_obj = cJSON_GetObjectItem(payload, "config");
+    if (config_obj && cJSON_IsObject(config_obj)) {
+        apply_config_from_json(config_obj);
+        applied = true;
+    }
+
+    cJSON *proc_obj = cJSON_GetObjectItem(payload, "processing_settings");
+    if (proc_obj && cJSON_IsObject(proc_obj)) {
+        processing_settings_t settings;
+        processing_settings_get_defaults(&settings);
+        processing_settings_from_json(proc_obj, &settings);
+        processing_settings_save(&settings);
+        applied = true;
+    }
+
+    cJSON *palette_obj = cJSON_GetObjectItem(payload, "color_palette");
+    if (palette_obj && cJSON_IsObject(palette_obj)) {
+        color_palette_t palette;
+        color_palette_get_defaults(&palette);
+        color_palette_from_json(palette_obj, &palette);
+        color_palette_save(&palette);
+        image_processor_reload_palette();
+        applied = true;
+    }
+
+    cJSON_Delete(payload);
+
+    if (applied) {
+        config_manager_touch_config();
+        ESP_LOGI(TAG, "Remote config payload applied successfully");
+    }
+}
+
+// Stream a downloaded PNG/JPG straight to the display -- no processed file
+// and no process-to-file round-trip (the old flow zlib-encoded a panel-size
+// PNG only for show_image to re-decode it). A pre-processed PNG displays in
+// a single validating decode; anything else is processed. With album saving
+// on, the finished 4bpp frame is snapshotted to the album as .epdgz right
+// after the refresh, while the display mutex is still held.
+static esp_err_t fetch_stream_display(image_format_t image_format, bool thumbnail_downloaded)
+{
+    const char *temp_upload_path = CURRENT_UPLOAD_PATH;
+    const char *temp_jpg_path = CURRENT_JPG_PATH;
+    const char *temp_png_path = CURRENT_PNG_PATH;
+
+    dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
+
+    bool persistent = storage_has_persistent_storage();
+    bool save_to_album = persistent && config_manager_get_save_downloaded_images();
+
+    // Album paths are decided before display so the current-image link
+    // records the final logical name atomically with the refresh
+    char album_image_path[512] = {0};
+    char album_thumb_path[512] = {0};
+    if (save_to_album) {
+        char downloads_path[256];
+        snprintf(downloads_path, sizeof(downloads_path), "%s/Downloads", IMAGE_DIRECTORY);
+        struct stat st;
+        if (stat(downloads_path, &st) != 0 && mkdir(downloads_path, 0755) != 0) {
+            ESP_LOGW(TAG, "Failed to create Downloads directory, not saving to album");
+            save_to_album = false;
+        } else {
+            time_t now = time(NULL);
+            snprintf(album_image_path, sizeof(album_image_path), "%s/download_%lld.epdgz",
+                     downloads_path, (long long) now);
+            snprintf(album_thumb_path, sizeof(album_thumb_path), "%s/download_%lld.jpg",
+                     downloads_path, (long long) now);
         }
     }
 
-    // Free thumbnail URL buffer
-    if (thumbnail_url_buffer) {
-        free(thumbnail_url_buffer);
+    // An album .epdgz has no browser-renderable preview unless a thumbnail
+    // exists (downloaded, or the JPG original); without one, the
+    // current-image link points at the kept original instead
+    bool album_has_preview = thumbnail_downloaded || image_format == IMAGE_FORMAT_JPG;
+
+    // JPG sources are read into RAM up front so the original file is free
+    // to be staged as the album preview before display
+    uint8_t *file_buffer = NULL;
+    size_t file_size = 0;
+    if (image_format == IMAGE_FORMAT_JPG) {
+        esp_err_t read_err = display_flow_read_file(temp_upload_path, &file_buffer, &file_size);
+        if (read_err != ESP_OK) {
+            unlink(temp_upload_path);
+            return read_err;
+        }
+        if (!persistent) {
+            // MemFS-backed source lives in PSRAM; drop the file now that
+            // the compressed copy exists
+            unlink(temp_upload_path);
+        }
     }
 
-    // Apply remote config payload if received from server
-    // Expected structure: { "config": {...}, "processing_settings": {...}, "color_palette": {...} }
-    if (config_payload_buffer && strlen(config_payload_buffer) > 0) {
-        cJSON *payload = cJSON_Parse(config_payload_buffer);
-        if (payload) {
-            bool applied = false;
-
-            cJSON *config_obj = cJSON_GetObjectItem(payload, "config");
-            if (config_obj && cJSON_IsObject(config_obj)) {
-                apply_config_from_json(config_obj);
-                applied = true;
-            }
-
-            cJSON *proc_obj = cJSON_GetObjectItem(payload, "processing_settings");
-            if (proc_obj && cJSON_IsObject(proc_obj)) {
-                processing_settings_t settings;
-                processing_settings_get_defaults(&settings);
-                processing_settings_from_json(proc_obj, &settings);
-                processing_settings_save(&settings);
-                applied = true;
-            }
-
-            cJSON *palette_obj = cJSON_GetObjectItem(payload, "color_palette");
-            if (palette_obj && cJSON_IsObject(palette_obj)) {
-                color_palette_t palette;
-                color_palette_get_defaults(&palette);
-                color_palette_from_json(palette_obj, &palette);
-                color_palette_save(&palette);
-                image_processor_reload_palette();
-                applied = true;
-            }
-
-            cJSON_Delete(payload);
-
-            if (applied) {
-                config_manager_touch_config();
-                ESP_LOGI(TAG, "Remote config payload applied successfully");
-            }
+    // Stage the album preview BEFORE display: end_rgb_stream publishes the
+    // album link under the display mutex, and the link's .jpg sibling must
+    // already exist at that moment or /api/current_image can 404
+    // (transiently, or permanently if the move fails)
+    bool preview_staged = false;
+    if (save_to_album && album_has_preview) {
+        if (thumbnail_downloaded) {
+            preview_staged = rename(temp_jpg_path, album_thumb_path) == 0;
         } else {
-            ESP_LOGE(TAG, "Failed to parse config payload JSON");
+            preview_staged = rename(temp_upload_path, album_thumb_path) == 0;
+        }
+        if (!preview_staged) {
+            ESP_LOGW(TAG, "Failed to stage album thumbnail; keeping original as preview");
+            album_has_preview = false;
         }
     }
-    free(config_payload_buffer);
 
-    const char *final_path = NULL;
+    // The fallback name is what end_rgb_stream publishes -- atomically,
+    // under the display mutex -- if the album snapshot fails, matching the
+    // keep-original disposal below
+    const char *fallback_name =
+        (persistent && image_format == IMAGE_FORMAT_JPG) ? temp_jpg_path : temp_png_path;
 
-    // ========== STEP 1: Image Processing (always done first) ==========
-    if (image_format == IMAGE_FORMAT_EPD_GZ) {
-        // EPDGZ: already display-ready, just move to temp path (no processing needed)
-        unlink(CURRENT_EPD_PATH);
-        if (rename(temp_upload_path, CURRENT_EPD_PATH) != 0) {
-            ESP_LOGE(TAG, "Failed to move EPDGZ to temp path");
-            unlink(temp_upload_path);
-            return ESP_FAIL;
-        }
-        final_path = CURRENT_EPD_PATH;
-    } else if (image_format == IMAGE_FORMAT_BMP) {
-        // BMP: just move to temp_bmp_path (no processing needed)
-        unlink(temp_bmp_path);
-        if (rename(temp_upload_path, temp_bmp_path) != 0) {
-            ESP_LOGE(TAG, "Failed to move BMP to temp path");
-            unlink(temp_upload_path);
-            return ESP_FAIL;
-        }
-        final_path = temp_bmp_path;
-    } else if (image_format == IMAGE_FORMAT_PNG || image_format == IMAGE_FORMAT_JPG) {
-        bool needs_processing = true;
-        if (image_format == IMAGE_FORMAT_PNG && image_processor_is_processed(temp_upload_path)) {
-            needs_processing = false;
-            ESP_LOGI(TAG, "Image already processed, skipping processing");
-        }
+    display_publish_t pub = {
+        .display_name = (save_to_album && album_has_preview) ? album_image_path : fallback_name,
+        .save_path = save_to_album ? album_image_path : NULL,
+        .fallback_name = fallback_name,
+    };
 
-        if (!needs_processing) {
-            // Already processed PNG: just move to temp_png_path
-            unlink(temp_png_path);
-            if (rename(temp_upload_path, temp_png_path) != 0) {
-                ESP_LOGE(TAG, "Failed to rename processed image");
-                unlink(temp_upload_path);
-                return ESP_FAIL;
-            }
-        } else {
-            // Process the image to temp_png_path
-            processing_settings_t settings;
-            if (processing_settings_load(&settings) != ESP_OK) {
-                processing_settings_get_defaults(&settings);
-            }
-            dither_algorithm_t algo = processing_settings_get_dithering_algorithm();
-
-            if (storage_has_persistent_storage()) {
-                // Persistent storage system: process to file
-                err = image_processor_process(temp_upload_path, temp_png_path, algo);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
-                    unlink(temp_upload_path);
-                    return err;
-                }
-            } else {
-                // Temporary/No-storage system: read file to buffer, process to RGB, display
-                // directly
-                FILE *fp = fopen(temp_upload_path, "rb");
-                if (!fp) {
-                    ESP_LOGE(TAG, "Failed to open uploaded file");
-                    unlink(temp_upload_path);
-                    return ESP_FAIL;
-                }
-
-                fseek(fp, 0, SEEK_END);
-                long file_size = ftell(fp);
-                fseek(fp, 0, SEEK_SET);
-
-                uint8_t *file_buffer = heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
-                if (!file_buffer) {
-                    ESP_LOGE(TAG, "Failed to allocate buffer for image");
-                    fclose(fp);
-                    unlink(temp_upload_path);
-                    return ESP_ERR_NO_MEM;
-                }
-
-                size_t bytes_read = fread(file_buffer, 1, file_size, fp);
-                fclose(fp);
-
-                if (bytes_read != (size_t) file_size) {
-                    ESP_LOGE(TAG, "Incomplete file read: %zu of %ld bytes", bytes_read, file_size);
-                    heap_caps_free(file_buffer);
-                    unlink(temp_upload_path);
-                    return ESP_ERR_INVALID_SIZE;
-                }
-
-                // For JPEG: save as thumbnail
-                if (image_format == IMAGE_FORMAT_JPG && !thumbnail_downloaded) {
-                    unlink(temp_jpg_path);
-                    if (rename(temp_upload_path, temp_jpg_path) == 0) {
-                        ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
-                    } else {
-                        unlink(temp_upload_path);
-                    }
-                } else {
-                    unlink(temp_upload_path);
-                }
-
-                // Process to RGB buffer
-                image_process_rgb_result_t result;
-                err = image_processor_process_to_rgb(file_buffer, file_size, image_format, algo,
-                                                     &result);
-                heap_caps_free(file_buffer);
-
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to process image: %s", esp_err_to_name(err));
-                    return err;
-                }
-
-                // Display directly from RGB buffer
-                err = display_manager_show_rgb_buffer(result.rgb_data, result.width, result.height);
-                heap_caps_free(result.rgb_data);
-
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to display image");
-                    return err;
-                }
-
-                ESP_LOGI(TAG, "Image displayed from buffer");
-                return ESP_OK;
-            }
-        }
-        final_path = temp_png_path;
-
-        // Handle thumbnail for JPEG: use original as thumbnail if none was downloaded
-        if (image_format == IMAGE_FORMAT_JPG && !thumbnail_downloaded) {
-            unlink(temp_jpg_path);
-            if (rename(temp_upload_path, temp_jpg_path) != 0) {
-                ESP_LOGW(TAG, "Failed to move original JPEG to thumbnail path");
-                unlink(temp_upload_path);
-            } else {
-                ESP_LOGI(TAG, "Using original JPEG as thumbnail: %s", temp_jpg_path);
-            }
-        } else {
-            // Clean up original upload file
-            unlink(temp_upload_path);
-        }
+    esp_err_t err;
+    if (image_format == IMAGE_FORMAT_PNG) {
+        // File-backed fused path: no RAM copy of the download; MemFS
+        // sources are released as soon as processing copies them
+        err = display_flow_stream_file(temp_upload_path, image_format, algo, &pub, !persistent);
     } else {
-        ESP_LOGE(TAG, "Unsupported image format: %d", image_format);
+        err = image_processor_process_to_display(file_buffer, file_size, image_format, algo, &pub);
+        heap_caps_free(file_buffer);
+    }
+
+    if (err == ESP_ERR_NOT_FINISHED) {
+        // Displayed, but the album snapshot failed (e.g. storage full):
+        // end_rgb_stream already published the fallback name; fall back to
+        // the keep-original disposal so that name resolves
+        ESP_LOGW(TAG, "Album snapshot failed; keeping download as current image only");
+        if (preview_staged) {
+            // Bring the staged album preview back as the current thumbnail
+            // so the fallback link resolves
+            if (rename(album_thumb_path, temp_jpg_path) == 0) {
+                thumbnail_downloaded = true;
+            } else {
+                ESP_LOGW(TAG, "Failed to restore staged album thumbnail");
+                unlink(album_thumb_path);
+            }
+            preview_staged = false;
+        }
+        save_to_album = false;
+        err = ESP_OK;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to process and display image: %s", esp_err_to_name(err));
         unlink(temp_upload_path);
+        if (preview_staged) {
+            unlink(album_thumb_path);
+        }
+        return err;
+    }
+
+    // The new image is on the panel; only now may the previous display's
+    // files be replaced or dropped
+    if (save_to_album) {
+        if (!album_has_preview) {
+            // No renderable album preview exists: keep the original in the
+            // published current-image slot for its format
+            display_flow_retire_source(temp_upload_path, image_format, false);
+        } else {
+            // The album holds both the image and its preview; nothing from
+            // this download stays in the .current.* scheme
+            unlink(temp_upload_path);
+            display_flow_drop_stale_current(NULL, false);
+        }
+        ESP_LOGI(TAG, "Saved to Downloads album: %s", album_image_path);
+    } else {
+        // Keep-original policy, matching the direct display endpoint
+        display_flow_retire_source(temp_upload_path, image_format, thumbnail_downloaded);
+    }
+
+    ESP_LOGI(TAG, "Image displayed via stream");
+    utils_set_last_fetch_error(NULL);
+    return ESP_OK;
+}
+
+// Display a downloaded EPDGZ/BMP from its file (these formats are already
+// display-ready), optionally moving it into the Downloads album first
+static esp_err_t fetch_display_file(image_format_t image_format, bool thumbnail_fresh)
+{
+    const char *staged = display_flow_stage_file(CURRENT_UPLOAD_PATH, image_format);
+    if (!staged) {
         return ESP_FAIL;
     }
 
-    // ========== STEP 2: Optionally save to Downloads album ==========
-    if (storage_has_persistent_storage()) {
-        bool save_images = config_manager_get_save_downloaded_images();
+    char display_path[512];
+    snprintf(display_path, sizeof(display_path), "%s", staged);
 
-        if (save_images) {
-            char downloads_path[256];
-            snprintf(downloads_path, sizeof(downloads_path), "%s/Downloads", IMAGE_DIRECTORY);
+    // Optionally move into the Downloads album (with the downloaded
+    // thumbnail alongside, so the album entry has a preview)
+    if (storage_has_persistent_storage() && config_manager_get_save_downloaded_images()) {
+        char downloads_path[256];
+        snprintf(downloads_path, sizeof(downloads_path), "%s/Downloads", IMAGE_DIRECTORY);
 
-            // Create Downloads directory if it doesn't exist
-            struct stat st;
-            if (stat(downloads_path, &st) != 0) {
-                ESP_LOGI(TAG, "Creating Downloads album directory");
-                if (mkdir(downloads_path, 0755) != 0) {
-                    ESP_LOGE(TAG, "Failed to create Downloads directory");
-                    // Processing succeeded, just can't save to album - fall through to use temp
-                    // path
-                    goto use_temp_path;
-                }
-            }
-
-            // Generate unique filename based on timestamp
+        struct stat st;
+        if (stat(downloads_path, &st) != 0 && mkdir(downloads_path, 0755) != 0) {
+            ESP_LOGW(TAG, "Failed to create Downloads directory, using temp path");
+        } else {
             time_t now = time(NULL);
             char filename_base[64];
             snprintf(filename_base, sizeof(filename_base), "download_%lld", (long long) now);
 
+            const char *save_ext = (image_format == IMAGE_FORMAT_EPD_GZ) ? ".epdgz" : ".bmp";
             char final_image_path[512];
-            bool thumbnail_saved_to_album = false;
-
-            const char *save_ext = ".png";
-            if (image_format == IMAGE_FORMAT_BMP) {
-                save_ext = ".bmp";
-            } else if (image_format == IMAGE_FORMAT_EPD_GZ) {
-                save_ext = ".epdgz";
-            }
             snprintf(final_image_path, sizeof(final_image_path), "%s/%s%s", downloads_path,
                      filename_base, save_ext);
-            if (rename(final_path, final_image_path) != 0) {
+
+            if (rename(staged, final_image_path) != 0) {
                 ESP_LOGW(TAG, "Failed to move image to Downloads album, using temp path");
             } else {
-                final_path = NULL;  // Will be set below
-            }
+                snprintf(display_path, sizeof(display_path), "%s", final_image_path);
 
-            // Move thumbnail to album if we successfully moved the main image
-            if (final_path == NULL) {
+                // Move the thumbnail to the album if we moved the main image
+                bool thumbnail_saved_to_album = false;
                 struct stat thumb_st;
-                if (stat(temp_jpg_path, &thumb_st) == 0) {
+                if (stat(CURRENT_JPG_PATH, &thumb_st) == 0) {
                     char final_thumb_path[512];
                     snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s.jpg",
                              downloads_path, filename_base);
-                    if (rename(temp_jpg_path, final_thumb_path) == 0) {
+                    if (rename(CURRENT_JPG_PATH, final_thumb_path) == 0) {
                         thumbnail_saved_to_album = true;
                     } else {
                         ESP_LOGW(TAG, "Failed to move thumbnail to Downloads album");
@@ -1197,31 +1211,31 @@ esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path,
                 } else {
                     ESP_LOGI(TAG, "Saved to Downloads album: %s", filename_base);
                 }
-                snprintf(saved_image_path, path_size, "%s", final_image_path);
             }
-        }
-
-    use_temp_path:
-        // If not saved to album (or save failed), use temp path
-        if (final_path != NULL) {
-            snprintf(saved_image_path, path_size, "%s", final_path);
-            ESP_LOGI(TAG, "Image processed (not saved to album): %s", final_path);
-            if (thumbnail_downloaded) {
-                ESP_LOGI(TAG, "Downloaded thumbnail available: %s", temp_jpg_path);
-            }
-        }
-    } else {
-        // No persistent storage support - just use temp path
-        snprintf(saved_image_path, path_size, "%s", final_path);
-        ESP_LOGI(TAG, "Image processed: %s", final_path);
-        if (thumbnail_downloaded) {
-            ESP_LOGI(TAG, "Downloaded thumbnail available: %s", temp_jpg_path);
         }
     }
 
-    ESP_LOGI(TAG, "Successfully processed image: %s", saved_image_path);
-    utils_set_last_fetch_error(NULL);  // Clear error on success
+    ESP_LOGI(TAG, "Successfully processed image, displaying: %s", display_path);
+    if (display_manager_show_image(display_path) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to display fetched image");
+        // Drop a file still in its staged .current.* slot: a previous
+        // display's link may point at this name, and it must not resolve to
+        // the failed download. An album-moved file is left in the album.
+        if (strcmp(display_path, staged) == 0) {
+            unlink(display_path);
+        }
+        utils_set_last_fetch_error("Failed to display fetched image");
+        return ESP_FAIL;
+    }
 
+    // Keep the displayed .current file so /api/current_image can serve the
+    // original (matching the direct-display policy); drop the stale
+    // siblings. Album saves already moved theirs. Cleanup runs only after a
+    // successful display, so a failure keeps the previous image's files
+    // (and thumbnail) intact.
+    display_flow_drop_stale_current(display_path, thumbnail_fresh);
+
+    utils_set_last_fetch_error(NULL);  // Clear error on success
     return ESP_OK;
 }
 
@@ -1331,6 +1345,55 @@ esp_err_t utils_test_error_overlay(void)
     return display_error_overlay("Error: No WiFi connection (3x in a row) - TEST");
 }
 
+esp_err_t fetch_and_display_image_from_url(const char *url, bool *not_modified)
+{
+    ESP_LOGI(TAG, "Fetching image from URL: %s", url);
+
+    if (not_modified) {
+        *not_modified = false;
+    }
+
+    image_format_t image_format = IMAGE_FORMAT_UNKNOWN;
+    char *thumbnail_url = NULL;
+    char *config_payload = NULL;
+    bool was_not_modified = false;
+    esp_err_t err = fetch_perform_download(url, &was_not_modified, &image_format, &thumbnail_url,
+                                           &config_payload);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (was_not_modified) {
+        if (not_modified) {
+            *not_modified = true;
+        }
+        return ESP_OK;
+    }
+
+    bool thumbnail_downloaded = false;
+    if (thumbnail_url && strlen(thumbnail_url) > 0) {
+        thumbnail_downloaded = fetch_download_thumbnail(thumbnail_url);
+    }
+    free(thumbnail_url);
+
+    if (config_payload && strlen(config_payload) > 0) {
+        fetch_apply_remote_config(config_payload);
+    }
+    free(config_payload);
+
+    switch (image_format) {
+    case IMAGE_FORMAT_PNG:
+    case IMAGE_FORMAT_JPG:
+        return fetch_stream_display(image_format, thumbnail_downloaded);
+    case IMAGE_FORMAT_EPD_GZ:
+    case IMAGE_FORMAT_BMP:
+        return fetch_display_file(image_format, thumbnail_downloaded);
+    default:
+        ESP_LOGE(TAG, "Unsupported image format: %d", image_format);
+        unlink(CURRENT_UPLOAD_PATH);
+        return ESP_FAIL;
+    }
+}
+
 esp_err_t trigger_image_rotation(void)
 {
     rotation_mode_t rotation_mode = config_manager_get_rotation_mode();
@@ -1391,30 +1454,17 @@ esp_err_t trigger_image_rotation(void)
         const char *image_url = config_manager_get_image_url();
         ESP_LOGI(TAG, "URL rotation mode - downloading from: %s", image_url);
 
-        char saved_bmp_path[512];
         bool not_modified = false;
-        if (fetch_and_save_image_from_url(image_url, saved_bmp_path, sizeof(saved_bmp_path),
-                                          &not_modified) == ESP_OK) {
+        if (fetch_and_display_image_from_url(image_url, &not_modified) == ESP_OK) {
             if (not_modified) {
                 // Server confirmed cached image still current (HTTP 304).
                 // Keep the existing eInk image — do not refresh, do not fall
                 // back to SD rotation.
                 ESP_LOGI(TAG, "Image unchanged on server, skipping display refresh");
-            } else {
-                ESP_LOGI(TAG, "Successfully downloaded and saved image, displaying...");
-                display_manager_show_image(saved_bmp_path);
-
-                // Delete rendered temp image after display to save storage space,
-                // but only if it wasn't saved to the Downloads album.
-                if (!config_manager_get_save_downloaded_images()) {
-                    unlink(CURRENT_BMP_PATH);
-                    unlink(CURRENT_PNG_PATH);
-                }
             }
-
-            result = ESP_OK;
         } else {
-            ESP_LOGE(TAG, "Failed to download image from URL, falling back to local rotation");
+            ESP_LOGE(TAG,
+                     "Failed to fetch and display image from URL, falling back to local rotation");
             display_manager_rotate_from_storage();
             result = ESP_FAIL;
         }

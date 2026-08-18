@@ -153,11 +153,12 @@ const orientationOptions = computed(() => {
   ];
 });
 
+// 90/270 would swap the panel's logical dimensions, which the streaming
+// pipeline and dimensionless .epdgz payloads can't represent; portrait
+// mounting is handled by the orientation setting instead
 const rotationOptions = [
   { title: "0°", value: 0 },
-  { title: "90°", value: 90 },
   { title: "180°", value: 180 },
-  { title: "270°", value: 270 },
 ];
 
 const rotationModeOptions = computed(() => {

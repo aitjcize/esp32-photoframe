@@ -444,9 +444,13 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }
 
+  // Everything persisted to the device: the preset params plus the layout
+  // fields, which are deliberately not part of preset identity
+  const persistedKeys = [...presetKeys, "scaleMode", "backgroundColor"];
+
   function hasProcessingSettingsChanged() {
     const current = params.value;
-    for (const key of presetKeys) {
+    for (const key of persistedKeys) {
       if (current[key] !== originalParams[key]) {
         return true;
       }

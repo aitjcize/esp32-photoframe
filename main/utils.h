@@ -33,15 +33,14 @@ const char *utils_consume_cert_pin_error(void);
 void utils_set_config_error(const char *msg);
 const char *utils_consume_config_error(void);
 
-// Fetch image from URL, process it, and save to Downloads album.
-// Returns ESP_OK on success (including 304), error code on failure.
-// On success with a downloaded image, saved_image_path will contain the path
-// to the processed image (PNG). On HTTP 304 Not Modified, *not_modified (if
-// non-NULL) is set to true and saved_image_path is left as an empty string —
-// the caller should skip display refresh because the eInk already holds the
-// correct image. not_modified may be NULL if the caller doesn't care.
-esp_err_t fetch_and_save_image_from_url(const char *url, char *saved_image_path, size_t path_size,
-                                        bool *not_modified);
+// Fetch an image from URL, process it, and show it on the display. PNG and
+// JPEG sources stream straight to the panel; EPDGZ and BMP sources are saved
+// to a file (moved into the Downloads album when enabled) and displayed from
+// there. Returns ESP_OK on success (including 304), error code on failure.
+// On HTTP 304 Not Modified, *not_modified (if non-NULL) is set to true and
+// the eInk keeps the image it already holds. not_modified may be NULL if the
+// caller doesn't care.
+esp_err_t fetch_and_display_image_from_url(const char *url, bool *not_modified);
 
 // Tracks consecutive scheduled-wake WiFi connection failures. Call with the
 // result of every connect attempt in the deep-sleep wake path; once the

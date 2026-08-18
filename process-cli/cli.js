@@ -1007,8 +1007,11 @@ program
             format: options.format,
             autoOrient: options.autoOrient || false,
             orientation: options.orientation || "landscape",
-            scaleMode: options.scaleMode || "cover",
-            backgroundColor: options.backgroundColor || "white",
+            scaleMode: deviceSettings.scaleMode || options.scaleMode || "cover",
+            backgroundColor:
+              deviceSettings.backgroundColor ||
+              options.backgroundColor ||
+              "white",
             grayscale: options.grayscale || false,
           }
         : {

@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "GUI_BMPfile.h"
+#include "GUI_ColorMap.h"
 #include "GUI_EPDGZfile.h"
 #include "GUI_PNGfile.h"
 #include "GUI_Paint.h"
@@ -31,9 +32,28 @@
 #include "processing_settings.h"
 #include "storage.h"
 #include "utils.h"
+#include "zlib.h"
 
 static const char *TAG = "display_manager";
 #define NVS_LAST_IMAGE_KEY "last_image"
+
+// Display operations (streamed processing plus the panel refresh) can
+// legitimately hold the display mutex for a minute or more; waiters queue
+// for a matching window instead of failing spuriously.
+#define DISPLAY_LOCK_TIMEOUT_MS (120 * 1000)
+
+// Grayscale (gc*) panels take linear-intensity nibbles (0=black..15=white)
+// rather than Spectra ink-color indices, so both the decode mapping and the
+// "white" fill value depend on the display type.
+static bool display_is_grayscale(void)
+{
+    return strncmp(BOARD_HAL_DISPLAY_TYPE, "gc", 2) == 0;
+}
+
+static UWORD display_white_color(void)
+{
+    return display_is_grayscale() ? 0xF : EPD_7IN3E_WHITE;
+}
 
 static SemaphoreHandle_t display_mutex = NULL;
 static char current_image[64] = {0};
@@ -114,7 +134,7 @@ esp_err_t display_manager_show_image(const char *filename)
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to acquire display mutex");
         return ESP_FAIL;
     }
@@ -196,7 +216,7 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to acquire display mutex");
         return ESP_FAIL;
     }
@@ -233,9 +253,196 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
     return ESP_OK;
 }
 
+esp_err_t display_manager_begin_rgb_stream(void)
+{
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire display mutex");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Beginning streamed RGB display");
+    Paint_Clear(display_white_color());
+    return ESP_OK;
+}
+
+esp_err_t display_manager_push_rgb_row(int y, const uint8_t *rgb_row, int width)
+{
+    if (!rgb_row) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (y >= Paint.Height) {
+        return ESP_OK;
+    }
+
+    GUI_RGBMapFn map_rgb = display_is_grayscale() ? GUI_RGBToGray16 : GUI_RGBToSpectra6;
+    for (int x = 0; x < width && x < Paint.Width; x++) {
+        const uint8_t *p = &rgb_row[x * 3];
+        Paint_SetPixel(x, y, map_rgb(p[0], p[1], p[2]));
+    }
+    return ESP_OK;
+}
+
+// zlib allocators backed by PSRAM: deflate wants ~260 KB of state, which
+// should not come out of internal RAM
+static voidpf zalloc_psram(voidpf opaque, uInt items, uInt size)
+{
+    (void) opaque;
+    return heap_caps_malloc((size_t) items * size, MALLOC_CAP_SPIRAM);
+}
+
+static void zfree_psram(voidpf opaque, voidpf address)
+{
+    (void) opaque;
+    heap_caps_free(address);
+}
+
+// Gzip-deflate the current frame to path, producing the same .epdgz format
+// GUI_ReadEPDGZ renders. The reader replays the payload through
+// Paint_SetPixel in logical coordinates, so pixels are read back through
+// Paint_GetPixel (undoing the configured rotation/mirror) and streamed to
+// the deflater one logical row at a time.
+//
+// Like every .epdgz in this ecosystem (converter output, splash), the
+// payload is logical-orientation rows replayed under the rotation active at
+// display time; rotation is restricted to 0/180 (see apply_config_from_json)
+// so the dimensionless payload's row stride never changes.
+static esp_err_t display_save_frame_epdgz(const char *path)
+{
+    const int width = Paint.Width;
+    const int height = Paint.Height;
+    const size_t row_bytes = ((size_t) width + 1) / 2;
+    const size_t chunk = 4096;
+
+    FILE *fp = fopen(path, "wb");
+    if (!fp) {
+        ESP_LOGE(TAG, "Failed to open %s for writing", path);
+        return ESP_FAIL;
+    }
+
+    uint8_t *row = (uint8_t *) heap_caps_malloc(row_bytes, MALLOC_CAP_SPIRAM);
+    uint8_t *out = (uint8_t *) heap_caps_malloc(chunk, MALLOC_CAP_SPIRAM);
+
+    z_stream strm = {0};
+    strm.zalloc = zalloc_psram;
+    strm.zfree = zfree_psram;
+    // windowBits 15+16 selects the gzip wrapper the reader expects
+    bool zready = row && out &&
+                  deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8,
+                               Z_DEFAULT_STRATEGY) == Z_OK;
+
+    esp_err_t err = zready ? ESP_OK : ESP_ERR_NO_MEM;
+
+    for (int y = 0; y < height && err == ESP_OK; y++) {
+        for (int x = 0; x < width; x += 2) {
+            UBYTE p1 = Paint_GetPixel(x, y);
+            UBYTE p2 = (x + 1 < width) ? Paint_GetPixel(x + 1, y) : 0;
+            row[x / 2] = (UBYTE) ((p1 << 4) | p2);
+        }
+
+        strm.next_in = row;
+        strm.avail_in = row_bytes;
+        int flush = (y == height - 1) ? Z_FINISH : Z_NO_FLUSH;
+        do {
+            strm.next_out = out;
+            strm.avail_out = chunk;
+            if (deflate(&strm, flush) == Z_STREAM_ERROR) {
+                err = ESP_FAIL;
+                break;
+            }
+            size_t have = chunk - strm.avail_out;
+            if (have > 0 && fwrite(out, 1, have, fp) != have) {
+                ESP_LOGE(TAG, "Failed to write frame snapshot");
+                err = ESP_FAIL;
+                break;
+            }
+        } while (strm.avail_out == 0);
+
+        // Yield periodically so the IDLE task can feed the watchdog
+        if ((y & 63) == 0) {
+            vTaskDelay(1);
+        }
+    }
+
+    if (zready) {
+        deflateEnd(&strm);
+    }
+    if (row) {
+        heap_caps_free(row);
+    }
+    if (out) {
+        heap_caps_free(out);
+    }
+    // Buffered writes can surface a full-disk error only at close
+    if (fclose(fp) != 0 && err == ESP_OK) {
+        ESP_LOGE(TAG, "Failed to finalize frame snapshot");
+        err = ESP_FAIL;
+    }
+
+    if (err != ESP_OK) {
+        unlink(path);
+    } else {
+        ESP_LOGI(TAG, "Saved frame snapshot: %s", path);
+    }
+    return err;
+}
+
+esp_err_t display_manager_push_rgb_column(int x, const uint8_t *rgb_col, int height)
+{
+    if (!rgb_col) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (x >= Paint.Width) {
+        return ESP_OK;
+    }
+
+    GUI_RGBMapFn map_rgb = display_is_grayscale() ? GUI_RGBToGray16 : GUI_RGBToSpectra6;
+    for (int y = 0; y < height && y < Paint.Height; y++) {
+        const uint8_t *p = &rgb_col[y * 3];
+        Paint_SetPixel(x, y, map_rgb(p[0], p[1], p[2]));
+    }
+    return ESP_OK;
+}
+
+esp_err_t display_manager_end_rgb_stream(bool show, const display_publish_t *pub)
+{
+    esp_err_t result = ESP_OK;
+
+    if (show) {
+        ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
+        epaper_display(epd_image_buffer);
+        ESP_LOGI(TAG, "E-paper display update complete");
+
+        const char *record = pub ? pub->display_name : NULL;
+
+        if (pub && pub->save_path && display_save_frame_epdgz(pub->save_path) != ESP_OK) {
+            // The album entry does not exist -- publish the fallback name
+            // (or nothing) instead, atomically under the display mutex, so
+            // the link never points at a missing album entry
+            ESP_LOGE(TAG, "Failed to save frame snapshot to %s", pub->save_path);
+            record = pub->fallback_name;
+            result = ESP_ERR_NOT_FINISHED;
+        }
+
+        if (record) {
+            // Recorded while the mutex is still held so the reported state
+            // cannot race a queued display
+            strncpy(current_image, record, sizeof(current_image) - 1);
+            create_image_link(record);
+        } else {
+            // Displayed from an anonymous buffer (or no usable fallback):
+            // remove the stale link rather than reporting the previous image
+            current_image[0] = '\0';
+            unlink(CURRENT_IMAGE_LINK);
+        }
+    }
+
+    xSemaphoreGive(display_mutex);
+    return result;
+}
+
 esp_err_t display_manager_clear(void)
 {
-    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
         return ESP_FAIL;
     }
 
@@ -253,7 +460,7 @@ esp_err_t display_manager_clear(void)
 
 esp_err_t display_manager_show_calibration(void)
 {
-    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to acquire display mutex for calibration");
         return ESP_FAIL;
     }

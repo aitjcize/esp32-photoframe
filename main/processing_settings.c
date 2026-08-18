@@ -1,5 +1,6 @@
 #include "processing_settings.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "cJSON.h"
@@ -21,6 +22,8 @@ static const char *TAG = "processing_settings";
 #define NVS_PROC_COLOR_METHOD_KEY "proc_col"
 #define NVS_PROC_COMPRESS_DR_KEY "proc_cdr"
 #define NVS_PROC_DITHER_ALGO_KEY "proc_dith"
+#define NVS_PROC_SCALE_MODE_KEY "proc_smode"
+#define NVS_PROC_BG_COLOR_KEY "proc_bgcol"
 
 void processing_settings_get_defaults(processing_settings_t *settings)
 {
@@ -35,6 +38,8 @@ void processing_settings_get_defaults(processing_settings_t *settings)
     strncpy(settings->color_method, "rgb", sizeof(settings->color_method) - 1);
     strncpy(settings->dither_algorithm, "floyd-steinberg", sizeof(settings->dither_algorithm) - 1);
     settings->compress_dynamic_range = true;
+    strncpy(settings->scale_mode, "cover", sizeof(settings->scale_mode) - 1);
+    strncpy(settings->background_color, "white", sizeof(settings->background_color) - 1);
 }
 
 dither_algorithm_t processing_settings_get_dithering_algorithm(void)
@@ -54,6 +59,28 @@ dither_algorithm_t processing_settings_get_dithering_algorithm(void)
     }
 
     return DITHER_FLOYD_STEINBERG;  // default
+}
+
+scale_mode_t processing_settings_get_scale_mode(void)
+{
+    processing_settings_t settings;
+    if (processing_settings_load(&settings) != ESP_OK) {
+        processing_settings_get_defaults(&settings);
+    }
+
+    if (strcmp(settings.scale_mode, "fit") == 0) {
+        return SCALE_MODE_FIT;
+    }
+    return SCALE_MODE_COVER;  // default
+}
+
+void processing_settings_get_background_color(char *out, size_t out_size)
+{
+    processing_settings_t settings;
+    if (processing_settings_load(&settings) != ESP_OK) {
+        processing_settings_get_defaults(&settings);
+    }
+    snprintf(out, out_size, "%s", settings.background_color);
 }
 
 esp_err_t processing_settings_init(void)
@@ -92,6 +119,8 @@ esp_err_t processing_settings_save(const processing_settings_t *settings)
     nvs_set_str(nvs_handle, NVS_PROC_COLOR_METHOD_KEY, settings->color_method);
     nvs_set_u8(nvs_handle, NVS_PROC_COMPRESS_DR_KEY, settings->compress_dynamic_range ? 1 : 0);
     nvs_set_str(nvs_handle, NVS_PROC_DITHER_ALGO_KEY, settings->dither_algorithm);
+    nvs_set_str(nvs_handle, NVS_PROC_SCALE_MODE_KEY, settings->scale_mode);
+    nvs_set_str(nvs_handle, NVS_PROC_BG_COLOR_KEY, settings->background_color);
 
     err = nvs_commit(nvs_handle);
     nvs_close(nvs_handle);
@@ -157,6 +186,12 @@ esp_err_t processing_settings_load(processing_settings_t *settings)
     len = sizeof(settings->dither_algorithm);
     nvs_get_str(nvs_handle, NVS_PROC_DITHER_ALGO_KEY, settings->dither_algorithm, &len);
 
+    len = sizeof(settings->scale_mode);
+    nvs_get_str(nvs_handle, NVS_PROC_SCALE_MODE_KEY, settings->scale_mode, &len);
+
+    len = sizeof(settings->background_color);
+    nvs_get_str(nvs_handle, NVS_PROC_BG_COLOR_KEY, settings->background_color, &len);
+
     nvs_close(nvs_handle);
 
     return ESP_OK;
@@ -188,6 +223,21 @@ void processing_settings_from_json(cJSON *json, processing_settings_t *settings)
     if ((item = cJSON_GetObjectItem(json, "ditherAlgorithm")) && cJSON_IsString(item))
         strncpy(settings->dither_algorithm, item->valuestring,
                 sizeof(settings->dither_algorithm) - 1);
+    if ((item = cJSON_GetObjectItem(json, "scaleMode")) && cJSON_IsString(item) &&
+        (strcmp(item->valuestring, "cover") == 0 || strcmp(item->valuestring, "fit") == 0))
+        strncpy(settings->scale_mode, item->valuestring, sizeof(settings->scale_mode) - 1);
+    if ((item = cJSON_GetObjectItem(json, "backgroundColor")) && cJSON_IsString(item)) {
+        // Allowlist: guarantees termination and rejects unsupported names
+        // (the letterbox background is white or black only)
+        static const char *bg_names[] = {"black", "white"};
+        for (size_t i = 0; i < sizeof(bg_names) / sizeof(bg_names[0]); i++) {
+            if (strcmp(item->valuestring, bg_names[i]) == 0) {
+                snprintf(settings->background_color, sizeof(settings->background_color), "%s",
+                         bg_names[i]);
+                break;
+            }
+        }
+    }
 }
 
 char *processing_settings_to_json(const processing_settings_t *settings)
@@ -208,6 +258,8 @@ char *processing_settings_to_json(const processing_settings_t *settings)
     cJSON_AddStringToObject(json, "colorMethod", settings->color_method);
     cJSON_AddStringToObject(json, "ditherAlgorithm", settings->dither_algorithm);
     cJSON_AddBoolToObject(json, "compressDynamicRange", settings->compress_dynamic_range);
+    cJSON_AddStringToObject(json, "scaleMode", settings->scale_mode);
+    cJSON_AddStringToObject(json, "backgroundColor", settings->background_color);
 
     char *json_str = cJSON_PrintUnformatted(json);
     cJSON_Delete(json);
