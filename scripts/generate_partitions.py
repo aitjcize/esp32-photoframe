@@ -69,14 +69,19 @@ def generate_csv(use_internal_flash, flash_size_mb, coredump=False):
                 f"ota_0,    app,  ota_0,   0x20000,  0x280000,\n"
                 f"ota_1,    app,  ota_1,   0x2A0000, 0x280000,\n"
             )
-            stg_size = 8 * 1024 * 1024 - stg_offset - cd_size
         else:
             stg_offset = 0x720000
             csv += (
                 f"ota_0,    app,  ota_0,   0x20000,  0x380000,\n"
                 f"ota_1,    app,  ota_1,   0x3A0000, 0x380000,\n"
             )
-            stg_size = (flash_size_mb - 8) * 1024 * 1024 - cd_size
+        # Storage extends from the end of ota_1 to the end of flash. Sized
+        # from the offset, not a round MB count: the old (flash_mb - 8) MB
+        # sizing left the 896 KB between 0x720000 and the 8 MB boundary
+        # unaddressed. Growing the size is safe for existing devices -- OTA
+        # never rewrites the partition table, and after a full reflash
+        # grow_on_mount (storage.c) expands the filesystem in place.
+        stg_size = flash_size_mb * 1024 * 1024 - stg_offset - cd_size
         csv += f"storage,  data, littlefs,{stg_offset:#08x}, {stg_size:#010x},\n"
         if coredump:
             csv += f"coredump, data, coredump,{stg_offset + stg_size:#08x}, {cd_size:#010x},\n"

@@ -14,6 +14,7 @@
 
 #ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE
 #include "esp_littlefs.h"
+#include "esp_partition.h"
 #endif
 
 #include <sys/stat.h>
@@ -26,15 +27,14 @@ static const char *TAG = "storage";
 static storage_type_t current_storage_type = STORAGE_TYPE_NONE;
 
 #ifdef CONFIG_USE_INTERNAL_FLASH_STORAGE
-static esp_err_t mount_littlefs(void)
+static esp_err_t register_littlefs(bool grow_on_mount)
 {
-    ESP_LOGI(TAG, "Initializing LittleFS");
-
     esp_vfs_littlefs_conf_t conf = {
         .base_path = FS_MOUNT_POINT,
         .partition_label = LITTLEFS_PARTITION_LABEL,
         .format_if_mount_failed = true,
         .dont_mount = false,
+        .grow_on_mount = grow_on_mount,
     };
 
     esp_err_t ret = esp_vfs_littlefs_register(&conf);
@@ -47,11 +47,58 @@ static esp_err_t mount_littlefs(void)
         } else {
             ESP_LOGE(TAG, "Failed to initialize LittleFS (%s)", esp_err_to_name(ret));
         }
+    }
+    return ret;
+}
+
+static esp_err_t mount_littlefs(void)
+{
+    ESP_LOGI(TAG, "Initializing LittleFS");
+
+    esp_err_t ret = register_littlefs(false);
+    if (ret != ESP_OK) {
         return ret;
     }
 
+    // The storage partition reaches the end of flash since v2.19.0, and a
+    // full reflash writes the new partition table while leaving the
+    // filesystem bytes in place. The mount above autodetects the size
+    // recorded in the superblock, so it succeeds either way; reconcile the
+    // filesystem with the partition it now lives in:
+    //  - filesystem smaller (reflash from an older layout): remount with
+    //    grow_on_mount, which expands it in place and keeps the photos
+    //  - filesystem larger (reflash to a --debug build, whose coredump
+    //    reservation shrinks storage): littlefs cannot shrink and
+    //    lfs_fs_grow() asserts on a smaller size, so reformat instead
+    const esp_partition_t *partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, LITTLEFS_PARTITION_LABEL);
+    size_t fs_size = 0, fs_used = 0;
+    if (partition != NULL &&
+        esp_littlefs_info(LITTLEFS_PARTITION_LABEL, &fs_size, &fs_used) == ESP_OK &&
+        fs_size != partition->size) {
+        esp_vfs_littlefs_unregister(LITTLEFS_PARTITION_LABEL);
+        if (fs_size < partition->size) {
+            ESP_LOGI(TAG, "Growing filesystem to fill partition: %u -> %u bytes",
+                     (unsigned) fs_size, (unsigned) partition->size);
+            ret = register_littlefs(true);
+            if (ret != ESP_OK) {
+                // A failed grow must not take out otherwise-usable storage
+                ESP_LOGW(TAG, "Grow failed; mounting at the current size");
+                ret = register_littlefs(false);
+            }
+        } else {
+            ESP_LOGW(TAG, "Filesystem (%u bytes) exceeds partition (%u bytes), reformatting",
+                     (unsigned) fs_size, (unsigned) partition->size);
+            esp_littlefs_format(LITTLEFS_PARTITION_LABEL);
+            ret = register_littlefs(false);
+        }
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+
     size_t total = 0, used = 0;
-    ret = esp_littlefs_info(conf.partition_label, &total, &used);
+    ret = esp_littlefs_info(LITTLEFS_PARTITION_LABEL, &total, &used);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to get LittleFS partition information (%s)", esp_err_to_name(ret));
     } else {
