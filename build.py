@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 
@@ -56,6 +57,30 @@ def generate_splash(board):
         sys.exit(e.returncode)
 
 
+def idf_py_command():
+    """Return the argv prefix that runs idf.py.
+
+    On Windows, CreateProcess cannot execute the idf.py script directly
+    (WinError 193). Prefer the idf.py.exe wrapper that the Windows installers
+    put on PATH; otherwise run $IDF_PATH/tools/idf.py through the ESP-IDF
+    Python interpreter (IDF_PYTHON_ENV_PATH is set by the activation script).
+    """
+    if os.name != "nt":
+        return ["idf.py"]
+    found = shutil.which("idf.py")
+    if found and found.lower().endswith(".exe"):
+        return [found]
+    idf_path = os.environ.get("IDF_PATH")
+    script = os.path.join(idf_path, "tools", "idf.py") if idf_path else found
+    if not script or not os.path.isfile(script):
+        return ["idf.py"]  # let subprocess raise FileNotFoundError
+    env_path = os.environ.get("IDF_PYTHON_ENV_PATH")
+    python = os.path.join(env_path, "Scripts", "python.exe") if env_path else ""
+    if not os.path.isfile(python):
+        python = sys.executable
+    return [python, script]
+
+
 def build_firmware(board, extra_args, debug=False):
     """Build firmware with idf.py."""
     print(f"\n=== Building firmware for {board}{' [debug]' if debug else ''} ===")
@@ -66,8 +91,7 @@ def build_firmware(board, extra_args, debug=False):
         # for release or demo builds.
         sdkconfig_defaults += ";sdkconfig.defaults.debug"
 
-    idf_base = [
-        "idf.py",
+    idf_base = idf_py_command() + [
         f"-DSDKCONFIG_DEFAULTS={sdkconfig_defaults}",
     ]
 
@@ -132,8 +156,6 @@ def main():
 
     if args.fullclean:
         print("Performing full clean...")
-        import shutil
-
         for f in ["sdkconfig", "partitions.csv"]:
             if os.path.exists(f):
                 os.remove(f)

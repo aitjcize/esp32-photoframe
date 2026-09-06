@@ -1,8 +1,15 @@
 cmake_minimum_required(VERSION 3.16)
 
+# idf.py passes its own interpreter as -DPYTHON=...; fall back to python3 for
+# direct cmake invocations. On Windows a bare "python3" resolves to the
+# Microsoft Store stub, so the helper scripts below would silently not run.
+if(NOT PYTHON)
+    set(PYTHON python3)
+endif()
+
 # Get version from centralized script
 execute_process(
-    COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/get_version.py --type auto
+    COMMAND ${PYTHON} ${CMAKE_SOURCE_DIR}/scripts/get_version.py --type auto
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     OUTPUT_VARIABLE PROJECT_VER
     OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -40,7 +47,7 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/sdkconfig)
 endif()
 
 execute_process(
-    COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/generate_partitions.py
+    COMMAND ${PYTHON} ${CMAKE_SOURCE_DIR}/scripts/generate_partitions.py
         --sdkconfig ${_config_files}
         --output ${CMAKE_SOURCE_DIR}/partitions.csv
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
