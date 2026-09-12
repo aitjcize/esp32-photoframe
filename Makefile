@@ -95,6 +95,9 @@ test:
 	@echo "Running chime filename tests..."
 	@./host_tests/build/chime_name_test
 	@echo ""
+	@echo "Running chime policy tests..."
+	@./host_tests/build/chime_policy_test
+	@echo ""
 	@echo "Running image orientation tests..."
 	@cd process-cli && npm install --silent && npm run test:orientation
 	@echo ""

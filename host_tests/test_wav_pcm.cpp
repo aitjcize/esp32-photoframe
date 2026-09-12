@@ -107,6 +107,17 @@ TEST(WavPcm, RejectsCompressedAndOutOfRange)
     EXPECT_NE(wav_pcm_parse(bad_magic.data(), bad_magic.size(), &info), 0);
 }
 
+TEST(WavPcm, MaxFileBytesFitsTypicalPiWav)
+{
+    // SD-backed cache: typical Pi doorbell WAVs are ~1.2 MiB.
+    EXPECT_EQ(WAV_PCM_MAX_FILE_BYTES, 2u * 1024u * 1024u);
+    EXPECT_GE(WAV_PCM_MAX_FILE_BYTES, 1536u * 1024u);
+
+    char label[16];
+    wav_pcm_max_file_label(label, sizeof(label));
+    EXPECT_STREQ(label, "2 MiB");
+}
+
 TEST(WavPcm, CapsPlayDuration)
 {
     // 16-bit mono @ 8 kHz: 8 seconds of silence is 128000 bytes of PCM.

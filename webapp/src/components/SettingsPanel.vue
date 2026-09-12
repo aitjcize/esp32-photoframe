@@ -169,6 +169,7 @@ const chimePullModeOptions = [
 ];
 
 const previewingChime = ref(false);
+const pullingChime = ref(false);
 const chimePreviewMessage = ref("");
 const uploadedChimes = ref([]);
 const uploadingChime = ref(false);
@@ -178,7 +179,38 @@ const chimeFileInput = ref(null);
 function prettyChimeSize(bytes) {
   if (!bytes) return "0 B";
   if (bytes < 1024) return `${bytes} B`;
-  return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+async function persistChimeSettings() {
+  const response = await fetch("/api/config", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chime_enabled: settingsStore.deviceSettings.chimeEnabled,
+      chime_source: settingsStore.deviceSettings.chimeSource,
+      chime_preset: settingsStore.deviceSettings.chimePreset,
+      chime_url: settingsStore.deviceSettings.chimeUrl,
+      chime_pull_mode: settingsStore.deviceSettings.chimePullMode,
+      chime_file: settingsStore.deviceSettings.chimeFile,
+    }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || "Failed to save chime settings");
+  }
+}
+
+function formatChimeApiMessage(data, fallback) {
+  let msg = data.message || fallback;
+  if (data.played && data.played !== "none") {
+    msg += ` (${data.played})`;
+  }
+  if (data.error) {
+    msg += `: ${data.error}`;
+  }
+  return msg;
 }
 
 async function loadUploadedChimes() {
@@ -260,17 +292,43 @@ async function deleteUploadedChime(name) {
   }
 }
 
+async function pullChimeNow() {
+  pullingChime.value = true;
+  chimePreviewMessage.value = "";
+  try {
+    await persistChimeSettings();
+    const response = await fetch("/api/chime/pull", { method: "POST" });
+    const data = await response.json();
+    await settingsStore.loadDeviceSettings();
+    if (!response.ok || data.status !== "success") {
+      chimePreviewMessage.value = data.message || "Failed to pull chime";
+      return;
+    }
+    const bytes = data.bytes ? ` (${prettyChimeSize(data.bytes)})` : "";
+    chimePreviewMessage.value = `${data.message || "Chime WAV cached"}${bytes}`;
+  } catch (error) {
+    console.error("Failed to pull chime:", error);
+    chimePreviewMessage.value = error.message || "Failed to pull chime";
+  } finally {
+    pullingChime.value = false;
+  }
+}
+
 async function previewChime() {
   previewingChime.value = true;
   chimePreviewMessage.value = "";
   try {
+    await persistChimeSettings();
     const response = await fetch("/api/chime", { method: "POST" });
     const data = await response.json();
-    chimePreviewMessage.value =
-      data.message || (data.status === "success" ? "Chime played" : "Chime failed");
+    await settingsStore.loadDeviceSettings();
+    chimePreviewMessage.value = formatChimeApiMessage(
+      data,
+      data.status === "success" ? "Chime played" : "Chime failed"
+    );
   } catch (error) {
     console.error("Failed to preview chime:", error);
-    chimePreviewMessage.value = "Failed to preview chime";
+    chimePreviewMessage.value = error.message || "Failed to preview chime";
   } finally {
     previewingChime.value = false;
   }
@@ -524,6 +582,7 @@ async function performFactoryReset() {
         <v-tab value="general"> General </v-tab>
         <v-tab value="autoRotate"> Auto Rotate </v-tab>
         <v-tab value="power"> Power </v-tab>
+        <v-tab value="chimes"> Chimes </v-tab>
         <v-tab value="homeAssistant"> Home Assistant </v-tab>
         <v-tab value="processing"> Processing </v-tab>
         <v-tab value="ai"> AI Generation </v-tab>
@@ -867,14 +926,26 @@ async function performFactoryReset() {
                 power consumption. Only disable if permanently powered via USB.
               </v-alert>
             </v-expand-transition>
+          </v-tabs-window-item>
 
-            <div v-if="settingsStore.deviceSettings.chimeSupported">
+          <!-- Chimes Tab -->
+          <v-tabs-window-item value="chimes">
+            <v-alert
+              v-if="!settingsStore.deviceSettings.chimeSupported"
+              type="info"
+              variant="tonal"
+              class="mt-2"
+            >
+              This board has no speaker. Chime settings apply to Waveshare PhotoPainter 7.3".
+            </v-alert>
+
+            <div v-else>
               <v-switch
                 v-model="settingsStore.deviceSettings.chimeEnabled"
-                label="Speaker chime after image display"
+                label="Enable speaker chime"
                 color="primary"
                 class="mb-2"
-                hint="Master mute. Local ES8311 audio on PhotoPainter. Disable for battery or quiet hours."
+                hint="Master mute. Local ES8311 audio after a successful image display. Disable for battery or quiet hours."
                 persistent-hint
               />
 
@@ -887,7 +958,7 @@ async function performFactoryReset() {
                     item-value="value"
                     label="Chime source"
                     variant="outlined"
-                    hint="Built-in tone, last WAV pulled from a URL, or a file uploaded below. Upload/select applies immediately; other fields need Save."
+                    hint="Built-in tone, last WAV pulled from a URL, or a file uploaded below. Upload/select applies immediately; Pull now and Preview also save the URL fields."
                     persistent-hint
                     class="mb-4"
                   />
@@ -907,7 +978,7 @@ async function performFactoryReset() {
                     label="Chime sound URL"
                     variant="outlined"
                     placeholder="http://news.local:8080/chime.wav"
-                    hint="Optional PCM WAV (mono/stereo, 8–22.05 kHz, 8/16-bit, a few seconds, max 256 KB). When source is WAV, the frame plays the last downloaded file. Clear the URL and set source to Built-in to use a preset."
+                    hint="Optional PCM WAV (mono/stereo, 8–22.05 kHz, 8/16-bit, a few seconds, max 2 MiB). When source is WAV, the frame plays the last downloaded file. Clear the URL and set source to Built-in to use a preset."
                     persistent-hint
                     class="mb-4"
                   />
@@ -919,15 +990,33 @@ async function performFactoryReset() {
                     label="WAV pull"
                     variant="outlined"
                     :disabled="settingsStore.deviceSettings.chimeSource !== 'wav'"
-                    hint="Once: download when the URL is first needed and reuse the cache. With each rotate: GET the URL after a successful display, replace the cache, then play."
+                    hint="Once: cache until you hit Pull now (or the first play if nothing is cached). With each rotate: GET the URL after a successful display, replace the cache, then play."
                     persistent-hint
                     class="mb-4"
                   />
+                  <v-btn
+                    variant="outlined"
+                    class="mb-2"
+                    :loading="pullingChime"
+                    :disabled="
+                      settingsStore.deviceSettings.chimeSource !== 'wav' ||
+                      !settingsStore.deviceSettings.chimeUrl
+                    "
+                    @click="pullChimeNow"
+                  >
+                    <v-icon start>mdi-cloud-download</v-icon>
+                    Pull now / Nu ophalen
+                  </v-btn>
+                  <div class="text-caption text-grey mb-4">
+                    Downloads the WAV from the URL, validates it, and caches it on the SD card (or
+                    flash). Once mode does not fetch until you pull or the first play needs a cache.
+                    Cached: {{ settingsStore.deviceSettings.chimeCached ? "yes" : "no" }}.
+                  </div>
 
                   <div class="text-subtitle-2 mb-2">Uploaded chimes</div>
                   <div class="text-caption text-grey mb-3">
-                    Short PCM WAV only (8–22.05 kHz, 8/16-bit, mono or stereo, max 256 KB). Stored
-                    in chimes/ on the SD card (or flash). Selecting one sets the active custom sound
+                    Short PCM WAV only (8–22.05 kHz, 8/16-bit, mono or stereo, max 2 MiB). Stored in
+                    chimes/ on the SD card (or flash). Selecting one sets the active custom sound
                     immediately.
                   </div>
                   <input
