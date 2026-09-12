@@ -168,4 +168,11 @@ void config_manager_set_config_last_updated(int64_t timestamp);
 int64_t config_manager_get_config_last_updated(void);
 void config_manager_touch_config(void);
 
+// SD settings snapshot (`/storage/config/settings.json` when an SD card is
+// mounted). touch_config() writes it automatically. Import restores into RAM
+// and NVS without WiFi/cert-pin side effects. Factory reset deletes the file.
+esp_err_t config_manager_export_settings_sd(void);
+esp_err_t config_manager_import_settings_sd(void);
+void config_manager_delete_settings_sd(void);
+
 #endif
