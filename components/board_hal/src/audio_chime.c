@@ -34,6 +34,7 @@ esp_err_t board_hal_play_wav_file(const char *path)
 #include <string.h>
 
 #include "axp2101.h"
+#include "chime_presets.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
@@ -195,31 +196,33 @@ static void play_tone(i2s_chan_handle_t tx, float freq_hz, int duration_ms, int 
 
 static void play_preset_tones(i2s_chan_handle_t tx, const char *preset)
 {
-    const char *name = (preset && preset[0]) ? preset : "triad";
-    if (strcmp(name, "dingdong") == 0) {
-        // Classic two-note doorbell: high then low.
-        play_tone(tx, 784.00f, 220, CHIME_AMPLITUDE);
-        play_tone(tx, 523.25f, 360, CHIME_AMPLITUDE);
-    } else if (strcmp(name, "doublebeep") == 0) {
-        play_tone(tx, 880.00f, 80, CHIME_AMPLITUDE);
-        i2s_write_silence(tx, CHIME_SAMPLE_RATE * 80 / 1000);
-        play_tone(tx, 880.00f, 80, CHIME_AMPLITUDE);
-    } else if (strcmp(name, "ascending") == 0) {
-        play_tone(tx, 523.25f, 100, CHIME_AMPLITUDE);
-        play_tone(tx, 587.33f, 100, CHIME_AMPLITUDE);
-        play_tone(tx, 659.25f, 160, CHIME_AMPLITUDE);
-    } else if (strcmp(name, "softping") == 0) {
-        play_tone(tx, 880.00f, 90, CHIME_AMPLITUDE / 2);
-    } else if (strcmp(name, "alert") == 0) {
-        play_tone(tx, 880.00f, 90, CHIME_AMPLITUDE);
-        play_tone(tx, 698.46f, 90, CHIME_AMPLITUDE);
-        play_tone(tx, 880.00f, 90, CHIME_AMPLITUDE);
-        play_tone(tx, 698.46f, 140, CHIME_AMPLITUDE);
-    } else {
-        // triad (default) and any unknown name: C5–E5–G5.
-        play_tone(tx, 523.25f, 110, CHIME_AMPLITUDE);
-        play_tone(tx, 659.25f, 110, CHIME_AMPLITUDE);
-        play_tone(tx, 783.99f, 180, CHIME_AMPLITUDE);
+    const chime_note_t *notes = NULL;
+    size_t count = 0;
+    if (!chime_preset_lookup(preset, &notes, &count)) {
+        chime_preset_lookup(CHIME_PRESET_FALLBACK, &notes, &count);
+    }
+    if (!notes || count == 0) {
+        return;
+    }
+
+    const char *name = (preset && preset[0]) ? preset : CHIME_PRESET_DEFAULT;
+    const int amplitude = (strcmp(name, "softping") == 0) ? (CHIME_AMPLITUDE / 2) : CHIME_AMPLITUDE;
+
+    int played_ms = 0;
+    for (size_t i = 0; i < count && played_ms < CHIME_PRESET_MAX_MS; i++) {
+        int dur = notes[i].duration_ms;
+        if (dur <= 0) {
+            continue;
+        }
+        if (played_ms + dur > CHIME_PRESET_MAX_MS) {
+            dur = CHIME_PRESET_MAX_MS - played_ms;
+        }
+        if (notes[i].freq_hz <= 0.0f) {
+            i2s_write_silence(tx, CHIME_SAMPLE_RATE * dur / 1000);
+        } else {
+            play_tone(tx, notes[i].freq_hz, dur, amplitude);
+        }
+        played_ms += dur;
     }
 }
 
@@ -349,7 +352,7 @@ static esp_err_t play_preset_session(audio_session_t *s, void *ctx)
 {
     const char *preset = (const char *) ctx;
     ESP_LOGI(TAG, "Playing local ES8311 speaker chime preset '%s'",
-             (preset && preset[0]) ? preset : "triad");
+             (preset && preset[0]) ? preset : CHIME_PRESET_DEFAULT);
     esp_err_t err = audio_session_open(s, CHIME_SAMPLE_RATE);
     if (err != ESP_OK) {
         return err;
@@ -438,7 +441,7 @@ bool board_hal_has_speaker(void)
 
 esp_err_t board_hal_play_chime(void)
 {
-    return board_hal_play_chime_preset("triad");
+    return board_hal_play_chime_preset(CHIME_PRESET_DEFAULT);
 }
 
 esp_err_t board_hal_play_chime_preset(const char *preset)

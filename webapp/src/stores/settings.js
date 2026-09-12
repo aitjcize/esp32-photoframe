@@ -53,7 +53,7 @@ export const useSettingsStore = defineStore("settings", () => {
     // Chimes (PhotoPainter speaker)
     chimeEnabled: true,
     chimeSupported: false,
-    chimePreset: "triad",
+    chimePreset: "mozart",
     chimeUrl: "",
     chimeSource: "preset",
     chimePullMode: "once",
@@ -202,7 +202,7 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.deepSleepEnabled = data.deep_sleep_enabled !== false;
       deviceSettings.value.chimeEnabled = data.chime_enabled !== false;
       deviceSettings.value.chimeSupported = data.chime_supported === true;
-      deviceSettings.value.chimePreset = data.chime_preset || "triad";
+      deviceSettings.value.chimePreset = data.chime_preset || "mozart";
       deviceSettings.value.chimeUrl = data.chime_url || "";
       deviceSettings.value.chimeSource = data.chime_source || "preset";
       deviceSettings.value.chimePullMode = data.chime_pull_mode || "once";

@@ -169,6 +169,25 @@ target_link_libraries(
 gtest_discover_tests(chime_name_test)
 
 add_executable(
+  chime_presets_test
+  test_chime_presets.cpp
+  ../components/board_hal/src/chime_presets.c
+)
+
+target_include_directories(
+  chime_presets_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../components/board_hal/include
+)
+
+target_link_libraries(
+  chime_presets_test
+  GTest::gtest_main
+)
+
+gtest_discover_tests(chime_presets_test)
+
+add_executable(
   chime_policy_test
   test_chime_policy.cpp
 )
@@ -191,12 +210,14 @@ add_executable(
   test_settings_backup.cpp
   ../main/settings_backup.c
   ../main/chime_name.c
+  ../components/board_hal/src/chime_presets.c
 )
 
 target_include_directories(
   settings_backup_test
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../main
+  ${CMAKE_CURRENT_SOURCE_DIR}/../components/board_hal/include
 )
 
 target_link_libraries(

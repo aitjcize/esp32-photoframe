@@ -131,7 +131,7 @@ Get current device configuration.
   "deep_sleep_enabled": true,
   "chime_enabled": true,
   "chime_supported": true,
-  "chime_preset": "triad",
+  "chime_preset": "mozart",
   "chime_url": "",
   "chime_source": "preset",
   "chime_pull_mode": "once",
@@ -170,7 +170,7 @@ Get current device configuration.
 - `deep_sleep_enabled`: Enable deep sleep between rotations
 - `chime_enabled`: Master mute. Play a local ES8311 speaker chime after a successful image display / URL rotate (default `true`). Set `false` for battery or quiet hours. Persisted in NVS as `chime_en`.
 - `chime_supported`: Read-only. `true` on `waveshare_photopainter_73` (onboard ES8311 + PA). Other boards report `false`.
-- `chime_preset`: Built-in synthesized tone: `triad` (default, C–E–G), `dingdong`, `doublebeep`, `ascending`, `softping`, `alert`. Used when `chime_source` is `preset`, and as fallback if a WAV fetch/play fails. Persisted as `chime_preset`.
+- `chime_preset`: Built-in synthesized public-domain tune (2–8 seconds): `mozart` (default, Eine kleine Nachtmusik opening), `ode` (Ode to Joy / Ode aan de vreugde), `frere` (Frère Jacques / Vader Jacob), `twinkle`, `fanfare`, `triad` (C–E–G flourish), `dingdong` (two-tone doorbell), `softping`, `alert`, `doublebeep`. `ascending` remains accepted as an alias of `fanfare`. Used when `chime_source` is `preset`, and as fallback if a WAV fetch/play fails. Persisted as `chime_preset`. Unknown names are rejected by `POST`/`PATCH /api/config`. Playback of an unknown HAL name falls back to `triad`.
 - `chime_url`: Optional HTTP(S) URL of a small PCM WAV (similar to `image_url`, max 256 chars). Example: `http://news.local:8080/chime.wav`. Persisted as `chime_url`. Changing the URL clears the on-device cache.
 - `chime_source`: `preset` (default) plays `chime_preset`. `wav` plays the last pulled WAV when `chime_url` is set. `uploaded` plays the file named by `chime_file` from `chimes/` on storage.
 - `chime_file`: Filename of the active uploaded WAV (e.g. `doorbell.wav`). Empty when none is selected. Persisted as `chime_file`.

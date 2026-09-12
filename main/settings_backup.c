@@ -4,20 +4,11 @@
 #include <stdio.h>
 #include <string.h>
 
-static const char *k_presets[] = {"triad",     "dingdong", "doublebeep",
-                                  "ascending", "softping", "alert"};
+#include "chime_presets.h"
 
 static bool preset_is_valid(const char *preset)
 {
-    if (!preset || !preset[0]) {
-        return false;
-    }
-    for (size_t i = 0; i < sizeof(k_presets) / sizeof(k_presets[0]); i++) {
-        if (strcmp(preset, k_presets[i]) == 0) {
-            return true;
-        }
-    }
-    return false;
+    return chime_preset_id_is_valid(preset);
 }
 
 static bool rotation_mode_is_valid(const char *mode)
@@ -371,7 +362,7 @@ int settings_backup_serialize(const settings_backup_t *in, char *out, size_t out
     if (!append_fmt(&p, end, "  \"chime_preset\": ")) {
         return -1;
     }
-    if (!append_quoted(&p, end, in->chime_preset[0] ? in->chime_preset : "triad")) {
+    if (!append_quoted(&p, end, in->chime_preset[0] ? in->chime_preset : CHIME_PRESET_DEFAULT)) {
         return -1;
     }
     if (!append_fmt(&p, end, ",\n  \"chime_url\": ")) {
