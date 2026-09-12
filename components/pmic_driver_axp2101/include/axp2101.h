@@ -26,6 +26,16 @@ bool axp2101_is_usb_connected(void);
 // Power control functions
 void axp2101_shutdown(void);
 
+/**
+ * @brief Enable AXP2101 ALDO rails used by the PhotoPainter audio codec
+ *
+ * Matches the stock Waveshare Arduino audio example
+ * (`05_ArduinoExample/01_Audio_Test` Custom_PmicRegisterInit): ALDO1–4 at
+ * 3.3 V. ALDO3 supplies the ES8311; leaving it off keeps the codec unpowered
+ * and can clamp the shared I2C bus.
+ */
+void axp2101_prepare_audio_rails(void);
+
 #ifdef __cplusplus
 }
 #endif

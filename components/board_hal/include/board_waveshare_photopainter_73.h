@@ -2,6 +2,7 @@
 #define BOARD_WAVESHARE_PHOTOPAINTER_73_H
 
 #include "driver/gpio.h"
+#include "driver/i2c_master.h"
 
 // Board Info
 #define BOARD_HAL_NAME "waveshare_photopainter_73"
@@ -43,7 +44,29 @@
 #define BOARD_HAL_LED_RED_PIN GPIO_NUM_45
 #define BOARD_HAL_LED_GREEN_PIN GPIO_NUM_42
 
+// ES8311 DAC + NS4150B speaker PA — pinout from Waveshare stock
+// Arduino audio example (05_ArduinoExample/01_Audio_Test, USER_CODEC_BOARD):
+//   i2c: {sda: 47, scl: 48}
+//   i2s: {mclk: 14, bclk: 15, ws: 16, din: 18, dout: 17}
+//   out: {codec: ES8311, pa: 7, pa_gain: 6, use_mclk: 1}
+#define BOARD_HAL_HAS_SPEAKER 1
+#define BOARD_HAL_AUDIO_I2S_MCLK_PIN GPIO_NUM_14
+#define BOARD_HAL_AUDIO_I2S_BCLK_PIN GPIO_NUM_15
+#define BOARD_HAL_AUDIO_I2S_WS_PIN GPIO_NUM_16
+#define BOARD_HAL_AUDIO_I2S_DOUT_PIN GPIO_NUM_17
+#define BOARD_HAL_AUDIO_I2S_DIN_PIN GPIO_NUM_18
+#define BOARD_HAL_AUDIO_PA_PIN GPIO_NUM_7
+#define BOARD_HAL_AUDIO_ES8311_ADDR 0x18
+
 // Display Configuration
 #define BOARD_HAL_DISPLAY_ROTATION_DEG 180
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+i2c_master_bus_handle_t board_hal_get_i2c_bus(void);
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // BOARD_WAVESHARE_PHOTOPAINTER_73_H

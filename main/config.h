@@ -147,6 +147,10 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 // Power
 #define NVS_DEEP_SLEEP_KEY "deep_sleep"
 
+// Speaker chime after a successful image display / URL rotate.
+// Default on; persist a 0 to disable for battery or quiet hours.
+#define NVS_CHIME_ENABLED_KEY "chime_en"
+
 // Debugging
 #define NVS_DEBUG_LOG_KEY "debug_log"
 

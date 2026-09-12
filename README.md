@@ -111,6 +111,34 @@ Configure your API keys in **Settings > AI Generation**.
 
 The reTerminal E1002, E1003, and E1004 also include a SHT40 temperature/humidity sensor, PCF8563 RTC, and battery monitoring. The XIAO EE03 has a SHT40 sensor and battery monitoring as well (but no RTC).
 
+### Speaker chime (Waveshare PhotoPainter 7.3")
+
+On `waveshare_photopainter_73`, a short local sine-tone chime plays on the onboard ES8311 DAC + speaker after a successful image display or URL rotate (when a new image is actually shown). This is on-device audio only — no Xiaozhi/TTS/cloud path.
+
+Pin and power sequence are taken from Waveshare's stock Arduino audio example (`waveshareteam/ESP32-S3-PhotoPainter` → `05_ArduinoExample/01_Audio_Test`, `USER_CODEC_BOARD`):
+
+| Signal | GPIO | Notes |
+|--------|------|--------|
+| I2C SDA / SCL | 47 / 48 | Shared with AXP2101, RTC, SHTC3 |
+| I2S MCLK / BCLK / WS | 14 / 15 / 16 | `use_mclk: 1` |
+| I2S DOUT / DIN | 17 / 18 | Playback uses DOUT → ES8311 |
+| **PA enable** | **7** | NS4150B CTRL, **active-high** — required for sound |
+| ES8311 I2C address | `0x18` | |
+
+The AXP2101 ALDO1–4 rails are set to 3.3 V and enabled before talking to the codec (same as `Custom_PmicRegisterInit` in that example). ALDO3 powers the ES8311. Deep sleep is unchanged: the chime only runs while the device is awake for a refresh, then the existing PMIC sleep path cuts the rails.
+
+**Disable the chime** (battery / quiet):
+
+- Web UI: **Settings → Power → Speaker chime after image display**
+- API: `POST /api/config` with `{"chime_enabled": false}`
+- Stored in NVS key `chime_en` (default on)
+
+Trigger the same chime remotely (e.g. from a Pi): `POST /api/chime`.
+
+### Restoring Waveshare factory firmware (`Fac.bin`)
+
+This firmware replaces the stock image. Waveshare ships a factory blob (commonly `Fac.bin` in their PhotoPainter firmware package / wiki downloads). To go back to stock, enter download mode (hold **BOOT** and press **PWR**) and flash that `Fac.bin` at address `0x0` with `esptool` or Waveshare's flash tool — the same offset used for this project's merged image. This repo does not ship `Fac.bin`.
+
 ### Button Functions
 
 Buttons behave differently depending on whether the device is awake (web UI accessible) or in deep sleep.
@@ -160,10 +188,10 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 phot
 
 **Build from source:**
 
-We provide a `build.py` helper script to simplify building for different boards.
+We provide a `build.py` helper script to simplify building for different boards. For PhotoPainter 7.3" (this fork's speaker-chime target):
 
 ```bash
-# Build for Waveshare PhotoPainter (default)
+# Build for Waveshare PhotoPainter 7.3" (default; includes ES8311 chime)
 ./build.py --board waveshare_photopainter_73
 
 # Build for Seeed Studio XIAO EE02

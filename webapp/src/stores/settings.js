@@ -50,6 +50,8 @@ export const useSettingsStore = defineStore("settings", () => {
     haUrl: "",
     // Power
     deepSleepEnabled: true,
+    chimeEnabled: true,
+    chimeSupported: false,
     // Debugging
     debugLogEnabled: false,
     // AI API Keys (for client-side AI generation)
@@ -191,6 +193,8 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.caCertSet = data.ca_cert_set || false;
       deviceSettings.value.lastFetchError = data.last_fetch_error || "";
       deviceSettings.value.deepSleepEnabled = data.deep_sleep_enabled !== false;
+      deviceSettings.value.chimeEnabled = data.chime_enabled !== false;
+      deviceSettings.value.chimeSupported = data.chime_supported === true;
       deviceSettings.value.debugLogEnabled = data.debug_log_enabled === true;
       deviceSettings.value.haUrl = data.ha_url || "";
       deviceSettings.value.saveDownloadedImages = data.save_downloaded_images !== false;
@@ -258,6 +262,7 @@ export const useSettingsStore = defineStore("settings", () => {
       image_url: deviceSettings.value.imageUrl,
       ha_url: deviceSettings.value.haUrl,
       deep_sleep_enabled: deviceSettings.value.deepSleepEnabled,
+      chime_enabled: deviceSettings.value.chimeEnabled,
       debug_log_enabled: deviceSettings.value.debugLogEnabled,
       save_downloaded_images: deviceSettings.value.saveDownloadedImages,
       display_orientation: deviceSettings.value.displayOrientation,

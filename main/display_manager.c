@@ -49,6 +49,20 @@ static UWORD display_white_color(void)
     return display_is_grayscale() ? 0xF : EPD_7IN3E_WHITE;
 }
 
+static void play_display_chime(void)
+{
+    if (!config_manager_get_chime_enabled()) {
+        return;
+    }
+    esp_err_t err = board_hal_play_chime();
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+        return;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Display chime failed: %s", esp_err_to_name(err));
+    }
+}
+
 static SemaphoreHandle_t display_mutex = NULL;
 static char current_image[64] = {0};
 static char last_displayed_image[256] = {0};  // Internal state: last displayed image path
@@ -209,6 +223,7 @@ esp_err_t display_manager_show_image(const char *filename)
     xSemaphoreGive(display_mutex);
 
     ESP_LOGI(TAG, "Image displayed successfully");
+    play_display_chime();
     return ESP_OK;
 }
 
@@ -255,6 +270,7 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
     xSemaphoreGive(display_mutex);
 
     ESP_LOGI(TAG, "RGB buffer displayed successfully");
+    play_display_chime();
     return ESP_OK;
 }
 
@@ -442,6 +458,9 @@ esp_err_t display_manager_end_rgb_stream(bool show, const display_publish_t *pub
     }
 
     xSemaphoreGive(display_mutex);
+    if (show) {
+        play_display_chime();
+    }
     return result;
 }
 

@@ -467,6 +467,11 @@ esp_err_t apply_config_from_json(cJSON *root)
         power_manager_set_deep_sleep_enabled(cJSON_IsTrue(item));
     }
 
+    item = cJSON_GetObjectItem(root, "chime_enabled");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_chime_enabled(cJSON_IsTrue(item));
+    }
+
     // Debugging
     item = cJSON_GetObjectItem(root, "debug_log_enabled");
     if (item && cJSON_IsBool(item)) {

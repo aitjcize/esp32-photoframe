@@ -153,6 +153,12 @@ In `idf.py menuconfig`:
 1. Navigate to `Component config` → `Log output`
 2. Set default log level to `Debug` or `Verbose`
 
+### Speaker chime (PhotoPainter)
+
+`waveshare_photopainter_73` plays a local ES8311 sine chime after a successful panel refresh. Implementation is a thin helper in `components/board_hal/src/audio_chime.c`. Pins and PA GPIO 7 come from Waveshare `05_ArduinoExample/01_Audio_Test` (`USER_CODEC_BOARD` in `board_cfg.h`). Deep sleep is unchanged; audio is torn down before the existing `board_hal_prepare_for_sleep()` path.
+
+Disable with `POST /api/config` `{"chime_enabled": false}` or Settings → Power.
+
 ### Common Issues
 
 **Build fails with component errors:**

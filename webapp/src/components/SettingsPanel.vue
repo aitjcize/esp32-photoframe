@@ -738,6 +738,16 @@ async function performFactoryReset() {
                 power consumption. Only disable if permanently powered via USB.
               </v-alert>
             </v-expand-transition>
+
+            <v-switch
+              v-if="settingsStore.deviceSettings.chimeSupported"
+              v-model="settingsStore.deviceSettings.chimeEnabled"
+              label="Speaker chime after image display"
+              color="primary"
+              class="mb-2"
+              hint="Local ES8311 sine tone on PhotoPainter. Disable for battery or quiet hours."
+              persistent-hint
+            />
           </v-tabs-window-item>
 
           <!-- Home Assistant Tab -->

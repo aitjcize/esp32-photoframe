@@ -1451,6 +1451,8 @@ static esp_err_t config_handler(httpd_req_t *req)
 
         // Other
         cJSON_AddBoolToObject(root, "deep_sleep_enabled", config_manager_get_deep_sleep_enabled());
+        cJSON_AddBoolToObject(root, "chime_enabled", config_manager_get_chime_enabled());
+        cJSON_AddBoolToObject(root, "chime_supported", board_hal_has_speaker());
         cJSON_AddBoolToObject(root, "debug_log_enabled", config_manager_get_debug_log_enabled());
 
         char *json_str = cJSON_Print(root);
@@ -2022,6 +2024,45 @@ static esp_err_t keep_alive_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t chime_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System is still initializing");
+        return ESP_FAIL;
+    }
+
+    power_manager_reset_sleep_timer();
+
+    cJSON *response = cJSON_CreateObject();
+    if (!board_hal_has_speaker()) {
+        cJSON_AddStringToObject(response, "status", "unsupported");
+        cJSON_AddStringToObject(response, "message", "This board has no speaker");
+        httpd_resp_set_status(req, "404 Not Found");
+    } else if (!config_manager_get_chime_enabled()) {
+        cJSON_AddStringToObject(response, "status", "disabled");
+        cJSON_AddStringToObject(response, "message",
+                                "Chime is disabled (set chime_enabled in /api/config)");
+    } else {
+        esp_err_t err = board_hal_play_chime();
+        if (err == ESP_OK) {
+            cJSON_AddStringToObject(response, "status", "success");
+            cJSON_AddStringToObject(response, "message", "Chime played");
+        } else {
+            cJSON_AddStringToObject(response, "status", "error");
+            cJSON_AddStringToObject(response, "message", esp_err_to_name(err));
+            httpd_resp_set_status(req, "500 Internal Server Error");
+        }
+    }
+
+    char *json_str = cJSON_Print(response);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(response);
+    return ESP_OK;
+}
+
 static void restart_task(void *arg)
 {
     vTaskDelay(pdMS_TO_TICKS(1000));  // Wait 1 second for response to be sent
@@ -2487,6 +2528,10 @@ esp_err_t http_server_init(void)
                                       .handler = keep_alive_handler,
                                       .user_ctx = NULL};
         httpd_register_uri_handler(server, &keep_alive_uri);
+
+        httpd_uri_t chime_uri = {
+            .uri = "/api/chime", .method = HTTP_POST, .handler = chime_handler, .user_ctx = NULL};
+        httpd_register_uri_handler(server, &chime_uri);
 
         httpd_uri_t format_storage_uri = {.uri = "/api/format-storage",
                                           .method = HTTP_POST,
