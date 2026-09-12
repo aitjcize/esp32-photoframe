@@ -1474,6 +1474,9 @@ static esp_err_t config_handler(httpd_req_t *req)
                                 config_manager_get_chime_pull_mode() == CHIME_PULL_WITH_ROTATE
                                     ? "with_rotate"
                                     : "once");
+        cJSON_AddStringToObject(
+            root, "chime_play_when",
+            config_manager_get_chime_play_when() == CHIME_PLAY_WHEN_BEFORE ? "before" : "after");
         const char *chime_file = config_manager_get_chime_file();
         cJSON_AddStringToObject(root, "chime_file", chime_file ? chime_file : "");
         cJSON_AddBoolToObject(root, "chime_cached", chime_cache_exists());

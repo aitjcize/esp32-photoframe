@@ -26,9 +26,9 @@ typedef struct {
 
 // Play the currently selected chime (preset, last cached URL WAV, or an
 // uploaded file). Preview fetches when the cache is empty or refresh is set.
-// After display, with_rotate also GET-replaces the URL cache before playing.
-// Falls back to the selected preset if WAV fetch/play fails. Caller should
-// check chime_enabled.
+// On a display rotate (before or after the panel wait), with_rotate also
+// GET-replaces the URL cache before playing. Falls back to the selected
+// preset if WAV fetch/play fails. Caller should check chime_enabled.
 esp_err_t chime_play(chime_play_reason_t reason);
 esp_err_t chime_play_detailed(chime_play_reason_t reason, bool refresh, chime_play_result_t *out);
 

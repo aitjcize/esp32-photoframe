@@ -67,11 +67,12 @@ static char google_api_key[AI_API_KEY_MAX_LEN] = {0};
 
 // Power
 static bool deep_sleep_enabled = true;  // Enabled by default
-static bool chime_enabled = true;       // Speaker chime after display (default on)
+static bool chime_enabled = true;       // Speaker chime on display (default on)
 static char chime_preset[CHIME_PRESET_MAX_LEN] = DEFAULT_CHIME_PRESET;
 static char chime_url[IMAGE_URL_MAX_LEN] = {0};
 static chime_source_t chime_source = CHIME_SOURCE_PRESET;
-static chime_pull_mode_t chime_pull_mode = CHIME_PULL_ONCE;
+static chime_pull_mode_t chime_pull_mode = CHIME_PULL_WITH_ROTATE;
+static chime_play_when_t chime_play_when = CHIME_PLAY_WHEN_AFTER;
 static char chime_file[CHIME_FILENAME_MAX_LEN] = {0};
 
 // Debugging
@@ -467,11 +468,20 @@ esp_err_t config_manager_init(void)
             chime_file[0] = '\0';
         }
 
-        uint8_t chime_pull_val = CHIME_PULL_ONCE;
+        uint8_t chime_pull_val = CHIME_PULL_WITH_ROTATE;
         if (nvs_get_u8(nvs_handle, NVS_CHIME_PULL_MODE_KEY, &chime_pull_val) == ESP_OK) {
             note_nvs_backup_key();
             if (chime_pull_val == CHIME_PULL_ONCE || chime_pull_val == CHIME_PULL_WITH_ROTATE) {
                 chime_pull_mode = (chime_pull_mode_t) chime_pull_val;
+            }
+        }
+
+        uint8_t chime_when_val = CHIME_PLAY_WHEN_AFTER;
+        if (nvs_get_u8(nvs_handle, NVS_CHIME_PLAY_WHEN_KEY, &chime_when_val) == ESP_OK) {
+            note_nvs_backup_key();
+            if (chime_when_val == CHIME_PLAY_WHEN_AFTER ||
+                chime_when_val == CHIME_PLAY_WHEN_BEFORE) {
+                chime_play_when = (chime_play_when_t) chime_when_val;
             }
         }
 
@@ -1345,7 +1355,7 @@ chime_source_t config_manager_get_chime_source(void)
 void config_manager_set_chime_pull_mode(chime_pull_mode_t mode)
 {
     if (mode != CHIME_PULL_ONCE && mode != CHIME_PULL_WITH_ROTATE) {
-        mode = CHIME_PULL_ONCE;
+        mode = CHIME_PULL_WITH_ROTATE;
     }
     chime_pull_mode = mode;
 
@@ -1363,6 +1373,29 @@ void config_manager_set_chime_pull_mode(chime_pull_mode_t mode)
 chime_pull_mode_t config_manager_get_chime_pull_mode(void)
 {
     return chime_pull_mode;
+}
+
+void config_manager_set_chime_play_when(chime_play_when_t when)
+{
+    if (when != CHIME_PLAY_WHEN_AFTER && when != CHIME_PLAY_WHEN_BEFORE) {
+        when = CHIME_PLAY_WHEN_AFTER;
+    }
+    chime_play_when = when;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_CHIME_PLAY_WHEN_KEY, (uint8_t) when);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Chime play when set to: %s",
+             when == CHIME_PLAY_WHEN_BEFORE ? "before" : "after");
+}
+
+chime_play_when_t config_manager_get_chime_play_when(void)
+{
+    return chime_play_when;
 }
 
 void config_manager_set_chime_file(const char *filename)
@@ -1466,6 +1499,9 @@ static void settings_backup_from_runtime(settings_backup_t *out)
             chime_pull_mode == CHIME_PULL_WITH_ROTATE ? "with_rotate" : "once",
             sizeof(out->chime_pull_mode) - 1);
     out->has_chime_pull_mode = true;
+    strncpy(out->chime_play_when, chime_play_when == CHIME_PLAY_WHEN_BEFORE ? "before" : "after",
+            sizeof(out->chime_play_when) - 1);
+    out->has_chime_play_when = true;
     strncpy(out->chime_file, chime_file, sizeof(out->chime_file) - 1);
     out->has_chime_file = true;
 }
@@ -1533,6 +1569,11 @@ static void settings_backup_apply_to_runtime(const settings_backup_t *in)
         config_manager_set_chime_pull_mode(strcmp(in->chime_pull_mode, "with_rotate") == 0
                                                ? CHIME_PULL_WITH_ROTATE
                                                : CHIME_PULL_ONCE);
+    }
+    if (in->has_chime_play_when) {
+        config_manager_set_chime_play_when(strcmp(in->chime_play_when, "before") == 0
+                                               ? CHIME_PLAY_WHEN_BEFORE
+                                               : CHIME_PLAY_WHEN_AFTER);
     }
     if (in->has_chime_file) {
         config_manager_set_chime_file(in->chime_file);

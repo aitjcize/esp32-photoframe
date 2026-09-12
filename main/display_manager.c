@@ -50,12 +50,26 @@ static UWORD display_white_color(void)
     return display_is_grayscale() ? 0xF : EPD_7IN3E_WHITE;
 }
 
-static void play_display_chime(void)
+// epaper_display() is a blocking refresh (Power On -> Send Data -> Refresh ->
+// Power Off). AFTER_REFRESH therefore starts playback only after the panel
+// has finished drawing. BEFORE_REFRESH plays after a successful decode,
+// immediately before that wait.
+static void maybe_play_display_chime(chime_display_hook_t hook)
 {
     if (!config_manager_get_chime_enabled()) {
         return;
     }
-    esp_err_t err = chime_play(CHIME_PLAY_AFTER_DISPLAY);
+    const char *when =
+        config_manager_get_chime_play_when() == CHIME_PLAY_WHEN_BEFORE ? "before" : "after";
+    if (!chime_should_play_at_hook(when, hook)) {
+        return;
+    }
+    chime_play_reason_t reason = (hook == CHIME_DISPLAY_HOOK_BEFORE_REFRESH)
+                                     ? CHIME_PLAY_BEFORE_DISPLAY
+                                     : CHIME_PLAY_AFTER_DISPLAY;
+    ESP_LOGI(TAG, "Playing display chime (%s panel refresh)",
+             hook == CHIME_DISPLAY_HOOK_BEFORE_REFRESH ? "before" : "after");
+    esp_err_t err = chime_play(reason);
     if (err == ESP_ERR_NOT_SUPPORTED) {
         return;
     }
@@ -209,6 +223,7 @@ esp_err_t display_manager_show_image(const char *filename)
     // 4. Update E-Paper Display
     // This is a blocking call that takes ~25-30 seconds for 7-color e-paper
     // It handles: Power On -> Send Data -> Refresh -> Power Off
+    maybe_play_display_chime(CHIME_DISPLAY_HOOK_BEFORE_REFRESH);
     ESP_LOGI(TAG, "Calling epaper_display...");
     epaper_display(epd_image_buffer);
     ESP_LOGI(TAG, "epaper_display returned successfully");
@@ -224,7 +239,7 @@ esp_err_t display_manager_show_image(const char *filename)
     xSemaphoreGive(display_mutex);
 
     ESP_LOGI(TAG, "Image displayed successfully");
-    play_display_chime();
+    maybe_play_display_chime(CHIME_DISPLAY_HOOK_AFTER_REFRESH);
     return ESP_OK;
 }
 
@@ -258,6 +273,7 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
     ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
     ESP_LOGI(TAG, "Free heap before epaper_display: %lu bytes", esp_get_free_heap_size());
 
+    maybe_play_display_chime(CHIME_DISPLAY_HOOK_BEFORE_REFRESH);
     ESP_LOGI(TAG, "Calling epaper_display...");
     epaper_display(epd_image_buffer);
     ESP_LOGI(TAG, "epaper_display returned successfully");
@@ -271,7 +287,7 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
     xSemaphoreGive(display_mutex);
 
     ESP_LOGI(TAG, "RGB buffer displayed successfully");
-    play_display_chime();
+    maybe_play_display_chime(CHIME_DISPLAY_HOOK_AFTER_REFRESH);
     return ESP_OK;
 }
 
@@ -431,6 +447,7 @@ esp_err_t display_manager_end_rgb_stream(bool show, const display_publish_t *pub
 
     if (show) {
         ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
+        maybe_play_display_chime(CHIME_DISPLAY_HOOK_BEFORE_REFRESH);
         epaper_display(epd_image_buffer);
         ESP_LOGI(TAG, "E-paper display update complete");
 
@@ -460,7 +477,7 @@ esp_err_t display_manager_end_rgb_stream(bool show, const display_publish_t *pub
 
     xSemaphoreGive(display_mutex);
     if (show) {
-        play_display_chime();
+        maybe_play_display_chime(CHIME_DISPLAY_HOOK_AFTER_REFRESH);
     }
     return result;
 }
