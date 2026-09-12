@@ -534,6 +534,17 @@ esp_err_t apply_config_from_json(cJSON *root)
                                                                             : CHIME_PULL_ONCE);
     }
 
+    item = cJSON_GetObjectItem(root, "chime_play_when");
+    if (item && cJSON_IsString(item)) {
+        const char *when = cJSON_GetStringValue(item);
+        if (!chime_play_when_is_valid(when)) {
+            utils_set_config_error("Invalid chime_play_when (use before or after)");
+            return ESP_FAIL;
+        }
+        config_manager_set_chime_play_when(strcmp(when, "before") == 0 ? CHIME_PLAY_WHEN_BEFORE
+                                                                       : CHIME_PLAY_WHEN_AFTER);
+    }
+
     // Debugging
     item = cJSON_GetObjectItem(root, "debug_log_enabled");
     if (item && cJSON_IsBool(item)) {

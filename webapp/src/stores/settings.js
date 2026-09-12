@@ -56,7 +56,8 @@ export const useSettingsStore = defineStore("settings", () => {
     chimePreset: "mozart",
     chimeUrl: "",
     chimeSource: "preset",
-    chimePullMode: "once",
+    chimePullMode: "with_rotate",
+    chimePlayWhen: "after",
     chimeCached: false,
     chimeFile: "",
     // Debugging
@@ -205,7 +206,8 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.chimePreset = data.chime_preset || "mozart";
       deviceSettings.value.chimeUrl = data.chime_url || "";
       deviceSettings.value.chimeSource = data.chime_source || "preset";
-      deviceSettings.value.chimePullMode = data.chime_pull_mode || "once";
+      deviceSettings.value.chimePullMode = data.chime_pull_mode || "with_rotate";
+      deviceSettings.value.chimePlayWhen = data.chime_play_when || "after";
       deviceSettings.value.chimeCached = data.chime_cached === true;
       deviceSettings.value.chimeFile = data.chime_file || "";
       deviceSettings.value.debugLogEnabled = data.debug_log_enabled === true;
@@ -280,6 +282,7 @@ export const useSettingsStore = defineStore("settings", () => {
       chime_url: deviceSettings.value.chimeUrl,
       chime_source: deviceSettings.value.chimeSource,
       chime_pull_mode: deviceSettings.value.chimePullMode,
+      chime_play_when: deviceSettings.value.chimePlayWhen,
       chime_file: deviceSettings.value.chimeFile,
       debug_log_enabled: deviceSettings.value.debugLogEnabled,
       save_downloaded_images: deviceSettings.value.saveDownloadedImages,

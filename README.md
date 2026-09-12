@@ -113,7 +113,7 @@ The reTerminal E1002, E1003, and E1004 also include a SHT40 temperature/humidity
 
 ### Speaker chime (Waveshare PhotoPainter 7.3")
 
-On `waveshare_photopainter_73`, a short local speaker chime plays on the onboard ES8311 DAC + speaker after a successful image display or URL rotate (when a new image is actually shown). Built-in presets are public-domain tunes synthesized on the device (a few seconds; no copyrighted game or OS ringtones). Optionally pull a small PCM WAV from a URL (for example a Raspberry Pi at `http://news.local:8080/chime.wav`). This is on-device audio only — no Xiaozhi/TTS/cloud path.
+On `waveshare_photopainter_73`, a short local speaker chime plays on the onboard ES8311 DAC + speaker on a successful image display or URL rotate (when a new image is actually shown). By default it starts only after the e-ink panel has finished drawing (`chime_play_when=after`); set `before` to play when rotate starts, immediately before the panel wait. Built-in presets are public-domain tunes synthesized on the device (a few seconds; no copyrighted game or OS ringtones). Optionally pull a small PCM WAV from a URL (for example a Raspberry Pi at `http://news.local:8080/chime.wav`). This is on-device audio only — no Xiaozhi/TTS/cloud path.
 
 Pin and power sequence are taken from Waveshare's stock Arduino audio example (`waveshareteam/ESP32-S3-PhotoPainter` → `05_ArduinoExample/01_Audio_Test`, `USER_CODEC_BOARD`):
 
@@ -134,7 +134,8 @@ The AXP2101 ALDO1–4 rails are set to 3.3 V and enabled before talking to the c
 - **Uploaded chimes** — Settings upload button (`POST /api/chime/upload`); list/select/delete via `GET`/`DELETE /api/chimes`
 - **Built-in chime** — `mozart` (default, Eine kleine Nachtmusik opening), `ode` (Ode aan de vreugde), `frere` (Vader Jacob), `twinkle`, `fanfare`, `triad` (C–E–G flourish), `dingdong` (doorbell), `softping`, `alert`, `doublebeep`. `ascending` is kept as an alias of `fanfare`. Tunes are about 2–8 seconds.
 - **Chime sound URL** — optional HTTP(S) WAV. PCM only: 8–22.05 kHz, 8/16-bit, mono or stereo, max **2 MiB** and **60 seconds** played (`WAV_PCM_MAX_FILE_BYTES` / `WAV_PCM_MAX_SECONDS`; SD-backed cache; typical Pi bulletin files are ~1.2 MiB / ~27 s). Larger or longer files are skipped or truncated.
-- **WAV pull** — `once` reuses the cache; use **Pull now / Nu ophalen** (`POST /api/chime/pull`) to GET `chime_url`, validate, and cache explicitly (preview also fetches when the cache is empty). `with_rotate` re-GETs the URL after a successful display in the same wake window, then plays. Fetch/play failure falls back to the selected preset.
+- **WAV pull** — `once` reuses the cache; use **Pull now / Nu ophalen** (`POST /api/chime/pull`) to GET `chime_url`, validate, and cache explicitly (preview also fetches when the cache is empty). `with_rotate` (default) re-GETs the URL at play time in the same wake window, then plays. Fetch/play failure falls back to the selected preset.
+- **Play before / after photo rotate** — `chime_play_when`: `after` (default) waits until the panel refresh completes; `before` plays after decode, immediately before the ~30 s e-ink wait. / **Afspelen voor / na foto-wisseling**.
 - **Preview chime** — `POST /api/chime` (plays the currently saved selection; JSON `played` is `wav`, `preset`, or `uploaded`)
 
 ```bash

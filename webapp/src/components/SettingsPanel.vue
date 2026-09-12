@@ -168,8 +168,16 @@ const chimeSourceOptions = [
 ];
 
 const chimePullModeOptions = [
-  { title: "Once — download and cache", value: "once" },
-  { title: "With each rotate — refresh after display", value: "with_rotate" },
+  { title: "Once — download and cache / Eenmaal — downloaden en bewaren", value: "once" },
+  {
+    title: "With each rotate — refresh with play / Bij elke wisseling — ophalen bij afspelen",
+    value: "with_rotate",
+  },
+];
+
+const chimePlayWhenOptions = [
+  { title: "After photo rotate / Na foto-wisseling (default)", value: "after" },
+  { title: "Before photo rotate / Voor foto-wisseling", value: "before" },
 ];
 
 const previewingChime = ref(false);
@@ -197,6 +205,7 @@ async function persistChimeSettings() {
       chime_preset: settingsStore.deviceSettings.chimePreset,
       chime_url: settingsStore.deviceSettings.chimeUrl,
       chime_pull_mode: settingsStore.deviceSettings.chimePullMode,
+      chime_play_when: settingsStore.deviceSettings.chimePlayWhen,
       chime_file: settingsStore.deviceSettings.chimeFile,
     }),
   });
@@ -949,7 +958,7 @@ async function performFactoryReset() {
                 label="Enable speaker chime"
                 color="primary"
                 class="mb-2"
-                hint="Master mute. Local ES8311 audio after a successful image display. Disable for battery or quiet hours."
+                hint="Master mute. Local ES8311 audio on a successful image display (timing below). Disable for battery or quiet hours. / Hoofdschakelaar. Lokale ES8311-audio bij een geslaagde foto-wisseling (timing hieronder)."
                 persistent-hint
               />
 
@@ -994,7 +1003,18 @@ async function performFactoryReset() {
                     label="WAV pull"
                     variant="outlined"
                     :disabled="settingsStore.deviceSettings.chimeSource !== 'wav'"
-                    hint="Once: cache until you hit Pull now (or the first play if nothing is cached). With each rotate: GET the URL after a successful display, replace the cache, then play."
+                    hint="Once: cache until you hit Pull now (or the first play if nothing is cached). With each rotate: GET the URL at play time (after or before the panel refresh, see below), replace the cache, then play. / Eenmaal: cache tot Nu ophalen. Bij elke wisseling: GET op het afspeelmoment."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-select
+                    v-model="settingsStore.deviceSettings.chimePlayWhen"
+                    :items="chimePlayWhenOptions"
+                    item-title="title"
+                    item-value="value"
+                    label="Play before / after photo rotate — Afspelen voor / na foto-wisseling"
+                    variant="outlined"
+                    hint="After (default): do not start the speaker until the e-ink panel has finished drawing. Before: play when rotate starts, immediately before the panel wait. / Na (standaard): wacht tot het paneel klaar is met tekenen. Voor: speel af zodra de wisseling start, vóór de paneel-refresh."
                     persistent-hint
                     class="mb-4"
                   />

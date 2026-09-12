@@ -36,6 +36,8 @@ settings_backup_t sample()
     s.has_chime_source = true;
     strncpy(s.chime_pull_mode, "with_rotate", sizeof(s.chime_pull_mode) - 1);
     s.has_chime_pull_mode = true;
+    strncpy(s.chime_play_when, "before", sizeof(s.chime_play_when) - 1);
+    s.has_chime_play_when = true;
     strncpy(s.chime_file, "doorbell.wav", sizeof(s.chime_file) - 1);
     s.has_chime_file = true;
     return s;
@@ -79,6 +81,7 @@ TEST(SettingsBackup, RoundTripPreservesListedKeys)
     EXPECT_STREQ(out.chime_url, "http://news.local:8080/chime.wav");
     EXPECT_STREQ(out.chime_source, "wav");
     EXPECT_STREQ(out.chime_pull_mode, "with_rotate");
+    EXPECT_STREQ(out.chime_play_when, "before");
     EXPECT_STREQ(out.chime_file, "doorbell.wav");
 }
 
@@ -90,7 +93,7 @@ TEST(SettingsBackup, ParsesCompactAndEscapedJson)
         "\"deep_sleep_enabled\":true,\"chime_enabled\":false,"
         "\"chime_preset\":\"softping\",\"chime_url\":\"\","
         "\"chime_source\":\"uploaded\",\"chime_pull_mode\":\"once\","
-        "\"chime_file\":\"bell.wav\"}";
+        "\"chime_play_when\":\"after\",\"chime_file\":\"bell.wav\"}";
 
     settings_backup_t out = {};
     ASSERT_TRUE(settings_backup_parse(json, &out));
@@ -103,6 +106,7 @@ TEST(SettingsBackup, ParsesCompactAndEscapedJson)
     EXPECT_FALSE(out.chime_enabled);
     EXPECT_STREQ(out.chime_preset, "softping");
     EXPECT_STREQ(out.chime_source, "uploaded");
+    EXPECT_STREQ(out.chime_play_when, "after");
     EXPECT_STREQ(out.chime_file, "bell.wav");
 }
 
@@ -123,6 +127,7 @@ TEST(SettingsBackup, AcceptsSdcardAliasAndSkipsInvalidEnums)
     const char *json =
         "{\"rotation_mode\":\"sdcard\",\"chime_preset\":\"not-a-tone\","
         "\"chime_source\":\"bogus\",\"chime_file\":\"../evil.wav\","
+        "\"chime_play_when\":\"during\",\"chime_pull_mode\":\"always\","
         "\"image_url\":\"http://ok.example/img\",\"auto_rotate\":true}";
 
     settings_backup_t out = {};
@@ -132,6 +137,8 @@ TEST(SettingsBackup, AcceptsSdcardAliasAndSkipsInvalidEnums)
     EXPECT_FALSE(out.has_chime_preset);
     EXPECT_FALSE(out.has_chime_source);
     EXPECT_FALSE(out.has_chime_file);
+    EXPECT_FALSE(out.has_chime_play_when);
+    EXPECT_FALSE(out.has_chime_pull_mode);
     EXPECT_TRUE(out.has_image_url);
     EXPECT_STREQ(out.image_url, "http://ok.example/img");
     EXPECT_TRUE(out.auto_rotate);
@@ -162,4 +169,24 @@ TEST(SettingsBackup, SerializeFailsOnTinyBuffer)
     settings_backup_t in = sample();
     char tiny[8];
     EXPECT_EQ(settings_backup_serialize(&in, tiny, sizeof(tiny)), -1);
+}
+
+TEST(SettingsBackup, SerializeDefaultsPullModeWithRotateAndPlayWhenAfter)
+{
+    settings_backup_t in = {};
+    char buf[2048];
+    ASSERT_GT(settings_backup_serialize(&in, buf, sizeof(buf)), 0);
+    EXPECT_NE(std::string(buf).find("\"chime_pull_mode\": \"with_rotate\""), std::string::npos);
+    EXPECT_NE(std::string(buf).find("\"chime_play_when\": \"after\""), std::string::npos);
+}
+
+TEST(SettingsBackup, AcceptsPlayWhenBeforeAndAfter)
+{
+    const char *json = "{\"chime_play_when\":\"before\",\"chime_pull_mode\":\"with_rotate\"}";
+    settings_backup_t out = {};
+    ASSERT_TRUE(settings_backup_parse(json, &out));
+    EXPECT_TRUE(out.has_chime_play_when);
+    EXPECT_STREQ(out.chime_play_when, "before");
+    EXPECT_TRUE(out.has_chime_pull_mode);
+    EXPECT_STREQ(out.chime_pull_mode, "with_rotate");
 }

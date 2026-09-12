@@ -28,6 +28,11 @@ static bool pull_mode_is_valid(const char *mode)
     return mode && (strcmp(mode, "once") == 0 || strcmp(mode, "with_rotate") == 0);
 }
 
+static bool play_when_is_valid(const char *when)
+{
+    return when && (strcmp(when, "after") == 0 || strcmp(when, "before") == 0);
+}
+
 static void skip_ws(const char **p)
 {
     while (**p == ' ' || **p == '\t' || **p == '\n' || **p == '\r') {
@@ -380,7 +385,13 @@ int settings_backup_serialize(const settings_backup_t *in, char *out, size_t out
     if (!append_fmt(&p, end, ",\n  \"chime_pull_mode\": ")) {
         return -1;
     }
-    if (!append_quoted(&p, end, in->chime_pull_mode[0] ? in->chime_pull_mode : "once")) {
+    if (!append_quoted(&p, end, in->chime_pull_mode[0] ? in->chime_pull_mode : "with_rotate")) {
+        return -1;
+    }
+    if (!append_fmt(&p, end, ",\n  \"chime_play_when\": ")) {
+        return -1;
+    }
+    if (!append_quoted(&p, end, in->chime_play_when[0] ? in->chime_play_when : "after")) {
         return -1;
     }
     if (!append_fmt(&p, end, ",\n  \"chime_file\": ")) {
@@ -467,6 +478,13 @@ bool settings_backup_parse(const char *json, settings_backup_t *out)
             if (ok && pull_mode_is_valid(mode)) {
                 strncpy(out->chime_pull_mode, mode, sizeof(out->chime_pull_mode) - 1);
                 out->has_chime_pull_mode = true;
+            }
+        } else if (strcmp(key, "chime_play_when") == 0) {
+            char when[SETTINGS_BACKUP_ENUM_MAX_LEN];
+            ok = parse_string(&p, when, sizeof(when));
+            if (ok && play_when_is_valid(when)) {
+                strncpy(out->chime_play_when, when, sizeof(out->chime_play_when) - 1);
+                out->has_chime_play_when = true;
             }
         } else if (strcmp(key, "chime_file") == 0) {
             ok = parse_string(&p, out->chime_file, sizeof(out->chime_file));

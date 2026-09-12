@@ -46,6 +46,7 @@ typedef struct {
     char chime_url[SETTINGS_BACKUP_URL_MAX_LEN];
     char chime_source[SETTINGS_BACKUP_ENUM_MAX_LEN];
     char chime_pull_mode[SETTINGS_BACKUP_ENUM_MAX_LEN];
+    char chime_play_when[SETTINGS_BACKUP_ENUM_MAX_LEN];
     char chime_file[CHIME_FILENAME_MAX_LEN];
     bool has_auto_rotate;
     bool has_rotate_cron;
@@ -57,6 +58,7 @@ typedef struct {
     bool has_chime_url;
     bool has_chime_source;
     bool has_chime_pull_mode;
+    bool has_chime_play_when;
     bool has_chime_file;
 } settings_backup_t;
 
