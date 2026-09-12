@@ -135,6 +135,9 @@ const char *config_manager_get_google_api_key(void);
 void config_manager_set_deep_sleep_enabled(bool enabled);
 bool config_manager_get_deep_sleep_enabled(void);
 
+void config_manager_set_chime_enabled(bool enabled);
+bool config_manager_get_chime_enabled(void);
+
 // ============================================================================
 // Debugging
 // ============================================================================

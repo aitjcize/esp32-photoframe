@@ -16,6 +16,8 @@ set(PRIV_REQS
     sensor_driver_shtc3
 )
 
+list(APPEND SRCS "src/audio_chime.c")
+
 if(CONFIG_BOARD_DRIVER_WAVESHARE_PHOTOPAINTER_73)
     list(APPEND SRCS "src/driver_waveshare_photopainter_73.c")
 elseif(CONFIG_BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02)
@@ -35,6 +37,6 @@ endif()
 idf_component_register(
     SRCS "${SRCS}"
     INCLUDE_DIRS "include"
-    REQUIRES esp_timer driver esp_adc esp_driver_gpio esp_driver_usb_serial_jtag epaper sensor
+    REQUIRES esp_timer driver esp_adc esp_driver_gpio esp_driver_i2s esp_driver_usb_serial_jtag epaper sensor
     PRIV_REQUIRES ${PRIV_REQS}
 )

@@ -128,7 +128,9 @@ Get current device configuration.
   "ha_url": "",
   "openai_api_key": "",
   "google_api_key": "",
-  "deep_sleep_enabled": true
+  "deep_sleep_enabled": true,
+  "chime_enabled": true,
+  "chime_supported": true
 }
 ```
 
@@ -160,6 +162,8 @@ Get current device configuration.
 - `ha_url`: Home Assistant URL for integration
 - `openai_api_key`/`google_api_key`: AI API keys for client-side generation
 - `deep_sleep_enabled`: Enable deep sleep between rotations
+- `chime_enabled`: Play a short local ES8311 speaker chime after a successful image display / URL rotate (default `true`). Set `false` for battery or quiet hours. Persisted in NVS as `chime_en`.
+- `chime_supported`: Read-only. `true` on `waveshare_photopainter_73` (onboard ES8311 + PA). Other boards report `false`.
 
 ### `POST /api/config`
 
@@ -230,6 +234,28 @@ curl -X POST \
 ### `POST /api/rotate`
 
 Trigger image rotation (respects rotation mode).
+
+### `POST /api/chime`
+
+Play the same local speaker chime used after a successful display (Waveshare PhotoPainter 7.3" only). Intended for a later Raspberry Pi / remote trigger. Respects `chime_enabled`. Resets the auto-sleep timer.
+
+**Response (played):**
+```json
+{
+  "status": "success",
+  "message": "Chime played"
+}
+```
+
+**Response (disabled via config):**
+```json
+{
+  "status": "disabled",
+  "message": "Chime is disabled (set chime_enabled in /api/config)"
+}
+```
+
+**Response (board has no speaker):** `404` with `"status": "unsupported"`.
 
 ### `GET /api/current_image`
 

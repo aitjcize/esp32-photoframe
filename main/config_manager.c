@@ -60,6 +60,7 @@ static char google_api_key[AI_API_KEY_MAX_LEN] = {0};
 
 // Power
 static bool deep_sleep_enabled = true;  // Enabled by default
+static bool chime_enabled = true;       // Speaker chime after display (default on)
 
 // Debugging
 static bool debug_log_enabled = false;
@@ -376,6 +377,13 @@ esp_err_t config_manager_init(void)
             deep_sleep_enabled = (deep_sleep_val != 0);
             ESP_LOGI(TAG, "Loaded deep sleep setting from NVS: %s",
                      deep_sleep_enabled ? "enabled" : "disabled");
+        }
+
+        uint8_t chime_val = 1;  // Default on
+        if (nvs_get_u8(nvs_handle, NVS_CHIME_ENABLED_KEY, &chime_val) == ESP_OK) {
+            chime_enabled = (chime_val != 0);
+            ESP_LOGI(TAG, "Loaded speaker chime setting from NVS: %s",
+                     chime_enabled ? "enabled" : "disabled");
         }
 
         // Debugging
@@ -1132,6 +1140,25 @@ void config_manager_set_deep_sleep_enabled(bool enabled)
 bool config_manager_get_deep_sleep_enabled(void)
 {
     return deep_sleep_enabled;
+}
+
+void config_manager_set_chime_enabled(bool enabled)
+{
+    chime_enabled = enabled;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_CHIME_ENABLED_KEY, enabled ? 1 : 0);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Speaker chime %s", enabled ? "enabled" : "disabled");
+}
+
+bool config_manager_get_chime_enabled(void)
+{
+    return chime_enabled;
 }
 
 void config_manager_set_debug_log_enabled(bool enabled)
