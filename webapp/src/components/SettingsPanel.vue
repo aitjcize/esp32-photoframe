@@ -978,7 +978,7 @@ async function performFactoryReset() {
                     label="Chime sound URL"
                     variant="outlined"
                     placeholder="http://news.local:8080/chime.wav"
-                    hint="Optional PCM WAV (mono/stereo, 8–22.05 kHz, 8/16-bit, a few seconds, max 2 MiB). When source is WAV, the frame plays the last downloaded file. Clear the URL and set source to Built-in to use a preset."
+                    hint="Optional PCM WAV (mono/stereo, 8–22.05 kHz, 8/16-bit, max 2 MiB / 60 seconds). When source is WAV, the frame plays the last downloaded file. Clear the URL and set source to Built-in to use a preset."
                     persistent-hint
                     class="mb-4"
                   />
@@ -1015,9 +1015,9 @@ async function performFactoryReset() {
 
                   <div class="text-subtitle-2 mb-2">Uploaded chimes</div>
                   <div class="text-caption text-grey mb-3">
-                    Short PCM WAV only (8–22.05 kHz, 8/16-bit, mono or stereo, max 2 MiB). Stored in
-                    chimes/ on the SD card (or flash). Selecting one sets the active custom sound
-                    immediately.
+                    PCM WAV only (8–22.05 kHz, 8/16-bit, mono or stereo, max 2 MiB / 60 seconds).
+                    Stored in chimes/ on the SD card (or flash). Selecting one sets the active
+                    custom sound immediately.
                   </div>
                   <input
                     ref="chimeFileInput"

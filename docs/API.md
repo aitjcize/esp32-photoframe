@@ -179,7 +179,7 @@ Get current device configuration.
   - `with_rotate`: after a successful image display, GET `chime_url`, replace the cache, then play that WAV. Falls back to `chime_preset` if the fetch fails (existing cache is tried first).
 - `chime_cached`: Read-only. `true` if a cached WAV is present on storage.
 
-WAV limits (rejected/skipped gracefully): PCM only (not MP3/float), mono or stereo, 8- or 16-bit, 8–22.05 kHz, max **2 MiB** (`WAV_PCM_MAX_FILE_BYTES`, SD-backed cache; typical Pi doorbell files are ~1.2 MiB), first 6 seconds played. Do not ship copyrighted OS ringtones in firmware; serve your own short WAV from a Pi if you want a custom sound.
+WAV limits (rejected/skipped gracefully): PCM only (not MP3/float), mono or stereo, 8- or 16-bit, 8–22.05 kHz, max **2 MiB** (`WAV_PCM_MAX_FILE_BYTES`, SD-backed cache; typical Pi bulletin files are ~1.2 MiB / ~27 s), first **60 seconds** played (`WAV_PCM_MAX_SECONDS`). Do not ship copyrighted OS ringtones in firmware; serve your own WAV from a Pi if you want a custom sound.
 
 ### `POST /api/config`
 
@@ -301,7 +301,7 @@ On failure (`400`): `status` is `error`, `cached` reports whether a previous cac
 
 ### `POST /api/chime/upload`
 
-Upload a custom PCM WAV (multipart field `file` / `chime` / `image`, or raw `audio/wav` body). Stored under `chimes/` on SD (or flash if no SD). Same format limits as `chime_url` (PCM, 8–22.05 kHz, 8/16-bit, max 2 MiB). On success, that file becomes the active custom sound (`chime_source=uploaded`, `chime_file=<name>`). Optional `?name=doorbell.wav` for raw-body uploads.
+Upload a custom PCM WAV (multipart field `file` / `chime` / `image`, or raw `audio/wav` body). Stored under `chimes/` on SD (or flash if no SD). Same format limits as `chime_url` (PCM, 8–22.05 kHz, 8/16-bit, max 2 MiB / 60 seconds played). On success, that file becomes the active custom sound (`chime_source=uploaded`, `chime_file=<name>`). Optional `?name=doorbell.wav` for raw-body uploads.
 
 ```bash
 curl -X POST -F 'file=@doorbell.wav' http://photopainter.local/api/chime/upload

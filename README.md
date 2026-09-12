@@ -133,7 +133,7 @@ The AXP2101 ALDO1–4 rails are set to 3.3 V and enabled before talking to the c
 - **Chime source** — `preset` (built-in), `wav` (last pulled URL file), or `uploaded` (a WAV stored in `chimes/`). When a URL is set and source is WAV, preview and after-display play that cache. Upload or pick a stored file to use a custom sound; set source to preset to use a built-in tone.
 - **Uploaded chimes** — Settings upload button (`POST /api/chime/upload`); list/select/delete via `GET`/`DELETE /api/chimes`
 - **Built-in chime** — `triad` (default C–E–G), `dingdong`, `doublebeep`, `ascending`, `softping`, `alert`
-- **Chime sound URL** — optional HTTP(S) WAV. PCM only: 8–22.05 kHz, 8/16-bit, mono or stereo, a few seconds, max **2 MiB** (SD-backed cache; typical Pi doorbell files are ~1.2 MiB). Larger or compressed files are skipped.
+- **Chime sound URL** — optional HTTP(S) WAV. PCM only: 8–22.05 kHz, 8/16-bit, mono or stereo, max **2 MiB** and **60 seconds** played (`WAV_PCM_MAX_FILE_BYTES` / `WAV_PCM_MAX_SECONDS`; SD-backed cache; typical Pi bulletin files are ~1.2 MiB / ~27 s). Larger or longer files are skipped or truncated.
 - **WAV pull** — `once` reuses the cache; use **Pull now / Nu ophalen** (`POST /api/chime/pull`) to GET `chime_url`, validate, and cache explicitly (preview also fetches when the cache is empty). `with_rotate` re-GETs the URL after a successful display in the same wake window, then plays. Fetch/play failure falls back to the selected preset.
 - **Preview chime** — `POST /api/chime` (plays the currently saved selection; JSON `played` is `wav`, `preset`, or `uploaded`)
 
