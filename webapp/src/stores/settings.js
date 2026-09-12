@@ -52,6 +52,12 @@ export const useSettingsStore = defineStore("settings", () => {
     deepSleepEnabled: true,
     chimeEnabled: true,
     chimeSupported: false,
+    chimePreset: "triad",
+    chimeUrl: "",
+    chimeSource: "preset",
+    chimePullMode: "once",
+    chimeCached: false,
+    chimeFile: "",
     // Debugging
     debugLogEnabled: false,
     // AI API Keys (for client-side AI generation)
@@ -195,6 +201,12 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.deepSleepEnabled = data.deep_sleep_enabled !== false;
       deviceSettings.value.chimeEnabled = data.chime_enabled !== false;
       deviceSettings.value.chimeSupported = data.chime_supported === true;
+      deviceSettings.value.chimePreset = data.chime_preset || "triad";
+      deviceSettings.value.chimeUrl = data.chime_url || "";
+      deviceSettings.value.chimeSource = data.chime_source || "preset";
+      deviceSettings.value.chimePullMode = data.chime_pull_mode || "once";
+      deviceSettings.value.chimeCached = data.chime_cached === true;
+      deviceSettings.value.chimeFile = data.chime_file || "";
       deviceSettings.value.debugLogEnabled = data.debug_log_enabled === true;
       deviceSettings.value.haUrl = data.ha_url || "";
       deviceSettings.value.saveDownloadedImages = data.save_downloaded_images !== false;
@@ -263,6 +275,11 @@ export const useSettingsStore = defineStore("settings", () => {
       ha_url: deviceSettings.value.haUrl,
       deep_sleep_enabled: deviceSettings.value.deepSleepEnabled,
       chime_enabled: deviceSettings.value.chimeEnabled,
+      chime_preset: deviceSettings.value.chimePreset,
+      chime_url: deviceSettings.value.chimeUrl,
+      chime_source: deviceSettings.value.chimeSource,
+      chime_pull_mode: deviceSettings.value.chimePullMode,
+      chime_file: deviceSettings.value.chimeFile,
       debug_log_enabled: deviceSettings.value.debugLogEnabled,
       save_downloaded_images: deviceSettings.value.saveDownloadedImages,
       display_orientation: deviceSettings.value.displayOrientation,

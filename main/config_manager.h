@@ -138,6 +138,21 @@ bool config_manager_get_deep_sleep_enabled(void);
 void config_manager_set_chime_enabled(bool enabled);
 bool config_manager_get_chime_enabled(void);
 
+void config_manager_set_chime_preset(const char *preset);
+const char *config_manager_get_chime_preset(void);
+
+void config_manager_set_chime_url(const char *url);
+const char *config_manager_get_chime_url(void);
+
+void config_manager_set_chime_source(chime_source_t source);
+chime_source_t config_manager_get_chime_source(void);
+
+void config_manager_set_chime_pull_mode(chime_pull_mode_t mode);
+chime_pull_mode_t config_manager_get_chime_pull_mode(void);
+
+void config_manager_set_chime_file(const char *filename);
+const char *config_manager_get_chime_file(void);
+
 // ============================================================================
 // Debugging
 // ============================================================================

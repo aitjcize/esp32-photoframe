@@ -187,11 +187,28 @@ bool board_hal_has_speaker(void);
  *
  * Waveshare PhotoPainter: ES8311 DAC over I2S with PA GPIO enable.
  * Other boards return ESP_ERR_NOT_SUPPORTED. Does not use Xiaozhi/TTS/cloud.
+ * Plays the default `triad` preset (C–E–G).
  *
  * @return ESP_OK on success, ESP_ERR_NOT_SUPPORTED if no speaker,
  *         or another error if the codec / I2S path failed
  */
 esp_err_t board_hal_play_chime(void);
+
+/**
+ * @brief Play a named built-in sine preset (synthesized on device)
+ *
+ * Known names: triad, dingdong, doublebeep, ascending, softping, alert.
+ * Unknown names fall back to triad. Other boards return ESP_ERR_NOT_SUPPORTED.
+ */
+esp_err_t board_hal_play_chime_preset(const char *preset);
+
+/**
+ * @brief Play a cached PCM WAV file through the onboard speaker
+ *
+ * Modest mono/stereo PCM only (see wav_pcm.h). Other boards return
+ * ESP_ERR_NOT_SUPPORTED.
+ */
+esp_err_t board_hal_play_wav_file(const char *path);
 
 #ifdef __cplusplus
 }

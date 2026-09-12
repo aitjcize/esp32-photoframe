@@ -89,6 +89,12 @@ test:
 	@echo "Running display flow tests..."
 	@cd host_tests/build && ./display_flow_test
 	@echo ""
+	@echo "Running WAV PCM tests..."
+	@./host_tests/build/wav_pcm_test
+	@echo ""
+	@echo "Running chime filename tests..."
+	@./host_tests/build/chime_name_test
+	@echo ""
 	@echo "Running image orientation tests..."
 	@cd process-cli && npm install --silent && npm run test:orientation
 	@echo ""

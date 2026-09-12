@@ -130,7 +130,13 @@ Get current device configuration.
   "google_api_key": "",
   "deep_sleep_enabled": true,
   "chime_enabled": true,
-  "chime_supported": true
+  "chime_supported": true,
+  "chime_preset": "triad",
+  "chime_url": "",
+  "chime_source": "preset",
+  "chime_pull_mode": "once",
+  "chime_file": "",
+  "chime_cached": false
 }
 ```
 
@@ -162,8 +168,18 @@ Get current device configuration.
 - `ha_url`: Home Assistant URL for integration
 - `openai_api_key`/`google_api_key`: AI API keys for client-side generation
 - `deep_sleep_enabled`: Enable deep sleep between rotations
-- `chime_enabled`: Play a short local ES8311 speaker chime after a successful image display / URL rotate (default `true`). Set `false` for battery or quiet hours. Persisted in NVS as `chime_en`.
+- `chime_enabled`: Master mute. Play a local ES8311 speaker chime after a successful image display / URL rotate (default `true`). Set `false` for battery or quiet hours. Persisted in NVS as `chime_en`.
 - `chime_supported`: Read-only. `true` on `waveshare_photopainter_73` (onboard ES8311 + PA). Other boards report `false`.
+- `chime_preset`: Built-in synthesized tone: `triad` (default, C–E–G), `dingdong`, `doublebeep`, `ascending`, `softping`, `alert`. Used when `chime_source` is `preset`, and as fallback if a WAV fetch/play fails. Persisted as `chime_preset`.
+- `chime_url`: Optional HTTP(S) URL of a small PCM WAV (similar to `image_url`, max 256 chars). Example: `http://news.local:8080/chime.wav`. Persisted as `chime_url`. Changing the URL clears the on-device cache.
+- `chime_source`: `preset` (default) plays `chime_preset`. `wav` plays the last pulled WAV when `chime_url` is set. `uploaded` plays the file named by `chime_file` from `chimes/` on storage.
+- `chime_file`: Filename of the active uploaded WAV (e.g. `doorbell.wav`). Empty when none is selected. Persisted as `chime_file`.
+- `chime_pull_mode`: How `chime_url` is fetched when `chime_source` is `wav`.
+  - `once` (default): download on first need (preview or after display), cache on SD (or flash if no SD), reuse.
+  - `with_rotate`: after a successful image display, GET `chime_url`, replace the cache, then play that WAV. Falls back to `chime_preset` if the fetch fails (existing cache is tried first).
+- `chime_cached`: Read-only. `true` if a cached WAV is present on storage.
+
+WAV limits (rejected/skipped gracefully): PCM only (not MP3/float), mono or stereo, 8- or 16-bit, 8–22.05 kHz, max 256 KB, first 6 seconds played. Do not ship copyrighted OS ringtones in firmware; serve your own short WAV from a Pi if you want a custom sound.
 
 ### `POST /api/config`
 
@@ -237,7 +253,41 @@ Trigger image rotation (respects rotation mode).
 
 ### `POST /api/chime`
 
-Play the same local speaker chime used after a successful display (Waveshare PhotoPainter 7.3" only). Intended for a later Raspberry Pi / remote trigger. Respects `chime_enabled`. Resets the auto-sleep timer.
+Play the currently selected speaker chime (Waveshare PhotoPainter 7.3" only): the built-in `chime_preset`, the last cached URL WAV when `chime_source` is `wav`, or the uploaded file when `chime_source` is `uploaded`. Intended for a Raspberry Pi / remote trigger and for the Settings preview button. Respects `chime_enabled`. Resets the auto-sleep timer. If source is WAV and no cache exists yet, the device GET-pulls `chime_url` first (`once` / first-need). Upload and list selection apply immediately; save `/api/config` before previewing other unsaved UI changes.
+
+### `POST /api/chime/upload`
+
+Upload a custom PCM WAV (multipart field `file` / `chime` / `image`, or raw `audio/wav` body). Stored under `chimes/` on SD (or flash if no SD). Same format limits as `chime_url` (PCM, 8–22.05 kHz, 8/16-bit, max 256 KB). On success, that file becomes the active custom sound (`chime_source=uploaded`, `chime_file=<name>`). Optional `?name=doorbell.wav` for raw-body uploads.
+
+```bash
+curl -X POST -F 'file=@doorbell.wav' http://photopainter.local/api/chime/upload
+curl -X POST -H 'Content-Type: audio/wav' --data-binary @doorbell.wav \
+  'http://photopainter.local/api/chime/upload?name=doorbell.wav'
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Chime uploaded",
+  "filename": "doorbell.wav"
+}
+```
+
+### `GET /api/chimes`
+
+List uploaded chimes.
+
+```json
+{
+  "chimes": [{ "name": "doorbell.wav", "size": 12340 }],
+  "active": "doorbell.wav"
+}
+```
+
+### `DELETE /api/chimes?name=doorbell.wav`
+
+Delete an uploaded chime. If it was the active file, `chime_file` is cleared and source falls back to `preset`. Also accepts `{"name":"doorbell.wav"}` in the body.
 
 **Response (played):**
 ```json

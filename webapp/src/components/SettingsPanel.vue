@@ -99,6 +99,7 @@ async function syncTime() {
 
 onMounted(() => {
   fetchDeviceTime();
+  loadUploadedChimes();
   // Tick every second to update display
   tickInterval = setInterval(updateDisplayTime, 1000);
 });
@@ -146,6 +147,134 @@ const sdRotationModeOptions = [
   { title: "Random - Shuffle images", value: "random" },
   { title: "Sequential - In sequence", value: "sequential" },
 ];
+
+const chimePresetOptions = [
+  { title: "Triad (C–E–G)", value: "triad" },
+  { title: "Ding-dong (doorbell)", value: "dingdong" },
+  { title: "Double beep", value: "doublebeep" },
+  { title: "Ascending", value: "ascending" },
+  { title: "Soft ping", value: "softping" },
+  { title: "Alert", value: "alert" },
+];
+
+const chimeSourceOptions = [
+  { title: "Built-in preset", value: "preset" },
+  { title: "WAV from URL", value: "wav" },
+  { title: "Uploaded WAV", value: "uploaded" },
+];
+
+const chimePullModeOptions = [
+  { title: "Once — download and cache", value: "once" },
+  { title: "With each rotate — refresh after display", value: "with_rotate" },
+];
+
+const previewingChime = ref(false);
+const chimePreviewMessage = ref("");
+const uploadedChimes = ref([]);
+const uploadingChime = ref(false);
+const deletingChime = ref("");
+const chimeFileInput = ref(null);
+
+function prettyChimeSize(bytes) {
+  if (!bytes) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+async function loadUploadedChimes() {
+  try {
+    const response = await fetch("/api/chimes");
+    if (!response.ok) return;
+    const data = await response.json();
+    uploadedChimes.value = Array.isArray(data.chimes) ? data.chimes : [];
+  } catch (error) {
+    console.error("Failed to list chimes:", error);
+  }
+}
+
+async function uploadChimeFile(file) {
+  if (!file) return;
+  uploadingChime.value = true;
+  chimePreviewMessage.value = "";
+  try {
+    const body = new FormData();
+    body.append("file", file, file.name);
+    const response = await fetch("/api/chime/upload", { method: "POST", body });
+    const data = await response.json();
+    if (!response.ok || data.status !== "success") {
+      chimePreviewMessage.value = data.message || "Failed to upload chime";
+      return;
+    }
+    settingsStore.deviceSettings.chimeSource = "uploaded";
+    settingsStore.deviceSettings.chimeFile = data.filename || file.name;
+    await settingsStore.loadDeviceSettings();
+    await loadUploadedChimes();
+    chimePreviewMessage.value = `Uploaded ${data.filename || file.name}`;
+  } catch (error) {
+    console.error("Failed to upload chime:", error);
+    chimePreviewMessage.value = "Failed to upload chime";
+  } finally {
+    uploadingChime.value = false;
+    if (chimeFileInput.value) chimeFileInput.value.value = "";
+  }
+}
+
+function onChimeFileSelected(event) {
+  const file = event.target.files?.[0];
+  uploadChimeFile(file);
+}
+
+async function selectUploadedChime(name) {
+  settingsStore.deviceSettings.chimeSource = "uploaded";
+  settingsStore.deviceSettings.chimeFile = name;
+  try {
+    await fetch("/api/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chime_source: "uploaded", chime_file: name }),
+    });
+    await settingsStore.loadDeviceSettings();
+  } catch (error) {
+    console.error("Failed to select chime:", error);
+  }
+}
+
+async function deleteUploadedChime(name) {
+  deletingChime.value = name;
+  try {
+    const response = await fetch(`/api/chimes?name=${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      chimePreviewMessage.value = data.message || "Failed to delete chime";
+      return;
+    }
+    await settingsStore.loadDeviceSettings();
+    await loadUploadedChimes();
+  } catch (error) {
+    console.error("Failed to delete chime:", error);
+    chimePreviewMessage.value = "Failed to delete chime";
+  } finally {
+    deletingChime.value = "";
+  }
+}
+
+async function previewChime() {
+  previewingChime.value = true;
+  chimePreviewMessage.value = "";
+  try {
+    const response = await fetch("/api/chime", { method: "POST" });
+    const data = await response.json();
+    chimePreviewMessage.value =
+      data.message || (data.status === "success" ? "Chime played" : "Chime failed");
+  } catch (error) {
+    console.error("Failed to preview chime:", error);
+    chimePreviewMessage.value = "Failed to preview chime";
+  } finally {
+    previewingChime.value = false;
+  }
+}
 
 const saving = ref(false);
 const saveSuccess = ref(false);
@@ -739,15 +868,124 @@ async function performFactoryReset() {
               </v-alert>
             </v-expand-transition>
 
-            <v-switch
-              v-if="settingsStore.deviceSettings.chimeSupported"
-              v-model="settingsStore.deviceSettings.chimeEnabled"
-              label="Speaker chime after image display"
-              color="primary"
-              class="mb-2"
-              hint="Local ES8311 sine tone on PhotoPainter. Disable for battery or quiet hours."
-              persistent-hint
-            />
+            <div v-if="settingsStore.deviceSettings.chimeSupported">
+              <v-switch
+                v-model="settingsStore.deviceSettings.chimeEnabled"
+                label="Speaker chime after image display"
+                color="primary"
+                class="mb-2"
+                hint="Master mute. Local ES8311 audio on PhotoPainter. Disable for battery or quiet hours."
+                persistent-hint
+              />
+
+              <v-expand-transition>
+                <div v-if="settingsStore.deviceSettings.chimeEnabled" class="mt-4">
+                  <v-select
+                    v-model="settingsStore.deviceSettings.chimeSource"
+                    :items="chimeSourceOptions"
+                    item-title="title"
+                    item-value="value"
+                    label="Chime source"
+                    variant="outlined"
+                    hint="Built-in tone, last WAV pulled from a URL, or a file uploaded below. Upload/select applies immediately; other fields need Save."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-select
+                    v-model="settingsStore.deviceSettings.chimePreset"
+                    :items="chimePresetOptions"
+                    item-title="title"
+                    item-value="value"
+                    label="Built-in chime"
+                    variant="outlined"
+                    hint="Synthesized on the device. Also used if a WAV fetch or play fails."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-text-field
+                    v-model="settingsStore.deviceSettings.chimeUrl"
+                    label="Chime sound URL"
+                    variant="outlined"
+                    placeholder="http://news.local:8080/chime.wav"
+                    hint="Optional PCM WAV (mono/stereo, 8–22.05 kHz, 8/16-bit, a few seconds, max 256 KB). When source is WAV, the frame plays the last downloaded file. Clear the URL and set source to Built-in to use a preset."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-select
+                    v-model="settingsStore.deviceSettings.chimePullMode"
+                    :items="chimePullModeOptions"
+                    item-title="title"
+                    item-value="value"
+                    label="WAV pull"
+                    variant="outlined"
+                    :disabled="settingsStore.deviceSettings.chimeSource !== 'wav'"
+                    hint="Once: download when the URL is first needed and reuse the cache. With each rotate: GET the URL after a successful display, replace the cache, then play."
+                    persistent-hint
+                    class="mb-4"
+                  />
+
+                  <div class="text-subtitle-2 mb-2">Uploaded chimes</div>
+                  <div class="text-caption text-grey mb-3">
+                    Short PCM WAV only (8–22.05 kHz, 8/16-bit, mono or stereo, max 256 KB). Stored
+                    in chimes/ on the SD card (or flash). Selecting one sets the active custom sound
+                    immediately.
+                  </div>
+                  <input
+                    ref="chimeFileInput"
+                    type="file"
+                    accept=".wav,audio/wav,audio/x-wav"
+                    hidden
+                    @change="onChimeFileSelected"
+                  />
+                  <v-btn
+                    variant="outlined"
+                    class="mb-4"
+                    :loading="uploadingChime"
+                    @click="chimeFileInput?.click()"
+                  >
+                    <v-icon start>mdi-upload</v-icon>
+                    Upload WAV
+                  </v-btn>
+                  <v-list v-if="uploadedChimes.length" class="mb-4 pa-0" density="compact">
+                    <v-list-item
+                      v-for="chime in uploadedChimes"
+                      :key="chime.name"
+                      :active="
+                        settingsStore.deviceSettings.chimeSource === 'uploaded' &&
+                        settingsStore.deviceSettings.chimeFile === chime.name
+                      "
+                      @click="selectUploadedChime(chime.name)"
+                    >
+                      <v-list-item-title>{{ chime.name }}</v-list-item-title>
+                      <v-list-item-subtitle>{{ prettyChimeSize(chime.size) }}</v-list-item-subtitle>
+                      <template #append>
+                        <v-btn
+                          icon="mdi-delete"
+                          variant="text"
+                          size="small"
+                          :loading="deletingChime === chime.name"
+                          @click.stop="deleteUploadedChime(chime.name)"
+                        />
+                      </template>
+                    </v-list-item>
+                  </v-list>
+                  <div v-else class="text-caption text-grey mb-4">No uploaded chimes yet.</div>
+
+                  <v-btn
+                    variant="outlined"
+                    :loading="previewingChime"
+                    :disabled="!settingsStore.deviceSettings.chimeEnabled"
+                    @click="previewChime"
+                  >
+                    <v-icon start>mdi-volume-high</v-icon>
+                    Preview chime
+                  </v-btn>
+                  <div v-if="chimePreviewMessage" class="text-caption text-grey mt-2">
+                    {{ chimePreviewMessage }}
+                  </div>
+                </div>
+              </v-expand-transition>
+            </div>
           </v-tabs-window-item>
 
           <!-- Home Assistant Tab -->
