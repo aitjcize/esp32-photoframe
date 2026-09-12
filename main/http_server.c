@@ -36,6 +36,7 @@
 #include "power_manager.h"
 #include "processing_settings.h"
 #include "sdcard.h"
+#include "settings_backup.h"
 #include "storage.h"
 #include "utils.h"
 #include "wav_pcm.h"
@@ -1575,6 +1576,65 @@ static esp_err_t config_handler(httpd_req_t *req)
     httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
     return ESP_FAIL;
 }
+
+static esp_err_t send_settings_sd_status(httpd_req_t *req, const char *status, const char *message)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "status", status);
+    if (message) {
+        cJSON_AddStringToObject(root, "message", message);
+    }
+    cJSON_AddStringToObject(root, "path", SETTINGS_BACKUP_PATH);
+    char *json_str = cJSON_Print(root);
+    httpd_resp_set_type(req, "application/json");
+    if (strcmp(status, "success") != 0) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+    }
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+static esp_err_t config_export_sd_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System is still initializing");
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = config_manager_export_settings_sd();
+    if (err == ESP_ERR_NOT_FOUND) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "SD card not mounted");
+        return ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        return send_settings_sd_status(req, "error", "Failed to write settings snapshot");
+    }
+    return send_settings_sd_status(req, "success", "Wrote settings snapshot to SD");
+}
+
+static esp_err_t config_import_sd_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System is still initializing");
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = config_manager_import_settings_sd();
+    if (err == ESP_ERR_NOT_FOUND) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "SD settings snapshot not found");
+        return ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        return send_settings_sd_status(req, "error", "Failed to import settings snapshot");
+    }
+    config_manager_touch_config();
+    return send_settings_sd_status(req, "success", "Imported settings snapshot from SD");
+}
+
 static esp_err_t albums_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -2443,6 +2503,7 @@ static esp_err_t factory_reset_handler(httpd_req_t *req)
     }
 
     ESP_LOGI(TAG, "NVS erased successfully");
+    config_manager_delete_settings_sd();
 
     // Send success response
     httpd_resp_set_type(req, "application/json");
@@ -2819,6 +2880,18 @@ esp_err_t http_server_init(void)
                                         .handler = config_handler,
                                         .user_ctx = NULL};
         httpd_register_uri_handler(server, &config_patch_uri);
+
+        httpd_uri_t config_export_sd_uri = {.uri = "/api/config/export-sd",
+                                            .method = HTTP_POST,
+                                            .handler = config_export_sd_handler,
+                                            .user_ctx = NULL};
+        httpd_register_uri_handler(server, &config_export_sd_uri);
+
+        httpd_uri_t config_import_sd_uri = {.uri = "/api/config/import-sd",
+                                            .method = HTTP_POST,
+                                            .handler = config_import_sd_handler,
+                                            .user_ctx = NULL};
+        httpd_register_uri_handler(server, &config_import_sd_uri);
 
         httpd_uri_t debug_log_uri = {.uri = "/api/debug/log",
                                      .method = HTTP_GET,

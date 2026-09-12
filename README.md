@@ -187,6 +187,10 @@ Buttons behave differently depending on whether the device is awake (web UI acce
 ### 💾 Internal Flash Storage
 Boards with larger flash chips (XIAO EE02/EE03/EE04, reTerminal E1002/E1004) use internal flash as persistent storage via LittleFS. On the reTerminal, the SD card takes priority when inserted; internal flash serves as a fallback. The Waveshare board does not have internal flash storage due to its 16MB flash being fully allocated to OTA partitions.
 
+### Settings survive reflash via SD `config/settings.json`
+
+Flashing a merged image at `0x0` wipes NVS (auto-rotate, image URL, chime settings, and the rest of `/api/config`). Photos and `wifi.txt` already live on the SD card and survive that. On every successful Settings save the firmware also writes a JSON snapshot to **`config/settings.json`** on the SD card (mounted path `/storage/config/settings.json`). On boot, NVS is loaded first; if that snapshot exists and NVS looks factory-fresh (none of those keys are present), it is imported back into NVS. WiFi stays on `wifi.txt` / NVS and is not stored in this file. Factory reset deletes the snapshot so defaults actually come back. Manual `POST /api/config/export-sd` and `POST /api/config/import-sd` are available if you want to force a write or restore.
+
 ### Known Issues 🚧
 
 - **PhotoPainter Restarts**: All existing Waveshare PhotoPainter boards on the market use the AXP2101 power management IC, which causes unexplained restarts when connected to both Type-C and a lithium battery simultaneously. **Workaround:** use either USB power only or battery only. Using both at the same time may cause frequent firmware restarts due to unstable power supply. Waveshare has confirmed this issue and future boards will ship with TG28 as a replacement, which will not have this problem. See [waveshareteam/ESP32-S3-PhotoPainter#5](https://github.com/waveshareteam/ESP32-S3-PhotoPainter/issues/5#issuecomment-3876269519) for details.
@@ -256,7 +260,7 @@ The device supports two methods for WiFi provisioning:
    - Line 2: WiFi password
    - Line 3: Device name (optional, defaults to "PhotoFrame")
    - Use plain text, no quotes or extra formatting
-   - The file can be placed at the root or in a `config/` folder
+   - The file can be placed at the root or in a `config/` folder (next to `settings.json`, which restores auto-rotate / chime after a reflash)
 
 2. Insert SD card and power on the device
 3. Device automatically reads credentials, saves to memory, and connects

@@ -98,6 +98,9 @@ test:
 	@echo "Running chime policy tests..."
 	@./host_tests/build/chime_policy_test
 	@echo ""
+	@echo "Running settings backup tests..."
+	@./host_tests/build/settings_backup_test
+	@echo ""
 	@echo "Running image orientation tests..."
 	@cd process-cli && npm install --silent && npm run test:orientation
 	@echo ""

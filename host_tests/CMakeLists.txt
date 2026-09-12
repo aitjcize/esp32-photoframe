@@ -185,3 +185,23 @@ target_link_libraries(
 )
 
 gtest_discover_tests(chime_policy_test)
+
+add_executable(
+  settings_backup_test
+  test_settings_backup.cpp
+  ../main/settings_backup.c
+  ../main/chime_name.c
+)
+
+target_include_directories(
+  settings_backup_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
+target_link_libraries(
+  settings_backup_test
+  GTest::gtest_main
+)
+
+gtest_discover_tests(settings_backup_test)

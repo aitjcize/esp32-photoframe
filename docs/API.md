@@ -208,6 +208,16 @@ Update configuration. Only include fields to change.
 
 Same as `POST /api/config`. Both methods accept partial updates.
 
+**SD backup:** each successful `POST`/`PATCH` `/api/config` (and other calls that `touch` config, such as chime upload/delete) also writes `/storage/config/settings.json` when an SD card is mounted. That file is the backup that survives a full firmware flash at `0x0` (NVS wipe). On boot, NVS is loaded first; if the SD file exists and NVS has none of the backed-up keys, the snapshot is imported. Included keys: `auto_rotate`, `rotate_cron`, `rotation_mode`, `image_url`, `deep_sleep_enabled`, and all `chime_*` fields. WiFi is not stored here (`wifi.txt` is unchanged).
+
+### `POST /api/config/export-sd`
+
+Write the current runtime settings snapshot to `/storage/config/settings.json`. Returns `404` if no SD card is mounted.
+
+### `POST /api/config/import-sd`
+
+Read `/storage/config/settings.json` and apply it to NVS/runtime immediately (even if NVS is not factory-fresh). Returns `404` if the file is missing.
+
 ---
 
 ## Image Display
@@ -540,7 +550,7 @@ storage is available).
 
 ### `POST /api/factory-reset`
 
-Factory reset all settings to defaults.
+Factory reset all settings to defaults. Erases NVS and deletes the SD settings snapshot (`/storage/config/settings.json`) so the next boot does not re-import the previous auto-rotate / chime backup. Photos on the card are left in place.
 
 ---
 

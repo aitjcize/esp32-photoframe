@@ -1,7 +1,10 @@
 #include "config_manager.h"
 
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -11,6 +14,7 @@
 #include "config.h"
 #include "esp_log.h"
 #include "nvs.h"
+#include "settings_backup.h"
 #include "storage.h"
 
 static const char *TAG = "config_manager";
@@ -75,6 +79,27 @@ static bool debug_log_enabled = false;
 
 // Config sync
 static int64_t config_last_updated = 0;
+
+// True when NVS already holds at least one key that the SD settings snapshot
+// covers. After a merged-bin flash at 0x0 this stays false so the SD backup
+// can be imported.
+static bool nvs_has_settings_backup_keys = false;
+
+static void note_nvs_backup_key(void)
+{
+    nvs_has_settings_backup_keys = true;
+}
+
+static bool settings_sd_available(void)
+{
+    return storage_get_type() == STORAGE_TYPE_SDCARD;
+}
+
+static bool settings_sd_file_present(void)
+{
+    struct stat st;
+    return settings_sd_available() && stat(SETTINGS_BACKUP_PATH, &st) == 0 && st.st_size > 0;
+}
 
 // ----------------------------------------------------------------------------
 // Cron schedule helpers
@@ -259,6 +284,7 @@ esp_err_t config_manager_init(void)
         uint8_t stored_enabled = 0;
         if (nvs_get_u8(nvs_handle, NVS_AUTO_ROTATE_KEY, &stored_enabled) == ESP_OK) {
             auto_rotate_enabled = (stored_enabled != 0);
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded auto-rotate enabled from NVS: %s",
                      auto_rotate_enabled ? "yes" : "no");
         }
@@ -269,6 +295,7 @@ esp_err_t config_manager_init(void)
         if (nvs_get_str(nvs_handle, NVS_ROTATE_CRON_KEY, cron_buf, &cron_len) == ESP_OK) {
             cron_load_from_joined(cron_buf);
             seed_default_cron = false;
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded %d cron rule(s) from NVS", cron_rule_count);
         } else if (nvs_get_i32(nvs_handle, NVS_ROTATE_INTERVAL_KEY, &legacy_interval) == ESP_OK) {
             migrate_legacy_interval = true;
@@ -278,6 +305,7 @@ esp_err_t config_manager_init(void)
         uint8_t stored_mode = ROTATION_MODE_URL;  // Default fallback
         if (nvs_get_u8(nvs_handle, NVS_ROTATION_MODE_KEY, &stored_mode) == ESP_OK) {
             rotation_mode = (rotation_mode_t) stored_mode;
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded rotation mode from NVS: %s",
                      rotation_mode == ROTATION_MODE_URL ? "url" : "storage");
         } else if (storage_has_persistent_storage()) {
@@ -304,6 +332,7 @@ esp_err_t config_manager_init(void)
         // Auto Rotate - URL
         size_t url_len = IMAGE_URL_MAX_LEN;
         if (nvs_get_str(nvs_handle, NVS_IMAGE_URL_KEY, image_url, &url_len) == ESP_OK) {
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded image URL from NVS: %s", image_url);
         } else {
             strncpy(image_url, DEFAULT_IMAGE_URL, IMAGE_URL_MAX_LEN - 1);
@@ -383,6 +412,7 @@ esp_err_t config_manager_init(void)
         uint8_t deep_sleep_val = 1;  // Default to enabled
         if (nvs_get_u8(nvs_handle, NVS_DEEP_SLEEP_KEY, &deep_sleep_val) == ESP_OK) {
             deep_sleep_enabled = (deep_sleep_val != 0);
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded deep sleep setting from NVS: %s",
                      deep_sleep_enabled ? "enabled" : "disabled");
         }
@@ -390,15 +420,21 @@ esp_err_t config_manager_init(void)
         uint8_t chime_val = 1;  // Default on
         if (nvs_get_u8(nvs_handle, NVS_CHIME_ENABLED_KEY, &chime_val) == ESP_OK) {
             chime_enabled = (chime_val != 0);
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded speaker chime setting from NVS: %s",
                      chime_enabled ? "enabled" : "disabled");
         }
 
         size_t chime_preset_len = sizeof(chime_preset);
         if (nvs_get_str(nvs_handle, NVS_CHIME_PRESET_KEY, chime_preset, &chime_preset_len) ==
-                ESP_OK &&
-            chime_preset_is_valid(chime_preset)) {
-            ESP_LOGI(TAG, "Loaded chime preset from NVS: %s", chime_preset);
+            ESP_OK) {
+            note_nvs_backup_key();
+            if (chime_preset_is_valid(chime_preset)) {
+                ESP_LOGI(TAG, "Loaded chime preset from NVS: %s", chime_preset);
+            } else {
+                strncpy(chime_preset, DEFAULT_CHIME_PRESET, CHIME_PRESET_MAX_LEN - 1);
+                chime_preset[CHIME_PRESET_MAX_LEN - 1] = '\0';
+            }
         } else {
             strncpy(chime_preset, DEFAULT_CHIME_PRESET, CHIME_PRESET_MAX_LEN - 1);
             chime_preset[CHIME_PRESET_MAX_LEN - 1] = '\0';
@@ -406,28 +442,37 @@ esp_err_t config_manager_init(void)
 
         size_t chime_url_len = sizeof(chime_url);
         if (nvs_get_str(nvs_handle, NVS_CHIME_URL_KEY, chime_url, &chime_url_len) == ESP_OK) {
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded chime URL from NVS: %s", chime_url);
         }
 
         uint8_t chime_source_val = CHIME_SOURCE_PRESET;
-        if (nvs_get_u8(nvs_handle, NVS_CHIME_SOURCE_KEY, &chime_source_val) == ESP_OK &&
-            (chime_source_val == CHIME_SOURCE_PRESET || chime_source_val == CHIME_SOURCE_WAV ||
-             chime_source_val == CHIME_SOURCE_UPLOADED)) {
-            chime_source = (chime_source_t) chime_source_val;
+        if (nvs_get_u8(nvs_handle, NVS_CHIME_SOURCE_KEY, &chime_source_val) == ESP_OK) {
+            note_nvs_backup_key();
+            if (chime_source_val == CHIME_SOURCE_PRESET || chime_source_val == CHIME_SOURCE_WAV ||
+                chime_source_val == CHIME_SOURCE_UPLOADED) {
+                chime_source = (chime_source_t) chime_source_val;
+            }
         }
 
         size_t chime_file_len = sizeof(chime_file);
-        if (nvs_get_str(nvs_handle, NVS_CHIME_FILE_KEY, chime_file, &chime_file_len) == ESP_OK &&
-            chime_filename_is_valid(chime_file)) {
-            ESP_LOGI(TAG, "Loaded chime file from NVS: %s", chime_file);
+        if (nvs_get_str(nvs_handle, NVS_CHIME_FILE_KEY, chime_file, &chime_file_len) == ESP_OK) {
+            note_nvs_backup_key();
+            if (chime_filename_is_valid(chime_file)) {
+                ESP_LOGI(TAG, "Loaded chime file from NVS: %s", chime_file);
+            } else {
+                chime_file[0] = '\0';
+            }
         } else {
             chime_file[0] = '\0';
         }
 
         uint8_t chime_pull_val = CHIME_PULL_ONCE;
-        if (nvs_get_u8(nvs_handle, NVS_CHIME_PULL_MODE_KEY, &chime_pull_val) == ESP_OK &&
-            (chime_pull_val == CHIME_PULL_ONCE || chime_pull_val == CHIME_PULL_WITH_ROTATE)) {
-            chime_pull_mode = (chime_pull_mode_t) chime_pull_val;
+        if (nvs_get_u8(nvs_handle, NVS_CHIME_PULL_MODE_KEY, &chime_pull_val) == ESP_OK) {
+            note_nvs_backup_key();
+            if (chime_pull_val == CHIME_PULL_ONCE || chime_pull_val == CHIME_PULL_WITH_ROTATE) {
+                chime_pull_mode = (chime_pull_mode_t) chime_pull_val;
+            }
         }
 
         // Debugging
@@ -440,6 +485,7 @@ esp_err_t config_manager_init(void)
 
         // Config sync timestamp
         if (nvs_get_i64(nvs_handle, "cfg_updated", &config_last_updated) == ESP_OK) {
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded config_last_updated: %lld", (long long) config_last_updated);
         }
 
@@ -507,6 +553,17 @@ esp_err_t config_manager_init(void)
         offset_hours -= 24;
     if (offset_hours < -12)
         offset_hours += 24;
+
+    // After a full flash at 0x0, NVS is empty but the SD snapshot from the
+    // last Settings save is still on the card. Import it before any rotate
+    // or UI path reads the runtime config.
+    if (settings_backup_should_restore(nvs_has_settings_backup_keys, settings_sd_file_present())) {
+        ESP_LOGI(TAG, "NVS looks factory-fresh; restoring settings from %s", SETTINGS_BACKUP_PATH);
+        if (config_manager_import_settings_sd() == ESP_OK) {
+            nvs_has_settings_backup_keys = true;
+            config_manager_touch_config();
+        }
+    }
 
     ESP_LOGI(TAG, "Config manager initialized");
     return ESP_OK;
@@ -1366,4 +1423,219 @@ void config_manager_touch_config(void)
     time_t now;
     time(&now);
     config_manager_set_config_last_updated((int64_t) now);
+    (void) config_manager_export_settings_sd();
+}
+
+static void settings_backup_from_runtime(settings_backup_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->auto_rotate = auto_rotate_enabled;
+    out->has_auto_rotate = true;
+    out->rotate_cron_count = cron_rule_count;
+    if (out->rotate_cron_count > SETTINGS_BACKUP_MAX_CRON_RULES) {
+        out->rotate_cron_count = SETTINGS_BACKUP_MAX_CRON_RULES;
+    }
+    for (int i = 0; i < out->rotate_cron_count; i++) {
+        strncpy(out->rotate_cron[i], cron_rules_store[i], SETTINGS_BACKUP_CRON_RULE_MAX_LEN - 1);
+        out->rotate_cron[i][SETTINGS_BACKUP_CRON_RULE_MAX_LEN - 1] = '\0';
+    }
+    out->has_rotate_cron = out->rotate_cron_count > 0;
+    strncpy(out->rotation_mode, rotation_mode == ROTATION_MODE_URL ? "url" : "storage",
+            sizeof(out->rotation_mode) - 1);
+    out->has_rotation_mode = true;
+    strncpy(out->image_url, image_url, sizeof(out->image_url) - 1);
+    out->has_image_url = true;
+    out->deep_sleep_enabled = deep_sleep_enabled;
+    out->has_deep_sleep_enabled = true;
+    out->chime_enabled = chime_enabled;
+    out->has_chime_enabled = true;
+    strncpy(out->chime_preset, chime_preset[0] ? chime_preset : DEFAULT_CHIME_PRESET,
+            sizeof(out->chime_preset) - 1);
+    out->has_chime_preset = true;
+    strncpy(out->chime_url, chime_url, sizeof(out->chime_url) - 1);
+    out->has_chime_url = true;
+    const char *src = "preset";
+    if (chime_source == CHIME_SOURCE_WAV) {
+        src = "wav";
+    } else if (chime_source == CHIME_SOURCE_UPLOADED) {
+        src = "uploaded";
+    }
+    strncpy(out->chime_source, src, sizeof(out->chime_source) - 1);
+    out->has_chime_source = true;
+    strncpy(out->chime_pull_mode,
+            chime_pull_mode == CHIME_PULL_WITH_ROTATE ? "with_rotate" : "once",
+            sizeof(out->chime_pull_mode) - 1);
+    out->has_chime_pull_mode = true;
+    strncpy(out->chime_file, chime_file, sizeof(out->chime_file) - 1);
+    out->has_chime_file = true;
+}
+
+static void set_chime_url_keep_cache(const char *url)
+{
+    const char *new_url = url ? url : "";
+    strncpy(chime_url, new_url, IMAGE_URL_MAX_LEN - 1);
+    chime_url[IMAGE_URL_MAX_LEN - 1] = '\0';
+    nvs_store_str_or_erase(NVS_CHIME_URL_KEY, chime_url);
+    ESP_LOGI(TAG, "Chime URL restored to: %s", chime_url[0] ? chime_url : "(empty)");
+}
+
+static void settings_backup_apply_to_runtime(const settings_backup_t *in)
+{
+    if (in->has_auto_rotate) {
+        config_manager_set_auto_rotate(in->auto_rotate);
+    }
+    if (in->has_rotate_cron && in->rotate_cron_count > 0) {
+        const char *rules[MAX_CRON_RULES];
+        int n = 0;
+        int count = in->rotate_cron_count;
+        if (count > MAX_CRON_RULES) {
+            count = MAX_CRON_RULES;
+        }
+        for (int i = 0; i < count; i++) {
+            rules[n++] = in->rotate_cron[i];
+        }
+        config_manager_set_cron_rules(rules, n);
+    }
+    if (in->has_rotation_mode) {
+        rotation_mode_t mode = ROTATION_MODE_STORAGE;
+        if (strcmp(in->rotation_mode, "url") == 0) {
+            mode = ROTATION_MODE_URL;
+        }
+        config_manager_set_rotation_mode(mode);
+    }
+    if (in->has_image_url) {
+        config_manager_set_image_url(in->image_url);
+    }
+    if (in->has_deep_sleep_enabled) {
+        config_manager_set_deep_sleep_enabled(in->deep_sleep_enabled);
+    }
+    if (in->has_chime_enabled) {
+        config_manager_set_chime_enabled(in->chime_enabled);
+    }
+    if (in->has_chime_preset) {
+        config_manager_set_chime_preset(in->chime_preset);
+    }
+    if (in->has_chime_url) {
+        // Do not unlink the SD WAV cache: after a reflash the URL is "new"
+        // in empty NVS but the cached file on the card is still valid.
+        set_chime_url_keep_cache(in->chime_url);
+    }
+    if (in->has_chime_source) {
+        chime_source_t source = CHIME_SOURCE_PRESET;
+        if (strcmp(in->chime_source, "wav") == 0) {
+            source = CHIME_SOURCE_WAV;
+        } else if (strcmp(in->chime_source, "uploaded") == 0) {
+            source = CHIME_SOURCE_UPLOADED;
+        }
+        config_manager_set_chime_source(source);
+    }
+    if (in->has_chime_pull_mode) {
+        config_manager_set_chime_pull_mode(strcmp(in->chime_pull_mode, "with_rotate") == 0
+                                               ? CHIME_PULL_WITH_ROTATE
+                                               : CHIME_PULL_ONCE);
+    }
+    if (in->has_chime_file) {
+        config_manager_set_chime_file(in->chime_file);
+    }
+}
+
+esp_err_t config_manager_export_settings_sd(void)
+{
+    if (!settings_sd_available()) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    settings_backup_t snap;
+    settings_backup_from_runtime(&snap);
+
+    char buf[4096];
+    if (settings_backup_serialize(&snap, buf, sizeof(buf)) < 0) {
+        ESP_LOGW(TAG, "Failed to serialize settings snapshot");
+        return ESP_FAIL;
+    }
+
+    if (mkdir(SETTINGS_BACKUP_DIR, 0775) != 0 && errno != EEXIST) {
+        ESP_LOGW(TAG, "Failed to create %s: errno %d", SETTINGS_BACKUP_DIR, errno);
+        return ESP_FAIL;
+    }
+
+    FILE *f = fopen(SETTINGS_BACKUP_TMP_PATH, "w");
+    if (!f) {
+        ESP_LOGW(TAG, "Failed to open %s for write", SETTINGS_BACKUP_TMP_PATH);
+        return ESP_FAIL;
+    }
+    size_t len = strlen(buf);
+    size_t written = fwrite(buf, 1, len, f);
+    int flush_err = fflush(f);
+    fclose(f);
+    if (written != len || flush_err != 0) {
+        unlink(SETTINGS_BACKUP_TMP_PATH);
+        ESP_LOGW(TAG, "Failed to write settings snapshot");
+        return ESP_FAIL;
+    }
+    unlink(SETTINGS_BACKUP_PATH);
+    if (rename(SETTINGS_BACKUP_TMP_PATH, SETTINGS_BACKUP_PATH) != 0) {
+        unlink(SETTINGS_BACKUP_TMP_PATH);
+        ESP_LOGW(TAG, "Failed to replace %s", SETTINGS_BACKUP_PATH);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Wrote settings snapshot to %s", SETTINGS_BACKUP_PATH);
+    return ESP_OK;
+}
+
+esp_err_t config_manager_import_settings_sd(void)
+{
+    if (!settings_sd_file_present()) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    FILE *f = fopen(SETTINGS_BACKUP_PATH, "r");
+    if (!f) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return ESP_FAIL;
+    }
+    long sz = ftell(f);
+    if (sz <= 0 || sz > 8192) {
+        fclose(f);
+        ESP_LOGW(TAG, "Settings snapshot has invalid size %ld", sz);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return ESP_FAIL;
+    }
+
+    char *buf = malloc((size_t) sz + 1);
+    if (!buf) {
+        fclose(f);
+        return ESP_ERR_NO_MEM;
+    }
+    size_t n = fread(buf, 1, (size_t) sz, f);
+    fclose(f);
+    buf[n] = '\0';
+
+    settings_backup_t snap;
+    bool parsed = settings_backup_parse(buf, &snap);
+    free(buf);
+    if (!parsed) {
+        ESP_LOGW(TAG, "Failed to parse %s", SETTINGS_BACKUP_PATH);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    settings_backup_apply_to_runtime(&snap);
+    ESP_LOGI(TAG, "Imported settings snapshot from %s", SETTINGS_BACKUP_PATH);
+    return ESP_OK;
+}
+
+void config_manager_delete_settings_sd(void)
+{
+    if (!settings_sd_available()) {
+        return;
+    }
+    unlink(SETTINGS_BACKUP_PATH);
+    unlink(SETTINGS_BACKUP_TMP_PATH);
 }
