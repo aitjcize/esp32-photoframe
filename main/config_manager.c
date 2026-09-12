@@ -7,6 +7,7 @@
 
 #include "board_hal.h"
 #include "chime.h"
+#include "chime_name.h"
 #include "config.h"
 #include "esp_log.h"
 #include "nvs.h"
@@ -67,6 +68,7 @@ static char chime_preset[CHIME_PRESET_MAX_LEN] = DEFAULT_CHIME_PRESET;
 static char chime_url[IMAGE_URL_MAX_LEN] = {0};
 static chime_source_t chime_source = CHIME_SOURCE_PRESET;
 static chime_pull_mode_t chime_pull_mode = CHIME_PULL_ONCE;
+static char chime_file[CHIME_FILENAME_MAX_LEN] = {0};
 
 // Debugging
 static bool debug_log_enabled = false;
@@ -409,8 +411,17 @@ esp_err_t config_manager_init(void)
 
         uint8_t chime_source_val = CHIME_SOURCE_PRESET;
         if (nvs_get_u8(nvs_handle, NVS_CHIME_SOURCE_KEY, &chime_source_val) == ESP_OK &&
-            (chime_source_val == CHIME_SOURCE_PRESET || chime_source_val == CHIME_SOURCE_WAV)) {
+            (chime_source_val == CHIME_SOURCE_PRESET || chime_source_val == CHIME_SOURCE_WAV ||
+             chime_source_val == CHIME_SOURCE_UPLOADED)) {
             chime_source = (chime_source_t) chime_source_val;
+        }
+
+        size_t chime_file_len = sizeof(chime_file);
+        if (nvs_get_str(nvs_handle, NVS_CHIME_FILE_KEY, chime_file, &chime_file_len) == ESP_OK &&
+            chime_filename_is_valid(chime_file)) {
+            ESP_LOGI(TAG, "Loaded chime file from NVS: %s", chime_file);
+        } else {
+            chime_file[0] = '\0';
         }
 
         uint8_t chime_pull_val = CHIME_PULL_ONCE;
@@ -1247,7 +1258,8 @@ const char *config_manager_get_chime_url(void)
 
 void config_manager_set_chime_source(chime_source_t source)
 {
-    if (source != CHIME_SOURCE_PRESET && source != CHIME_SOURCE_WAV) {
+    if (source != CHIME_SOURCE_PRESET && source != CHIME_SOURCE_WAV &&
+        source != CHIME_SOURCE_UPLOADED) {
         source = CHIME_SOURCE_PRESET;
     }
     chime_source = source;
@@ -1259,7 +1271,13 @@ void config_manager_set_chime_source(chime_source_t source)
         nvs_close(nvs_handle);
     }
 
-    ESP_LOGI(TAG, "Chime source set to: %s", source == CHIME_SOURCE_WAV ? "wav" : "preset");
+    const char *name = "preset";
+    if (source == CHIME_SOURCE_WAV) {
+        name = "wav";
+    } else if (source == CHIME_SOURCE_UPLOADED) {
+        name = "uploaded";
+    }
+    ESP_LOGI(TAG, "Chime source set to: %s", name);
 }
 
 chime_source_t config_manager_get_chime_source(void)
@@ -1288,6 +1306,24 @@ void config_manager_set_chime_pull_mode(chime_pull_mode_t mode)
 chime_pull_mode_t config_manager_get_chime_pull_mode(void)
 {
     return chime_pull_mode;
+}
+
+void config_manager_set_chime_file(const char *filename)
+{
+    const char *value = filename ? filename : "";
+    if (value[0] && !chime_filename_is_valid(value)) {
+        ESP_LOGW(TAG, "Ignoring invalid chime filename: %s", value);
+        return;
+    }
+    strncpy(chime_file, value, CHIME_FILENAME_MAX_LEN - 1);
+    chime_file[CHIME_FILENAME_MAX_LEN - 1] = '\0';
+    nvs_store_str_or_erase(NVS_CHIME_FILE_KEY, chime_file);
+    ESP_LOGI(TAG, "Chime file set to: %s", chime_file[0] ? chime_file : "(none)");
+}
+
+const char *config_manager_get_chime_file(void)
+{
+    return chime_file;
 }
 
 void config_manager_set_debug_log_enabled(bool enabled)

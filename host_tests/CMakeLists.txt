@@ -148,3 +148,22 @@ target_link_libraries(
 )
 
 gtest_discover_tests(wav_pcm_test)
+
+add_executable(
+  chime_name_test
+  test_chime_name.cpp
+  ../main/chime_name.c
+)
+
+target_include_directories(
+  chime_name_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
+target_link_libraries(
+  chime_name_test
+  GTest::gtest_main
+)
+
+gtest_discover_tests(chime_name_test)

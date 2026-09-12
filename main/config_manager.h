@@ -150,6 +150,9 @@ chime_source_t config_manager_get_chime_source(void);
 void config_manager_set_chime_pull_mode(chime_pull_mode_t mode);
 chime_pull_mode_t config_manager_get_chime_pull_mode(void);
 
+void config_manager_set_chime_file(const char *filename);
+const char *config_manager_get_chime_file(void);
+
 // ============================================================================
 // Debugging
 // ============================================================================

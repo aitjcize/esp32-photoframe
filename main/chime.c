@@ -1,13 +1,17 @@
 #include "chime.h"
 
+#include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include "board_hal.h"
+#include "chime_name.h"
 #include "config.h"
 #include "config_manager.h"
 #include "esp_http_client.h"
@@ -36,7 +40,8 @@ bool chime_preset_is_valid(const char *preset)
 
 bool chime_source_is_valid(const char *source)
 {
-    return source && (strcmp(source, "preset") == 0 || strcmp(source, "wav") == 0);
+    return source && (strcmp(source, "preset") == 0 || strcmp(source, "wav") == 0 ||
+                      strcmp(source, "uploaded") == 0);
 }
 
 bool chime_pull_mode_is_valid(const char *mode)
@@ -57,6 +62,159 @@ void chime_invalidate_cache(void)
 {
     unlink(CHIME_CACHE_PATH);
     unlink(CHIME_CACHE_TMP_PATH);
+}
+
+esp_err_t chime_ensure_dir(void)
+{
+    struct stat st;
+    if (stat(CHIME_DIRECTORY, &st) == 0) {
+        return S_ISDIR(st.st_mode) ? ESP_OK : ESP_FAIL;
+    }
+    if (mkdir(CHIME_DIRECTORY, 0775) != 0 && errno != EEXIST) {
+        ESP_LOGE(TAG, "Failed to create %s: errno %d", CHIME_DIRECTORY, errno);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+static void chime_uploaded_path(const char *filename, char *out, size_t out_len)
+{
+    snprintf(out, out_len, "%s/%s", CHIME_DIRECTORY, filename);
+}
+
+bool chime_uploaded_exists(const char *filename)
+{
+    if (!chime_filename_is_valid(filename)) {
+        return false;
+    }
+    char path[256];
+    chime_uploaded_path(filename, path, sizeof(path));
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0 &&
+           (size_t) st.st_size <= WAV_PCM_MAX_FILE_BYTES;
+}
+
+esp_err_t chime_validate_wav_file(const char *path)
+{
+    if (!path || !path[0]) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if ((size_t) st.st_size > WAV_PCM_MAX_FILE_BYTES) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        return ESP_FAIL;
+    }
+    wav_pcm_info_t info;
+    int parse_ok = wav_pcm_parse_file(f, &info);
+    fclose(f);
+    if (parse_ok != 0 || !wav_pcm_is_supported(&info)) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    return ESP_OK;
+}
+
+int chime_list(chime_entry_t *out, int max)
+{
+    if (!out || max <= 0) {
+        return 0;
+    }
+    DIR *dir = opendir(CHIME_DIRECTORY);
+    if (!dir) {
+        return 0;
+    }
+
+    int count = 0;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL && count < max) {
+        if (!chime_filename_is_valid(entry->d_name)) {
+            continue;
+        }
+        char path[256];
+        chime_uploaded_path(entry->d_name, path, sizeof(path));
+        struct stat st;
+        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) {
+            continue;
+        }
+        strncpy(out[count].name, entry->d_name, CHIME_FILENAME_MAX_LEN - 1);
+        out[count].name[CHIME_FILENAME_MAX_LEN - 1] = '\0';
+        out[count].size = (size_t) st.st_size;
+        count++;
+    }
+    closedir(dir);
+    return count;
+}
+
+esp_err_t chime_install_upload(const char *tmp_path, const char *original_filename, char *out_name,
+                               size_t out_len)
+{
+    if (!tmp_path || !out_name || out_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t verr = chime_validate_wav_file(tmp_path);
+    if (verr != ESP_OK) {
+        return verr;
+    }
+
+    char name[CHIME_FILENAME_MAX_LEN];
+    if (!chime_sanitize_filename(
+            original_filename && original_filename[0] ? original_filename : "chime.wav", name,
+            sizeof(name))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (chime_ensure_dir() != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    bool replacing = chime_uploaded_exists(name);
+    if (!replacing) {
+        chime_entry_t existing[CHIME_MAX_STORED + 1];
+        if (chime_list(existing, CHIME_MAX_STORED + 1) >= CHIME_MAX_STORED) {
+            ESP_LOGW(TAG, "Chime library full (%d files)", CHIME_MAX_STORED);
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    char dest[256];
+    chime_uploaded_path(name, dest, sizeof(dest));
+    unlink(dest);
+    if (rename(tmp_path, dest) != 0) {
+        ESP_LOGE(TAG, "Failed to install uploaded chime as %s", dest);
+        return ESP_FAIL;
+    }
+
+    strncpy(out_name, name, out_len - 1);
+    out_name[out_len - 1] = '\0';
+    ESP_LOGI(TAG, "Installed uploaded chime %s", name);
+    return ESP_OK;
+}
+
+esp_err_t chime_delete(const char *filename)
+{
+    if (!chime_filename_is_valid(filename)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char path[256];
+    chime_uploaded_path(filename, path, sizeof(path));
+    if (unlink(path) != 0) {
+        return (errno == ENOENT) ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+    }
+
+    const char *active = config_manager_get_chime_file();
+    if (active && strcmp(active, filename) == 0) {
+        config_manager_set_chime_file("");
+        if (config_manager_get_chime_source() == CHIME_SOURCE_UPLOADED) {
+            config_manager_set_chime_source(CHIME_SOURCE_PRESET);
+        }
+    }
+    return ESP_OK;
 }
 
 typedef struct {
@@ -187,7 +345,23 @@ esp_err_t chime_play(chime_play_reason_t reason)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    bool want_wav = (config_manager_get_chime_source() == CHIME_SOURCE_WAV);
+    chime_source_t source = config_manager_get_chime_source();
+    if (source == CHIME_SOURCE_UPLOADED) {
+        const char *file = config_manager_get_chime_file();
+        if (file && chime_uploaded_exists(file)) {
+            char path[256];
+            snprintf(path, sizeof(path), "%s/%s", CHIME_DIRECTORY, file);
+            esp_err_t perr = board_hal_play_wav_file(path);
+            if (perr == ESP_OK) {
+                return ESP_OK;
+            }
+            ESP_LOGW(TAG, "Uploaded chime play failed, falling back to preset: %s",
+                     esp_err_to_name(perr));
+        }
+        return board_hal_play_chime_preset(config_manager_get_chime_preset());
+    }
+
+    bool want_wav = (source == CHIME_SOURCE_WAV);
     const char *url = config_manager_get_chime_url();
     bool have_url = url && url[0];
     bool have_cache = chime_cache_exists();

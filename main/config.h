@@ -56,6 +56,8 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 #define DOWNLOAD_DIRECTORY IMAGE_DIRECTORY "/Downloads"
 #define CHIME_CACHE_PATH FS_MOUNT_POINT "/.chime.wav"
 #define CHIME_CACHE_TMP_PATH FS_MOUNT_POINT "/.chime.tmp"
+#define CHIME_DIRECTORY FS_MOUNT_POINT "/chimes"
+#define CHIME_UPLOAD_TMP_PATH CHIME_DIRECTORY "/.upload.tmp"
 
 #define CURRENT_UPLOAD_PATH FS_MOUNT_POINT "/.current.tmp"
 #define CURRENT_JPG_PATH FS_MOUNT_POINT "/.current.jpg"
@@ -156,11 +158,16 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 #define NVS_CHIME_URL_KEY "chime_url"
 #define NVS_CHIME_SOURCE_KEY "chime_source"
 #define NVS_CHIME_PULL_MODE_KEY "chime_pull_mode"
+#define NVS_CHIME_FILE_KEY "chime_file"
 
 #define CHIME_PRESET_MAX_LEN 16
 #define DEFAULT_CHIME_PRESET "triad"
 
-typedef enum { CHIME_SOURCE_PRESET = 0, CHIME_SOURCE_WAV = 1 } chime_source_t;
+typedef enum {
+    CHIME_SOURCE_PRESET = 0,
+    CHIME_SOURCE_WAV = 1,
+    CHIME_SOURCE_UPLOADED = 2
+} chime_source_t;
 
 typedef enum { CHIME_PULL_ONCE = 0, CHIME_PULL_WITH_ROTATE = 1 } chime_pull_mode_t;
 

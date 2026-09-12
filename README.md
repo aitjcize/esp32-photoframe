@@ -130,7 +130,8 @@ The AXP2101 ALDO1–4 rails are set to 3.3 V and enabled before talking to the c
 **Settings → Power** (when the board has a speaker):
 
 - **Speaker chime after image display** — master mute (`chime_enabled`, NVS `chime_en`, default on)
-- **Chime source** — `preset` (built-in) or `wav` (last pulled file). When a URL is set and source is WAV, preview and after-display play that cache; clear the URL / set source to preset to use a built-in tone.
+- **Chime source** — `preset` (built-in), `wav` (last pulled URL file), or `uploaded` (a WAV stored in `chimes/`). When a URL is set and source is WAV, preview and after-display play that cache. Upload or pick a stored file to use a custom sound; set source to preset to use a built-in tone.
+- **Uploaded chimes** — Settings upload button (`POST /api/chime/upload`); list/select/delete via `GET`/`DELETE /api/chimes`
 - **Built-in chime** — `triad` (default C–E–G), `dingdong`, `doublebeep`, `ascending`, `softping`, `alert`
 - **Chime sound URL** — optional HTTP(S) WAV. Modest PCM only: 8–22.05 kHz, 8/16-bit, mono or stereo, a few seconds, max 256 KB. Larger or compressed files are skipped.
 - **WAV pull** — `once` caches on first need (SD, or flash if no SD); `with_rotate` re-GETs the URL after a successful display in the same wake window, then plays. Fetch/play failure falls back to the selected preset.
@@ -145,6 +146,9 @@ curl -X POST -H 'Content-Type: application/json' \
 curl -X POST -H 'Content-Type: application/json' \
   -d '{"chime_source":"wav","chime_url":"http://news.local:8080/chime.wav","chime_pull_mode":"with_rotate"}' \
   http://photopainter.local/api/config
+
+# Upload a custom WAV (becomes the active uploaded chime)
+curl -X POST -F 'file=@doorbell.wav' http://photopainter.local/api/chime/upload
 
 # Preview / remote trigger
 curl -X POST http://photopainter.local/api/chime

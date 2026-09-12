@@ -501,11 +501,26 @@ esp_err_t apply_config_from_json(cJSON *root)
     if (item && cJSON_IsString(item)) {
         const char *source = cJSON_GetStringValue(item);
         if (!chime_source_is_valid(source)) {
-            utils_set_config_error("Invalid chime_source (use preset or wav)");
+            utils_set_config_error("Invalid chime_source (use preset, wav, or uploaded)");
             return ESP_FAIL;
         }
-        config_manager_set_chime_source(strcmp(source, "wav") == 0 ? CHIME_SOURCE_WAV
-                                                                   : CHIME_SOURCE_PRESET);
+        if (strcmp(source, "wav") == 0) {
+            config_manager_set_chime_source(CHIME_SOURCE_WAV);
+        } else if (strcmp(source, "uploaded") == 0) {
+            config_manager_set_chime_source(CHIME_SOURCE_UPLOADED);
+        } else {
+            config_manager_set_chime_source(CHIME_SOURCE_PRESET);
+        }
+    }
+
+    item = cJSON_GetObjectItem(root, "chime_file");
+    if (item && cJSON_IsString(item)) {
+        const char *filename = cJSON_GetStringValue(item);
+        if (filename[0] != '\0' && !chime_filename_is_valid(filename)) {
+            utils_set_config_error("Invalid chime_file");
+            return ESP_FAIL;
+        }
+        config_manager_set_chime_file(filename);
     }
 
     item = cJSON_GetObjectItem(root, "chime_pull_mode");

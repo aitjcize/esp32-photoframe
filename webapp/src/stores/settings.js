@@ -57,6 +57,7 @@ export const useSettingsStore = defineStore("settings", () => {
     chimeSource: "preset",
     chimePullMode: "once",
     chimeCached: false,
+    chimeFile: "",
     // Debugging
     debugLogEnabled: false,
     // AI API Keys (for client-side AI generation)
@@ -205,6 +206,7 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.chimeSource = data.chime_source || "preset";
       deviceSettings.value.chimePullMode = data.chime_pull_mode || "once";
       deviceSettings.value.chimeCached = data.chime_cached === true;
+      deviceSettings.value.chimeFile = data.chime_file || "";
       deviceSettings.value.debugLogEnabled = data.debug_log_enabled === true;
       deviceSettings.value.haUrl = data.ha_url || "";
       deviceSettings.value.saveDownloadedImages = data.save_downloaded_images !== false;
@@ -277,6 +279,7 @@ export const useSettingsStore = defineStore("settings", () => {
       chime_url: deviceSettings.value.chimeUrl,
       chime_source: deviceSettings.value.chimeSource,
       chime_pull_mode: deviceSettings.value.chimePullMode,
+      chime_file: deviceSettings.value.chimeFile,
       debug_log_enabled: deviceSettings.value.debugLogEnabled,
       save_downloaded_images: deviceSettings.value.saveDownloadedImages,
       display_orientation: deviceSettings.value.displayOrientation,
