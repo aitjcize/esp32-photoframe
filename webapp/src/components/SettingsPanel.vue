@@ -150,15 +150,15 @@ const sdRotationModeOptions = [
 
 const chimePresetOptions = [
   { title: "Mozart — Eine kleine Nachtmusik", value: "mozart" },
-  { title: "Ode aan de vreugde", value: "ode" },
-  { title: "Vader Jacob", value: "frere" },
-  { title: "Twinkel, twinkel", value: "twinkle" },
+  { title: "Ode to Joy", value: "ode" },
+  { title: "Frère Jacques", value: "frere" },
+  { title: "Twinkle, Twinkle", value: "twinkle" },
   { title: "Fanfare", value: "fanfare" },
-  { title: "Triade (C–E–G)", value: "triad" },
-  { title: "Deurbel (ding-dong)", value: "dingdong" },
-  { title: "Zachte ping", value: "softping" },
+  { title: "Triad (C–E–G)", value: "triad" },
+  { title: "Doorbell (ding-dong)", value: "dingdong" },
+  { title: "Soft ping", value: "softping" },
   { title: "Alert", value: "alert" },
-  { title: "Dubbele piep", value: "doublebeep" },
+  { title: "Double beep", value: "doublebeep" },
 ];
 
 const chimeSourceOptions = [
@@ -168,16 +168,13 @@ const chimeSourceOptions = [
 ];
 
 const chimePullModeOptions = [
-  { title: "Once — download and cache / Eenmaal — downloaden en bewaren", value: "once" },
-  {
-    title: "With each rotate — refresh with play / Bij elke wisseling — ophalen bij afspelen",
-    value: "with_rotate",
-  },
+  { title: "Once — download and cache", value: "once" },
+  { title: "With each rotate — refresh then play", value: "with_rotate" },
 ];
 
 const chimePlayWhenOptions = [
-  { title: "After photo rotate / Na foto-wisseling (default)", value: "after" },
-  { title: "Before photo rotate / Voor foto-wisseling", value: "before" },
+  { title: "Play after photo rotate (default)", value: "after" },
+  { title: "Play before photo rotate", value: "before" },
 ];
 
 const previewingChime = ref(false);
@@ -958,7 +955,7 @@ async function performFactoryReset() {
                 label="Enable speaker chime"
                 color="primary"
                 class="mb-2"
-                hint="Master mute. Local ES8311 audio on a successful image display (timing below). Disable for battery or quiet hours. / Hoofdschakelaar. Lokale ES8311-audio bij een geslaagde foto-wisseling (timing hieronder)."
+                hint="Master mute. Local ES8311 audio on a successful image display (timing below). Disable for battery or quiet hours."
                 persistent-hint
               />
 
@@ -1003,7 +1000,7 @@ async function performFactoryReset() {
                     label="WAV pull"
                     variant="outlined"
                     :disabled="settingsStore.deviceSettings.chimeSource !== 'wav'"
-                    hint="Once: cache until you hit Pull now (or the first play if nothing is cached). With each rotate: GET the URL at play time (after or before the panel refresh, see below), replace the cache, then play. / Eenmaal: cache tot Nu ophalen. Bij elke wisseling: GET op het afspeelmoment."
+                    hint="Once: cache until you hit Pull now (or the first play if nothing is cached). With each rotate: GET the URL at play time (after or before the panel refresh, see below), replace the cache, then play."
                     persistent-hint
                     class="mb-4"
                   />
@@ -1012,9 +1009,9 @@ async function performFactoryReset() {
                     :items="chimePlayWhenOptions"
                     item-title="title"
                     item-value="value"
-                    label="Play before / after photo rotate — Afspelen voor / na foto-wisseling"
+                    label="Play before / after photo rotate"
                     variant="outlined"
-                    hint="After (default): do not start the speaker until the e-ink panel has finished drawing. Before: play when rotate starts, immediately before the panel wait. / Na (standaard): wacht tot het paneel klaar is met tekenen. Voor: speel af zodra de wisseling start, vóór de paneel-refresh."
+                    hint="After (default): do not start the speaker until the e-ink panel has finished drawing. Before: play when rotate starts, immediately before the panel wait."
                     persistent-hint
                     class="mb-4"
                   />
@@ -1029,7 +1026,7 @@ async function performFactoryReset() {
                     @click="pullChimeNow"
                   >
                     <v-icon start>mdi-cloud-download</v-icon>
-                    Pull now / Nu ophalen
+                    Pull now
                   </v-btn>
                   <div class="text-caption text-grey mb-4">
                     Downloads the WAV from the URL, validates it, and caches it on the SD card (or
