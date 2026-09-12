@@ -6,7 +6,6 @@ set(PRIV_REQS
     epaper_driver_ed2208_gca
     epaper_driver_ed2208_nca
     epaper_driver_it8951
-    esp_driver_i2c
     esp_driver_spi
     pmic_driver_axp2101
     rtc_driver_pcf85063
@@ -37,6 +36,6 @@ endif()
 idf_component_register(
     SRCS "${SRCS}"
     INCLUDE_DIRS "include"
-    REQUIRES esp_timer driver esp_adc esp_driver_gpio esp_driver_i2s esp_driver_usb_serial_jtag epaper sensor
+    REQUIRES esp_timer driver esp_adc esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_driver_usb_serial_jtag epaper sensor
     PRIV_REQUIRES ${PRIV_REQS}
 )
