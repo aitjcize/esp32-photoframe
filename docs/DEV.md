@@ -155,9 +155,9 @@ In `idf.py menuconfig`:
 
 ### Speaker chime (PhotoPainter)
 
-`waveshare_photopainter_73` plays a local ES8311 sine chime after a successful panel refresh. Implementation is a thin helper in `components/board_hal/src/audio_chime.c`. Pins and PA GPIO 7 come from Waveshare `05_ArduinoExample/01_Audio_Test` (`USER_CODEC_BOARD` in `board_cfg.h`). Deep sleep is unchanged; audio is torn down before the existing `board_hal_prepare_for_sleep()` path.
+`waveshare_photopainter_73` plays a local ES8311 chime after a successful panel refresh. Implementation is a thin helper in `components/board_hal/src/audio_chime.c` (presets + PCM WAV file play) plus `main/chime.c` (URL pull / cache / source selection). WAV header parsing lives in `components/board_hal/src/wav_pcm.c` (no IDF deps; covered by host tests). Pins and PA GPIO 7 come from Waveshare `05_ArduinoExample/01_Audio_Test` (`USER_CODEC_BOARD` in `board_cfg.h`). Deep sleep is unchanged; audio is torn down before the existing `board_hal_prepare_for_sleep()` path.
 
-Disable with `POST /api/config` `{"chime_enabled": false}` or Settings → Power.
+`chime_enabled` is the master mute. `chime_source` is `preset` or `wav`; `chime_pull_mode` is `once` or `with_rotate`. Other boards keep the no-op `board_hal_play_chime*()` stubs. Keep `esp_driver_i2c` on `board_hal` **REQUIRES** (public headers include `driver/i2c_master.h`).
 
 ### Common Issues
 

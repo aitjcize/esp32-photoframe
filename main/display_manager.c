@@ -14,6 +14,7 @@
 #include "GUI_RawBuffer.h"
 #include "album_manager.h"
 #include "board_hal.h"
+#include "chime.h"
 #include "config.h"
 #include "config_manager.h"
 #include "epaper.h"
@@ -54,7 +55,7 @@ static void play_display_chime(void)
     if (!config_manager_get_chime_enabled()) {
         return;
     }
-    esp_err_t err = board_hal_play_chime();
+    esp_err_t err = chime_play(CHIME_PLAY_AFTER_DISPLAY);
     if (err == ESP_ERR_NOT_SUPPORTED) {
         return;
     }

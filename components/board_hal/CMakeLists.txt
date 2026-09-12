@@ -15,7 +15,7 @@ set(PRIV_REQS
     sensor_driver_shtc3
 )
 
-list(APPEND SRCS "src/audio_chime.c")
+list(APPEND SRCS "src/audio_chime.c" "src/wav_pcm.c")
 
 if(CONFIG_BOARD_DRIVER_WAVESHARE_PHOTOPAINTER_73)
     list(APPEND SRCS "src/driver_waveshare_photopainter_73.c")

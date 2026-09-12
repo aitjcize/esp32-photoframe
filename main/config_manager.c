@@ -3,8 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "board_hal.h"
+#include "chime.h"
 #include "config.h"
 #include "esp_log.h"
 #include "nvs.h"
@@ -61,6 +63,10 @@ static char google_api_key[AI_API_KEY_MAX_LEN] = {0};
 // Power
 static bool deep_sleep_enabled = true;  // Enabled by default
 static bool chime_enabled = true;       // Speaker chime after display (default on)
+static char chime_preset[CHIME_PRESET_MAX_LEN] = DEFAULT_CHIME_PRESET;
+static char chime_url[IMAGE_URL_MAX_LEN] = {0};
+static chime_source_t chime_source = CHIME_SOURCE_PRESET;
+static chime_pull_mode_t chime_pull_mode = CHIME_PULL_ONCE;
 
 // Debugging
 static bool debug_log_enabled = false;
@@ -384,6 +390,33 @@ esp_err_t config_manager_init(void)
             chime_enabled = (chime_val != 0);
             ESP_LOGI(TAG, "Loaded speaker chime setting from NVS: %s",
                      chime_enabled ? "enabled" : "disabled");
+        }
+
+        size_t chime_preset_len = sizeof(chime_preset);
+        if (nvs_get_str(nvs_handle, NVS_CHIME_PRESET_KEY, chime_preset, &chime_preset_len) ==
+                ESP_OK &&
+            chime_preset_is_valid(chime_preset)) {
+            ESP_LOGI(TAG, "Loaded chime preset from NVS: %s", chime_preset);
+        } else {
+            strncpy(chime_preset, DEFAULT_CHIME_PRESET, CHIME_PRESET_MAX_LEN - 1);
+            chime_preset[CHIME_PRESET_MAX_LEN - 1] = '\0';
+        }
+
+        size_t chime_url_len = sizeof(chime_url);
+        if (nvs_get_str(nvs_handle, NVS_CHIME_URL_KEY, chime_url, &chime_url_len) == ESP_OK) {
+            ESP_LOGI(TAG, "Loaded chime URL from NVS: %s", chime_url);
+        }
+
+        uint8_t chime_source_val = CHIME_SOURCE_PRESET;
+        if (nvs_get_u8(nvs_handle, NVS_CHIME_SOURCE_KEY, &chime_source_val) == ESP_OK &&
+            (chime_source_val == CHIME_SOURCE_PRESET || chime_source_val == CHIME_SOURCE_WAV)) {
+            chime_source = (chime_source_t) chime_source_val;
+        }
+
+        uint8_t chime_pull_val = CHIME_PULL_ONCE;
+        if (nvs_get_u8(nvs_handle, NVS_CHIME_PULL_MODE_KEY, &chime_pull_val) == ESP_OK &&
+            (chime_pull_val == CHIME_PULL_ONCE || chime_pull_val == CHIME_PULL_WITH_ROTATE)) {
+            chime_pull_mode = (chime_pull_mode_t) chime_pull_val;
         }
 
         // Debugging
@@ -1159,6 +1192,102 @@ void config_manager_set_chime_enabled(bool enabled)
 bool config_manager_get_chime_enabled(void)
 {
     return chime_enabled;
+}
+
+static void nvs_store_str_or_erase(const char *key, const char *value)
+{
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) != ESP_OK) {
+        return;
+    }
+    if (value && value[0] != '\0') {
+        nvs_set_str(nvs_handle, key, value);
+    } else {
+        nvs_erase_key(nvs_handle, key);
+    }
+    nvs_commit(nvs_handle);
+    nvs_close(nvs_handle);
+}
+
+void config_manager_set_chime_preset(const char *preset)
+{
+    const char *value = (preset && preset[0]) ? preset : DEFAULT_CHIME_PRESET;
+    strncpy(chime_preset, value, CHIME_PRESET_MAX_LEN - 1);
+    chime_preset[CHIME_PRESET_MAX_LEN - 1] = '\0';
+    nvs_store_str_or_erase(NVS_CHIME_PRESET_KEY, chime_preset);
+    ESP_LOGI(TAG, "Chime preset set to: %s", chime_preset);
+}
+
+const char *config_manager_get_chime_preset(void)
+{
+    return chime_preset[0] ? chime_preset : DEFAULT_CHIME_PRESET;
+}
+
+void config_manager_set_chime_url(const char *url)
+{
+    const char *new_url = url ? url : "";
+    bool url_changed = strcmp(chime_url, new_url) != 0;
+
+    strncpy(chime_url, new_url, IMAGE_URL_MAX_LEN - 1);
+    chime_url[IMAGE_URL_MAX_LEN - 1] = '\0';
+    nvs_store_str_or_erase(NVS_CHIME_URL_KEY, chime_url);
+
+    if (url_changed) {
+        unlink(CHIME_CACHE_PATH);
+        unlink(CHIME_CACHE_TMP_PATH);
+    }
+
+    ESP_LOGI(TAG, "Chime URL set to: %s", chime_url[0] ? chime_url : "(empty)");
+}
+
+const char *config_manager_get_chime_url(void)
+{
+    return chime_url;
+}
+
+void config_manager_set_chime_source(chime_source_t source)
+{
+    if (source != CHIME_SOURCE_PRESET && source != CHIME_SOURCE_WAV) {
+        source = CHIME_SOURCE_PRESET;
+    }
+    chime_source = source;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_CHIME_SOURCE_KEY, (uint8_t) source);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Chime source set to: %s", source == CHIME_SOURCE_WAV ? "wav" : "preset");
+}
+
+chime_source_t config_manager_get_chime_source(void)
+{
+    return chime_source;
+}
+
+void config_manager_set_chime_pull_mode(chime_pull_mode_t mode)
+{
+    if (mode != CHIME_PULL_ONCE && mode != CHIME_PULL_WITH_ROTATE) {
+        mode = CHIME_PULL_ONCE;
+    }
+    chime_pull_mode = mode;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_CHIME_PULL_MODE_KEY, (uint8_t) mode);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Chime pull mode set to: %s",
+             mode == CHIME_PULL_WITH_ROTATE ? "with_rotate" : "once");
+}
+
+chime_pull_mode_t config_manager_get_chime_pull_mode(void)
+{
+    return chime_pull_mode;
 }
 
 void config_manager_set_debug_log_enabled(bool enabled)

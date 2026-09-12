@@ -1,6 +1,7 @@
 set(SOURCES
     "album_manager.c"
     "cert_pin.c"
+    "chime.c"
     "color_palette.c"
     "config_manager.c"
     "debug_log.c"

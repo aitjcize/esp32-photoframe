@@ -15,9 +15,22 @@ esp_err_t board_hal_play_chime(void)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t board_hal_play_chime_preset(const char *preset)
+{
+    (void) preset;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t board_hal_play_wav_file(const char *path)
+{
+    (void) path;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 #else
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "axp2101.h"
@@ -27,6 +40,7 @@ esp_err_t board_hal_play_chime(void)
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "wav_pcm.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -84,7 +98,8 @@ static void pa_set(bool enable)
 
 // ES8311 slave + MCLK, 16-bit Philips I2S, DAC only. Sequence follows the
 // common Espressif ES8311 DAC bring-up used by the Waveshare audio test
-// (esp_codec_dev ES8311, use_mclk=1).
+// (esp_codec_dev ES8311, use_mclk=1). MCLK tracks I2S Fs (256x), so the same
+// clock-manager values work for 8–22.05 kHz chime WAVs.
 static esp_err_t es8311_dac_init(i2c_master_dev_handle_t dev)
 {
     uint8_t chip_id = 0;
@@ -142,7 +157,7 @@ static void i2s_write_silence(i2s_chan_handle_t tx, int frames)
     }
 }
 
-static void play_tone(i2s_chan_handle_t tx, float freq_hz, int duration_ms)
+static void play_tone(i2s_chan_handle_t tx, float freq_hz, int duration_ms, int amplitude)
 {
     const int n = CHIME_SAMPLE_RATE * duration_ms / 1000;
     const int edge = CHIME_SAMPLE_RATE * 8 / 1000;  // 8 ms attack / release
@@ -164,7 +179,7 @@ static void play_tone(i2s_chan_handle_t tx, float freq_hz, int duration_ms)
             } else if (idx > n - edge) {
                 env = (float) (n - idx) / (float) edge;
             }
-            int16_t sample = (int16_t) (sinf(phase) * (float) CHIME_AMPLITUDE * env);
+            int16_t sample = (int16_t) (sinf(phase) * (float) amplitude * env);
             buf[i * 2] = sample;
             buf[i * 2 + 1] = sample;
             phase += phase_inc;
@@ -178,21 +193,62 @@ static void play_tone(i2s_chan_handle_t tx, float freq_hz, int duration_ms)
     }
 }
 
-bool board_hal_has_speaker(void)
+static void play_preset_tones(i2s_chan_handle_t tx, const char *preset)
 {
-    return true;
+    const char *name = (preset && preset[0]) ? preset : "triad";
+    if (strcmp(name, "dingdong") == 0) {
+        // Classic two-note doorbell: high then low.
+        play_tone(tx, 784.00f, 220, CHIME_AMPLITUDE);
+        play_tone(tx, 523.25f, 360, CHIME_AMPLITUDE);
+    } else if (strcmp(name, "doublebeep") == 0) {
+        play_tone(tx, 880.00f, 80, CHIME_AMPLITUDE);
+        i2s_write_silence(tx, CHIME_SAMPLE_RATE * 80 / 1000);
+        play_tone(tx, 880.00f, 80, CHIME_AMPLITUDE);
+    } else if (strcmp(name, "ascending") == 0) {
+        play_tone(tx, 523.25f, 100, CHIME_AMPLITUDE);
+        play_tone(tx, 587.33f, 100, CHIME_AMPLITUDE);
+        play_tone(tx, 659.25f, 160, CHIME_AMPLITUDE);
+    } else if (strcmp(name, "softping") == 0) {
+        play_tone(tx, 880.00f, 90, CHIME_AMPLITUDE / 2);
+    } else if (strcmp(name, "alert") == 0) {
+        play_tone(tx, 880.00f, 90, CHIME_AMPLITUDE);
+        play_tone(tx, 698.46f, 90, CHIME_AMPLITUDE);
+        play_tone(tx, 880.00f, 90, CHIME_AMPLITUDE);
+        play_tone(tx, 698.46f, 140, CHIME_AMPLITUDE);
+    } else {
+        // triad (default) and any unknown name: C5–E5–G5.
+        play_tone(tx, 523.25f, 110, CHIME_AMPLITUDE);
+        play_tone(tx, 659.25f, 110, CHIME_AMPLITUDE);
+        play_tone(tx, 783.99f, 180, CHIME_AMPLITUDE);
+    }
 }
 
-esp_err_t board_hal_play_chime(void)
+typedef struct {
+    i2s_chan_handle_t tx;
+    i2c_master_dev_handle_t es8311;
+} audio_session_t;
+
+static void audio_session_close(audio_session_t *s)
 {
-    chime_mutex_init();
-    if (!s_chime_mutex || xSemaphoreTake(s_chime_mutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
+    pa_set(false);
+    if (s->es8311) {
+        es8311_standby(s->es8311);
     }
+    if (s->tx) {
+        i2s_channel_disable(s->tx);
+        i2s_del_channel(s->tx);
+        s->tx = NULL;
+    }
+    if (s->es8311) {
+        i2c_master_bus_rm_device(s->es8311);
+        s->es8311 = NULL;
+    }
+}
 
-    ESP_LOGI(TAG, "Playing local ES8311 speaker chime");
+static esp_err_t audio_session_open(audio_session_t *s, uint32_t sample_rate)
+{
+    memset(s, 0, sizeof(*s));
 
-    // Power: AXP2101 ALDO1–4 @ 3.3 V (Waveshare 01_Audio_Test).
     axp2101_prepare_audio_rails();
     vTaskDelay(pdMS_TO_TICKS(50));
 
@@ -208,7 +264,6 @@ esp_err_t board_hal_play_chime(void)
 
     i2c_master_bus_handle_t bus = board_hal_get_i2c_bus();
     if (!bus) {
-        xSemaphoreGive(s_chime_mutex);
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -217,29 +272,25 @@ esp_err_t board_hal_play_chime(void)
         .device_address = BOARD_HAL_AUDIO_ES8311_ADDR,
         .scl_speed_hz = 100000,
     };
-    i2c_master_dev_handle_t es8311 = NULL;
-    esp_err_t err = i2c_master_bus_add_device(bus, &dev_cfg, &es8311);
+    esp_err_t err = i2c_master_bus_add_device(bus, &dev_cfg, &s->es8311);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to add ES8311 I2C device: %s", esp_err_to_name(err));
-        xSemaphoreGive(s_chime_mutex);
         return err;
     }
 
     // Start I2S (and MCLK) before codec register writes — Waveshare
     // codec_init enables the I2S channel first so the ES8311 has a clock.
-    i2s_chan_handle_t tx = NULL;
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
     chan_cfg.auto_clear = true;
-    err = i2s_new_channel(&chan_cfg, &tx, NULL);
+    err = i2s_new_channel(&chan_cfg, &s->tx, NULL);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "i2s_new_channel failed: %s", esp_err_to_name(err));
-        i2c_master_bus_rm_device(es8311);
-        xSemaphoreGive(s_chime_mutex);
+        audio_session_close(s);
         return err;
     }
 
     i2s_std_config_t std_cfg = {
-        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(CHIME_SAMPLE_RATE),
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate),
         .slot_cfg =
             I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg =
@@ -259,43 +310,143 @@ esp_err_t board_hal_play_chime(void)
     };
     std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
 
-    err = i2s_channel_init_std_mode(tx, &std_cfg);
+    err = i2s_channel_init_std_mode(s->tx, &std_cfg);
     if (err == ESP_OK) {
-        err = i2s_channel_enable(tx);
+        err = i2s_channel_enable(s->tx);
     }
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "I2S init failed: %s", esp_err_to_name(err));
-        i2s_del_channel(tx);
-        i2c_master_bus_rm_device(es8311);
-        xSemaphoreGive(s_chime_mutex);
+        audio_session_close(s);
         return err;
     }
 
-    err = es8311_dac_init(es8311);
-    if (err == ESP_OK) {
-        i2s_write_silence(tx, 128);
-        pa_set(true);
-        vTaskDelay(pdMS_TO_TICKS(30));
-
-        // Short C5–E5–G5 arpeggio — local tone only, no cloud/TTS.
-        play_tone(tx, 523.25f, 110);
-        play_tone(tx, 659.25f, 110);
-        play_tone(tx, 783.99f, 180);
-
-        i2s_write_silence(tx, 128);
-    } else {
+    err = es8311_dac_init(s->es8311);
+    if (err != ESP_OK) {
         ESP_LOGE(TAG, "ES8311 DAC init failed: %s", esp_err_to_name(err));
+        audio_session_close(s);
+        return err;
     }
 
-    pa_set(false);
-    es8311_standby(es8311);
+    i2s_write_silence(s->tx, 128);
+    pa_set(true);
+    vTaskDelay(pdMS_TO_TICKS(30));
+    return ESP_OK;
+}
 
-    i2s_channel_disable(tx);
-    i2s_del_channel(tx);
-    i2c_master_bus_rm_device(es8311);
-
+static esp_err_t play_locked(esp_err_t (*fn)(audio_session_t *s, void *ctx), void *ctx)
+{
+    chime_mutex_init();
+    if (!s_chime_mutex || xSemaphoreTake(s_chime_mutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    audio_session_t session;
+    esp_err_t err = fn(&session, ctx);
     xSemaphoreGive(s_chime_mutex);
     return err;
+}
+
+static esp_err_t play_preset_session(audio_session_t *s, void *ctx)
+{
+    const char *preset = (const char *) ctx;
+    ESP_LOGI(TAG, "Playing local ES8311 speaker chime preset '%s'",
+             (preset && preset[0]) ? preset : "triad");
+    esp_err_t err = audio_session_open(s, CHIME_SAMPLE_RATE);
+    if (err != ESP_OK) {
+        return err;
+    }
+    play_preset_tones(s->tx, preset);
+    i2s_write_silence(s->tx, 128);
+    audio_session_close(s);
+    return ESP_OK;
+}
+
+static esp_err_t play_wav_session(audio_session_t *s, void *ctx)
+{
+    const char *path = (const char *) ctx;
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        ESP_LOGW(TAG, "Chime WAV not found: %s", path);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    wav_pcm_info_t info;
+    if (wav_pcm_parse_file(f, &info) != 0 || !wav_pcm_is_supported(&info)) {
+        ESP_LOGW(TAG, "Unsupported or invalid chime WAV: %s", path);
+        fclose(f);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    uint32_t play_bytes = wav_pcm_max_play_bytes(&info);
+    ESP_LOGI(TAG, "Playing chime WAV %s (%lu Hz, %u ch, %u-bit, %lu bytes)", path,
+             (unsigned long) info.sample_rate, info.channels, info.bits_per_sample,
+             (unsigned long) play_bytes);
+
+    esp_err_t err = audio_session_open(s, info.sample_rate);
+    if (err != ESP_OK) {
+        fclose(f);
+        return err;
+    }
+
+    if (fseek(f, (long) info.data_offset, SEEK_SET) != 0) {
+        audio_session_close(s);
+        fclose(f);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    uint8_t src[256];
+    int16_t dst[256];
+    const size_t src_frame = (size_t) info.channels * (info.bits_per_sample / 8u);
+    uint32_t remaining = play_bytes;
+    while (remaining > 0 && src_frame > 0) {
+        size_t want = remaining > sizeof(src) ? sizeof(src) : remaining;
+        want -= want % src_frame;
+        if (want == 0) {
+            break;
+        }
+        size_t got = fread(src, 1, want, f);
+        if (got == 0) {
+            break;
+        }
+        size_t consumed = 0;
+        size_t frames = wav_pcm_expand_s16_stereo(&info, src, got, dst, 128, &consumed);
+        if (frames == 0) {
+            break;
+        }
+        size_t written = 0;
+        i2s_channel_write(s->tx, dst, frames * 4, &written, pdMS_TO_TICKS(500));
+        if (consumed > remaining) {
+            consumed = remaining;
+        }
+        remaining -= (uint32_t) consumed;
+    }
+
+    i2s_write_silence(s->tx, 128);
+    audio_session_close(s);
+    fclose(f);
+    return ESP_OK;
+}
+
+bool board_hal_has_speaker(void)
+{
+    return true;
+}
+
+esp_err_t board_hal_play_chime(void)
+{
+    return board_hal_play_chime_preset("triad");
+}
+
+esp_err_t board_hal_play_chime_preset(const char *preset)
+{
+    return play_locked(play_preset_session, (void *) preset);
+}
+
+esp_err_t board_hal_play_wav_file(const char *path)
+{
+    if (!path || !path[0]) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return play_locked(play_wav_session, (void *) path);
 }
 
 #endif

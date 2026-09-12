@@ -13,6 +13,7 @@
 #include "album_manager.h"
 #include "board_hal.h"
 #include "cJSON.h"
+#include "chime.h"
 #include "color_palette.h"
 #include "config.h"
 #include "config_manager.h"
@@ -1453,6 +1454,17 @@ static esp_err_t config_handler(httpd_req_t *req)
         cJSON_AddBoolToObject(root, "deep_sleep_enabled", config_manager_get_deep_sleep_enabled());
         cJSON_AddBoolToObject(root, "chime_enabled", config_manager_get_chime_enabled());
         cJSON_AddBoolToObject(root, "chime_supported", board_hal_has_speaker());
+        cJSON_AddStringToObject(root, "chime_preset", config_manager_get_chime_preset());
+        const char *chime_url = config_manager_get_chime_url();
+        cJSON_AddStringToObject(root, "chime_url", chime_url ? chime_url : "");
+        cJSON_AddStringToObject(
+            root, "chime_source",
+            config_manager_get_chime_source() == CHIME_SOURCE_WAV ? "wav" : "preset");
+        cJSON_AddStringToObject(root, "chime_pull_mode",
+                                config_manager_get_chime_pull_mode() == CHIME_PULL_WITH_ROTATE
+                                    ? "with_rotate"
+                                    : "once");
+        cJSON_AddBoolToObject(root, "chime_cached", chime_cache_exists());
         cJSON_AddBoolToObject(root, "debug_log_enabled", config_manager_get_debug_log_enabled());
 
         char *json_str = cJSON_Print(root);
@@ -2044,7 +2056,7 @@ static esp_err_t chime_handler(httpd_req_t *req)
         cJSON_AddStringToObject(response, "message",
                                 "Chime is disabled (set chime_enabled in /api/config)");
     } else {
-        esp_err_t err = board_hal_play_chime();
+        esp_err_t err = chime_play(CHIME_PLAY_PREVIEW);
         if (err == ESP_OK) {
             cJSON_AddStringToObject(response, "status", "success");
             cJSON_AddStringToObject(response, "message", "Chime played");

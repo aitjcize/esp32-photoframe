@@ -147,6 +147,44 @@ const sdRotationModeOptions = [
   { title: "Sequential - In sequence", value: "sequential" },
 ];
 
+const chimePresetOptions = [
+  { title: "Triad (C–E–G)", value: "triad" },
+  { title: "Ding-dong (doorbell)", value: "dingdong" },
+  { title: "Double beep", value: "doublebeep" },
+  { title: "Ascending", value: "ascending" },
+  { title: "Soft ping", value: "softping" },
+  { title: "Alert", value: "alert" },
+];
+
+const chimeSourceOptions = [
+  { title: "Built-in preset", value: "preset" },
+  { title: "WAV from URL", value: "wav" },
+];
+
+const chimePullModeOptions = [
+  { title: "Once — download and cache", value: "once" },
+  { title: "With each rotate — refresh after display", value: "with_rotate" },
+];
+
+const previewingChime = ref(false);
+const chimePreviewMessage = ref("");
+
+async function previewChime() {
+  previewingChime.value = true;
+  chimePreviewMessage.value = "";
+  try {
+    const response = await fetch("/api/chime", { method: "POST" });
+    const data = await response.json();
+    chimePreviewMessage.value =
+      data.message || (data.status === "success" ? "Chime played" : "Chime failed");
+  } catch (error) {
+    console.error("Failed to preview chime:", error);
+    chimePreviewMessage.value = "Failed to preview chime";
+  } finally {
+    previewingChime.value = false;
+  }
+}
+
 const saving = ref(false);
 const saveSuccess = ref(false);
 
@@ -739,15 +777,76 @@ async function performFactoryReset() {
               </v-alert>
             </v-expand-transition>
 
-            <v-switch
-              v-if="settingsStore.deviceSettings.chimeSupported"
-              v-model="settingsStore.deviceSettings.chimeEnabled"
-              label="Speaker chime after image display"
-              color="primary"
-              class="mb-2"
-              hint="Local ES8311 sine tone on PhotoPainter. Disable for battery or quiet hours."
-              persistent-hint
-            />
+            <div v-if="settingsStore.deviceSettings.chimeSupported">
+              <v-switch
+                v-model="settingsStore.deviceSettings.chimeEnabled"
+                label="Speaker chime after image display"
+                color="primary"
+                class="mb-2"
+                hint="Master mute. Local ES8311 audio on PhotoPainter. Disable for battery or quiet hours."
+                persistent-hint
+              />
+
+              <v-expand-transition>
+                <div v-if="settingsStore.deviceSettings.chimeEnabled" class="mt-4">
+                  <v-select
+                    v-model="settingsStore.deviceSettings.chimeSource"
+                    :items="chimeSourceOptions"
+                    item-title="title"
+                    item-value="value"
+                    label="Chime source"
+                    variant="outlined"
+                    hint="Use a built-in tone, or play the last WAV pulled from the URL below. Save settings before preview."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-select
+                    v-model="settingsStore.deviceSettings.chimePreset"
+                    :items="chimePresetOptions"
+                    item-title="title"
+                    item-value="value"
+                    label="Built-in chime"
+                    variant="outlined"
+                    hint="Synthesized on the device. Also used if a WAV fetch or play fails."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-text-field
+                    v-model="settingsStore.deviceSettings.chimeUrl"
+                    label="Chime sound URL"
+                    variant="outlined"
+                    placeholder="http://news.local:8080/chime.wav"
+                    hint="Optional PCM WAV (mono/stereo, 8–22.05 kHz, 8/16-bit, a few seconds, max 256 KB). When source is WAV, the frame plays the last downloaded file. Clear the URL and set source to Built-in to use a preset."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-select
+                    v-model="settingsStore.deviceSettings.chimePullMode"
+                    :items="chimePullModeOptions"
+                    item-title="title"
+                    item-value="value"
+                    label="WAV pull"
+                    variant="outlined"
+                    :disabled="settingsStore.deviceSettings.chimeSource !== 'wav'"
+                    hint="Once: download when the URL is first needed and reuse the cache. With each rotate: GET the URL after a successful display, replace the cache, then play."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-btn
+                    variant="outlined"
+                    :loading="previewingChime"
+                    :disabled="!settingsStore.deviceSettings.chimeEnabled"
+                    @click="previewChime"
+                  >
+                    <v-icon start>mdi-volume-high</v-icon>
+                    Preview chime
+                  </v-btn>
+                  <div v-if="chimePreviewMessage" class="text-caption text-grey mt-2">
+                    {{ chimePreviewMessage }}
+                  </div>
+                </div>
+              </v-expand-transition>
+            </div>
           </v-tabs-window-item>
 
           <!-- Home Assistant Tab -->
