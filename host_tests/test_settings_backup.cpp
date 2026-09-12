@@ -106,6 +106,18 @@ TEST(SettingsBackup, ParsesCompactAndEscapedJson)
     EXPECT_STREQ(out.chime_file, "bell.wav");
 }
 
+TEST(SettingsBackup, AcceptsNewTunePresetIds)
+{
+    const char *json =
+        "{\"chime_preset\":\"mozart\",\"chime_source\":\"preset\","
+        "\"chime_file\":\"bell.wav\"}";
+
+    settings_backup_t out = {};
+    ASSERT_TRUE(settings_backup_parse(json, &out));
+    EXPECT_TRUE(out.has_chime_preset);
+    EXPECT_STREQ(out.chime_preset, "mozart");
+}
+
 TEST(SettingsBackup, AcceptsSdcardAliasAndSkipsInvalidEnums)
 {
     const char *json =

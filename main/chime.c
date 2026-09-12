@@ -12,6 +12,7 @@
 
 #include "board_hal.h"
 #include "chime_name.h"
+#include "chime_presets.h"
 #include "config.h"
 #include "config_manager.h"
 #include "esp_http_client.h"
@@ -22,20 +23,9 @@
 
 static const char *TAG = "chime";
 
-static const char *k_presets[] = {"triad",     "dingdong", "doublebeep",
-                                  "ascending", "softping", "alert"};
-
 bool chime_preset_is_valid(const char *preset)
 {
-    if (!preset) {
-        return false;
-    }
-    for (size_t i = 0; i < sizeof(k_presets) / sizeof(k_presets[0]); i++) {
-        if (strcmp(preset, k_presets[i]) == 0) {
-            return true;
-        }
-    }
-    return false;
+    return chime_preset_id_is_valid(preset);
 }
 
 bool chime_source_is_valid(const char *source)

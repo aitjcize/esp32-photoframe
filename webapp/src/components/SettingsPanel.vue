@@ -149,12 +149,16 @@ const sdRotationModeOptions = [
 ];
 
 const chimePresetOptions = [
-  { title: "Triad (C–E–G)", value: "triad" },
-  { title: "Ding-dong (doorbell)", value: "dingdong" },
-  { title: "Double beep", value: "doublebeep" },
-  { title: "Ascending", value: "ascending" },
-  { title: "Soft ping", value: "softping" },
+  { title: "Mozart — Eine kleine Nachtmusik", value: "mozart" },
+  { title: "Ode aan de vreugde", value: "ode" },
+  { title: "Vader Jacob", value: "frere" },
+  { title: "Twinkel, twinkel", value: "twinkle" },
+  { title: "Fanfare", value: "fanfare" },
+  { title: "Triade (C–E–G)", value: "triad" },
+  { title: "Deurbel (ding-dong)", value: "dingdong" },
+  { title: "Zachte ping", value: "softping" },
   { title: "Alert", value: "alert" },
+  { title: "Dubbele piep", value: "doublebeep" },
 ];
 
 const chimeSourceOptions = [
@@ -958,7 +962,7 @@ async function performFactoryReset() {
                     item-value="value"
                     label="Chime source"
                     variant="outlined"
-                    hint="Built-in tone, last WAV pulled from a URL, or a file uploaded below. Upload/select applies immediately; Pull now and Preview also save the URL fields."
+                    hint="Built-in tune, last WAV pulled from a URL, or a file uploaded below. Upload/select applies immediately; Pull now and Preview also save the URL fields."
                     persistent-hint
                     class="mb-4"
                   />
@@ -969,7 +973,7 @@ async function performFactoryReset() {
                     item-value="value"
                     label="Built-in chime"
                     variant="outlined"
-                    hint="Synthesized on the device. Also used if a WAV fetch or play fails."
+                    hint="Public-domain tunes synthesized on the device (about 2–8 seconds). Also used if a WAV fetch or play fails."
                     persistent-hint
                     class="mb-4"
                   />

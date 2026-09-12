@@ -161,7 +161,7 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 #define NVS_CHIME_FILE_KEY "chime_file"
 
 #define CHIME_PRESET_MAX_LEN 16
-#define DEFAULT_CHIME_PRESET "triad"
+#define DEFAULT_CHIME_PRESET "mozart"
 
 typedef enum {
     CHIME_SOURCE_PRESET = 0,
