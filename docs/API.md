@@ -171,7 +171,7 @@ Get current device configuration.
 - `deep_sleep_enabled`: Enable deep sleep between rotations
 - `chime_enabled`: Master mute. Play a local ES8311 speaker chime on a successful image display / URL rotate (default `true`). Timing is `chime_play_when`. Set `false` for battery or quiet hours. Persisted in NVS as `chime_en`.
 - `chime_supported`: Read-only. `true` on `waveshare_photopainter_73` (onboard ES8311 + PA). Other boards report `false`.
-- `chime_preset`: Built-in synthesized public-domain tune (2–8 seconds): `mozart` (default, Eine kleine Nachtmusik opening), `ode` (Ode to Joy / Ode aan de vreugde), `frere` (Frère Jacques / Vader Jacob), `twinkle`, `fanfare`, `triad` (C–E–G flourish), `dingdong` (two-tone doorbell), `softping`, `alert`, `doublebeep`. `ascending` remains accepted as an alias of `fanfare`. Used when `chime_source` is `preset`, and as fallback if a WAV fetch/play fails. Persisted as `chime_preset`. Unknown names are rejected by `POST`/`PATCH /api/config`. Playback of an unknown HAL name falls back to `triad`.
+- `chime_preset`: Built-in synthesized public-domain tune (2–8 seconds): `mozart` (default, Eine kleine Nachtmusik opening), `ode` (Ode to Joy), `frere` (Frère Jacques), `twinkle`, `fanfare`, `triad` (C–E–G flourish), `dingdong` (two-tone doorbell), `softping`, `alert`, `doublebeep`. `ascending` remains accepted as an alias of `fanfare`. Used when `chime_source` is `preset`, and as fallback if a WAV fetch/play fails. Persisted as `chime_preset`. Unknown names are rejected by `POST`/`PATCH /api/config`. Playback of an unknown HAL name falls back to `triad`.
 - `chime_url`: Optional HTTP(S) URL of a small PCM WAV (similar to `image_url`, max 256 chars). Example: `http://news.local:8080/chime.wav`. Persisted as `chime_url`. Changing the URL clears the on-device cache.
 - `chime_source`: `preset` (default) plays `chime_preset`. `wav` plays the last pulled WAV when `chime_url` is set. `uploaded` plays the file named by `chime_file` from `chimes/` on storage.
 - `chime_file`: Filename of the active uploaded WAV (e.g. `doorbell.wav`). Empty when none is selected. Persisted as `chime_file`.
@@ -295,7 +295,7 @@ When `chime_source` is `wav`, the device GET-pulls `chime_url` first if the cach
 
 ### `POST /api/chime/pull`
 
-GET `chime_url`, validate a supported PCM WAV, and replace the on-device cache. Does not play. Used by Settings → Chimes **Pull now / Nu ophalen** so `chime_pull_mode=once` can refresh without waiting for the first play. Resets the auto-sleep timer. Requires a non-empty `chime_url`.
+GET `chime_url`, validate a supported PCM WAV, and replace the on-device cache. Does not play. Used by Settings → Chimes **Pull now** so `chime_pull_mode=once` can refresh without waiting for the first play. Resets the auto-sleep timer. Requires a non-empty `chime_url`.
 
 ```bash
 curl -X POST http://photopainter.local/api/chime/pull
