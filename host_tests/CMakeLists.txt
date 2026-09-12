@@ -167,3 +167,21 @@ target_link_libraries(
 )
 
 gtest_discover_tests(chime_name_test)
+
+add_executable(
+  chime_policy_test
+  test_chime_policy.cpp
+)
+
+target_include_directories(
+  chime_policy_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
+target_link_libraries(
+  chime_policy_test
+  GTest::gtest_main
+)
+
+gtest_discover_tests(chime_policy_test)

@@ -127,15 +127,15 @@ Pin and power sequence are taken from Waveshare's stock Arduino audio example (`
 
 The AXP2101 ALDO1–4 rails are set to 3.3 V and enabled before talking to the codec (same as `Custom_PmicRegisterInit` in that example). ALDO3 powers the ES8311. Deep sleep is unchanged: the chime only runs while the device is awake for a refresh, then the existing PMIC sleep path cuts the rails.
 
-**Settings → Power** (when the board has a speaker):
+**Settings → Chimes** (when the board has a speaker; Power stays deep-sleep / battery only):
 
-- **Speaker chime after image display** — master mute (`chime_enabled`, NVS `chime_en`, default on)
+- **Enable speaker chime** — master mute (`chime_enabled`, NVS `chime_en`, default on)
 - **Chime source** — `preset` (built-in), `wav` (last pulled URL file), or `uploaded` (a WAV stored in `chimes/`). When a URL is set and source is WAV, preview and after-display play that cache. Upload or pick a stored file to use a custom sound; set source to preset to use a built-in tone.
 - **Uploaded chimes** — Settings upload button (`POST /api/chime/upload`); list/select/delete via `GET`/`DELETE /api/chimes`
 - **Built-in chime** — `triad` (default C–E–G), `dingdong`, `doublebeep`, `ascending`, `softping`, `alert`
-- **Chime sound URL** — optional HTTP(S) WAV. Modest PCM only: 8–22.05 kHz, 8/16-bit, mono or stereo, a few seconds, max 256 KB. Larger or compressed files are skipped.
-- **WAV pull** — `once` caches on first need (SD, or flash if no SD); `with_rotate` re-GETs the URL after a successful display in the same wake window, then plays. Fetch/play failure falls back to the selected preset.
-- **Preview chime** — `POST /api/chime` (plays the currently saved selection)
+- **Chime sound URL** — optional HTTP(S) WAV. PCM only: 8–22.05 kHz, 8/16-bit, mono or stereo, max **2 MiB** and **60 seconds** played (`WAV_PCM_MAX_FILE_BYTES` / `WAV_PCM_MAX_SECONDS`; SD-backed cache; typical Pi bulletin files are ~1.2 MiB / ~27 s). Larger or longer files are skipped or truncated.
+- **WAV pull** — `once` reuses the cache; use **Pull now / Nu ophalen** (`POST /api/chime/pull`) to GET `chime_url`, validate, and cache explicitly (preview also fetches when the cache is empty). `with_rotate` re-GETs the URL after a successful display in the same wake window, then plays. Fetch/play failure falls back to the selected preset.
+- **Preview chime** — `POST /api/chime` (plays the currently saved selection; JSON `played` is `wav`, `preset`, or `uploaded`)
 
 ```bash
 # Mute
@@ -149,6 +149,9 @@ curl -X POST -H 'Content-Type: application/json' \
 
 # Upload a custom WAV (becomes the active uploaded chime)
 curl -X POST -F 'file=@doorbell.wav' http://photopainter.local/api/chime/upload
+
+# Pull / cache the URL WAV now (once mode)
+curl -X POST http://photopainter.local/api/chime/pull
 
 # Preview / remote trigger
 curl -X POST http://photopainter.local/api/chime

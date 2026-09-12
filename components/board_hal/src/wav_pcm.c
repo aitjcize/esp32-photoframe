@@ -1,6 +1,20 @@
 #include "wav_pcm.h"
 
+#include <stdio.h>
 #include <string.h>
+
+void wav_pcm_max_file_label(char *dest, size_t dest_len)
+{
+    if (!dest || dest_len == 0) {
+        return;
+    }
+    unsigned mib = WAV_PCM_MAX_FILE_BYTES / (1024u * 1024u);
+    if (mib > 0 && (WAV_PCM_MAX_FILE_BYTES % (1024u * 1024u)) == 0) {
+        snprintf(dest, dest_len, "%u MiB", mib);
+        return;
+    }
+    snprintf(dest, dest_len, "%u KiB", WAV_PCM_MAX_FILE_BYTES / 1024u);
+}
 
 static uint16_t rd_le16(const uint8_t *p)
 {

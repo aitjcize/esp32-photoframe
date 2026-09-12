@@ -58,6 +58,15 @@ bool chime_cache_exists(void)
     return (size_t) st.st_size <= WAV_PCM_MAX_FILE_BYTES;
 }
 
+size_t chime_cache_size(void)
+{
+    struct stat st;
+    if (stat(CHIME_CACHE_PATH, &st) != 0 || st.st_size <= 0) {
+        return 0;
+    }
+    return (size_t) st.st_size;
+}
+
 void chime_invalidate_cache(void)
 {
     unlink(CHIME_CACHE_PATH);
@@ -282,7 +291,7 @@ static esp_err_t chime_download_wav(const char *url)
     chime_download_ctx_t ctx = {.file = file, .total_read = 0, .too_large = false};
     esp_http_client_config_t config = {
         .url = url,
-        .timeout_ms = 15000,
+        .timeout_ms = 30000,
         .event_handler = chime_http_event,
         .user_data = &ctx,
         .max_redirection_count = 3,
@@ -339,8 +348,28 @@ static esp_err_t chime_download_wav(const char *url)
     return ESP_OK;
 }
 
+esp_err_t chime_pull_url(void)
+{
+    const char *url = config_manager_get_chime_url();
+    if (!url || !url[0]) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return chime_download_wav(url);
+}
+
 esp_err_t chime_play(chime_play_reason_t reason)
 {
+    return chime_play_detailed(reason, false, NULL);
+}
+
+esp_err_t chime_play_detailed(chime_play_reason_t reason, bool refresh, chime_play_result_t *out)
+{
+    if (out) {
+        out->played = CHIME_PLAYED_NONE;
+        out->fetched = false;
+        out->fetch_err = ESP_OK;
+    }
+
     if (!board_hal_has_speaker()) {
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -353,12 +382,19 @@ esp_err_t chime_play(chime_play_reason_t reason)
             snprintf(path, sizeof(path), "%s/%s", CHIME_DIRECTORY, file);
             esp_err_t perr = board_hal_play_wav_file(path);
             if (perr == ESP_OK) {
+                if (out) {
+                    out->played = CHIME_PLAYED_UPLOADED;
+                }
                 return ESP_OK;
             }
             ESP_LOGW(TAG, "Uploaded chime play failed, falling back to preset: %s",
                      esp_err_to_name(perr));
         }
-        return board_hal_play_chime_preset(config_manager_get_chime_preset());
+        esp_err_t perr = board_hal_play_chime_preset(config_manager_get_chime_preset());
+        if (out && perr == ESP_OK) {
+            out->played = CHIME_PLAYED_PRESET;
+        }
+        return perr;
     }
 
     bool want_wav = (source == CHIME_SOURCE_WAV);
@@ -367,17 +403,13 @@ esp_err_t chime_play(chime_play_reason_t reason)
     bool have_cache = chime_cache_exists();
 
     if (want_wav && have_url) {
-        bool should_fetch = false;
-        if (reason == CHIME_PLAY_AFTER_DISPLAY &&
-            config_manager_get_chime_pull_mode() == CHIME_PULL_WITH_ROTATE) {
-            should_fetch = true;
-        } else if (!have_cache) {
-            // once: download on first need; preview does the same if no cache.
-            should_fetch = true;
-        }
-
-        if (should_fetch) {
+        bool with_rotate = config_manager_get_chime_pull_mode() == CHIME_PULL_WITH_ROTATE;
+        if (chime_should_fetch_url(reason, with_rotate, have_cache, refresh)) {
             esp_err_t ferr = chime_download_wav(url);
+            if (out) {
+                out->fetched = true;
+                out->fetch_err = ferr;
+            }
             if (ferr == ESP_OK) {
                 have_cache = true;
             } else {
@@ -390,12 +422,21 @@ esp_err_t chime_play(chime_play_reason_t reason)
         if (have_cache) {
             esp_err_t perr = board_hal_play_wav_file(CHIME_CACHE_PATH);
             if (perr == ESP_OK) {
+                if (out) {
+                    out->played = CHIME_PLAYED_WAV;
+                }
                 return ESP_OK;
             }
             ESP_LOGW(TAG, "Chime WAV play failed, falling back to preset: %s",
                      esp_err_to_name(perr));
         }
+    } else if (want_wav && out && !have_url) {
+        out->fetch_err = ESP_ERR_INVALID_ARG;
     }
 
-    return board_hal_play_chime_preset(config_manager_get_chime_preset());
+    esp_err_t perr = board_hal_play_chime_preset(config_manager_get_chime_preset());
+    if (out && perr == ESP_OK) {
+        out->played = CHIME_PLAYED_PRESET;
+    }
+    return perr;
 }

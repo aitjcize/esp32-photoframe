@@ -9,12 +9,17 @@
 extern "C" {
 #endif
 
-// Modest on-device chime WAVs: mono or stereo PCM, 8/16-bit, 8–22.05 kHz,
-// a few seconds. Huge or compressed files are rejected by the caller.
+// On-device chime WAVs (SD-backed cache): mono or stereo PCM, 8/16-bit,
+// 8–22.05 kHz. Typical Pi bulletin files are ~1.2 MiB / ~27 s spoken audio.
+// Huge or compressed files are rejected by the caller. Playback is truncated
+// at WAV_PCM_MAX_SECONDS even if the file is larger.
 #define WAV_PCM_MIN_RATE 8000u
 #define WAV_PCM_MAX_RATE 22050u
-#define WAV_PCM_MAX_SECONDS 6u
-#define WAV_PCM_MAX_FILE_BYTES (256u * 1024u)
+#define WAV_PCM_MAX_SECONDS 60u
+#define WAV_PCM_MAX_FILE_BYTES (2u * 1024u * 1024u)
+
+// Write a short cap label such as "2 MiB" into dest.
+void wav_pcm_max_file_label(char *dest, size_t dest_len);
 
 typedef struct {
     uint32_t sample_rate;

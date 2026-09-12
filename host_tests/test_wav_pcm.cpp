@@ -107,14 +107,41 @@ TEST(WavPcm, RejectsCompressedAndOutOfRange)
     EXPECT_NE(wav_pcm_parse(bad_magic.data(), bad_magic.size(), &info), 0);
 }
 
+TEST(WavPcm, MaxFileBytesFitsTypicalPiWav)
+{
+    // SD-backed cache: typical Pi doorbell WAVs are ~1.2 MiB.
+    EXPECT_EQ(WAV_PCM_MAX_FILE_BYTES, 2u * 1024u * 1024u);
+    EXPECT_GE(WAV_PCM_MAX_FILE_BYTES, 1536u * 1024u);
+
+    char label[16];
+    wav_pcm_max_file_label(label, sizeof(label));
+    EXPECT_STREQ(label, "2 MiB");
+}
+
 TEST(WavPcm, CapsPlayDuration)
 {
-    // 16-bit mono @ 8 kHz: 8 seconds of silence is 128000 bytes of PCM.
-    std::vector<uint8_t> pcm(8000 * 2 * 8, 0);
+    EXPECT_EQ(WAV_PCM_MAX_SECONDS, 60u);
+    EXPECT_GE(WAV_PCM_MAX_SECONDS, 45u);
+
+    // 16-bit mono @ 8 kHz: longer than the play cap so the duration limit binds.
+    const uint32_t seconds = WAV_PCM_MAX_SECONDS + 10u;
+    std::vector<uint8_t> pcm(8000 * 2 * seconds, 0);
     auto wav = make_wav(1, 8000, 16, pcm);
     wav_pcm_info_t info;
     ASSERT_EQ(wav_pcm_parse(wav.data(), wav.size(), &info), 0);
     EXPECT_EQ(wav_pcm_max_play_bytes(&info), 8000u * 2u * WAV_PCM_MAX_SECONDS);
+}
+
+TEST(WavPcm, DurationAllowsSpokenBulletin)
+{
+    // ~27 s Dutch bulletin at typical Pi rates must play in full, not 6 s.
+    wav_pcm_info_t info = {};
+    info.sample_rate = 22050;
+    info.channels = 1;
+    info.bits_per_sample = 16;
+    info.data_bytes = 22050u * 2u * 27u;
+    EXPECT_LE(info.data_bytes, WAV_PCM_MAX_FILE_BYTES);
+    EXPECT_EQ(wav_pcm_max_play_bytes(&info), info.data_bytes);
 }
 
 TEST(WavPcm, Expands8BitMonoAnd16BitStereo)

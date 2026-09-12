@@ -418,6 +418,11 @@ static esp_err_t play_wav_session(audio_session_t *s, void *ctx)
             consumed = remaining;
         }
         remaining -= (uint32_t) consumed;
+        // Long bulletins (up to WAV_PCM_MAX_SECONDS) must yield so IDLE can
+        // feed the task watchdog.
+        if ((remaining >> 15) != ((remaining + consumed) >> 15)) {
+            vTaskDelay(1);
+        }
     }
 
     i2s_write_silence(s->tx, 128);

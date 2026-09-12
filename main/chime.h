@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "chime_name.h"
+#include "chime_policy.h"
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -12,24 +13,30 @@ extern "C" {
 
 #define CHIME_MAX_STORED 16
 
-typedef enum {
-    CHIME_PLAY_PREVIEW = 0,
-    CHIME_PLAY_AFTER_DISPLAY = 1,
-} chime_play_reason_t;
-
 typedef struct {
     char name[CHIME_FILENAME_MAX_LEN];
     size_t size;
 } chime_entry_t;
 
+typedef struct {
+    chime_played_t played;
+    bool fetched;
+    esp_err_t fetch_err;
+} chime_play_result_t;
+
 // Play the currently selected chime (preset, last cached URL WAV, or an
-// uploaded file). Preview uses the cache as-is (fetches only on first need).
+// uploaded file). Preview fetches when the cache is empty or refresh is set.
 // After display, with_rotate also GET-replaces the URL cache before playing.
 // Falls back to the selected preset if WAV fetch/play fails. Caller should
 // check chime_enabled.
 esp_err_t chime_play(chime_play_reason_t reason);
+esp_err_t chime_play_detailed(chime_play_reason_t reason, bool refresh, chime_play_result_t *out);
+
+// GET chime_url, validate PCM WAV, and replace the on-device cache. Does not play.
+esp_err_t chime_pull_url(void);
 
 bool chime_cache_exists(void);
+size_t chime_cache_size(void);
 void chime_invalidate_cache(void);
 
 bool chime_preset_is_valid(const char *preset);

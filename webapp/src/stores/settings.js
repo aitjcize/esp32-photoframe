@@ -50,6 +50,7 @@ export const useSettingsStore = defineStore("settings", () => {
     haUrl: "",
     // Power
     deepSleepEnabled: true,
+    // Chimes (PhotoPainter speaker)
     chimeEnabled: true,
     chimeSupported: false,
     chimePreset: "triad",
