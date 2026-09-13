@@ -2,6 +2,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "chime_presets.h"
@@ -31,6 +32,22 @@ static bool pull_mode_is_valid(const char *mode)
 static bool play_when_is_valid(const char *when)
 {
     return when && (strcmp(when, "after") == 0 || strcmp(when, "before") == 0);
+}
+
+static bool orientation_is_valid(const char *orientation)
+{
+    return orientation &&
+           (strcmp(orientation, "landscape") == 0 || strcmp(orientation, "portrait") == 0);
+}
+
+static bool sd_rotation_mode_is_valid(const char *mode)
+{
+    return mode && (strcmp(mode, "random") == 0 || strcmp(mode, "sequential") == 0);
+}
+
+static bool display_rotation_deg_is_valid(int deg)
+{
+    return deg == 0 || deg == 180;
 }
 
 static void skip_ws(const char **p)
@@ -219,6 +236,19 @@ static bool parse_bool(const char **p, bool *out)
     return false;
 }
 
+static bool parse_int(const char **p, int *out)
+{
+    skip_ws(p);
+    char *end = NULL;
+    long v = strtol(*p, &end, 10);
+    if (end == *p) {
+        return false;
+    }
+    *out = (int) v;
+    *p = end;
+    return true;
+}
+
 static bool parse_cron_array(const char **p, settings_backup_t *out)
 {
     skip_ws(p);
@@ -321,6 +351,37 @@ int settings_backup_serialize(const settings_backup_t *in, char *out, size_t out
     if (!append_fmt(&p, end, "{\n  \"version\": %d,\n", SETTINGS_BACKUP_VERSION)) {
         return -1;
     }
+    if (!append_fmt(&p, end, "  \"device_name\": ")) {
+        return -1;
+    }
+    if (!append_quoted(&p, end, in->device_name)) {
+        return -1;
+    }
+    if (!append_fmt(&p, end, ",\n  \"timezone\": ")) {
+        return -1;
+    }
+    if (!append_quoted(&p, end, in->timezone[0] ? in->timezone : "UTC0")) {
+        return -1;
+    }
+    if (!append_fmt(&p, end, ",\n  \"ntp_server\": ")) {
+        return -1;
+    }
+    if (!append_quoted(&p, end, in->ntp_server[0] ? in->ntp_server : "pool.ntp.org")) {
+        return -1;
+    }
+    if (!append_fmt(&p, end, ",\n  \"display_orientation\": ")) {
+        return -1;
+    }
+    if (!append_quoted(&p, end,
+                       in->display_orientation[0] ? in->display_orientation : "landscape")) {
+        return -1;
+    }
+    if (!append_fmt(&p, end, ",\n  \"display_rotation_deg\": %d,\n",
+                    display_rotation_deg_is_valid(in->display_rotation_deg)
+                        ? in->display_rotation_deg
+                        : 180)) {
+        return -1;
+    }
     if (!append_fmt(&p, end, "  \"auto_rotate\": %s,\n", in->auto_rotate ? "true" : "false")) {
         return -1;
     }
@@ -351,13 +412,29 @@ int settings_backup_serialize(const settings_backup_t *in, char *out, size_t out
     if (!append_quoted(&p, end, in->rotation_mode[0] ? in->rotation_mode : "storage")) {
         return -1;
     }
+    if (!append_fmt(&p, end, ",\n  \"sd_rotation_mode\": ")) {
+        return -1;
+    }
+    if (!append_quoted(&p, end, in->sd_rotation_mode[0] ? in->sd_rotation_mode : "random")) {
+        return -1;
+    }
     if (!append_fmt(&p, end, ",\n  \"image_url\": ")) {
         return -1;
     }
     if (!append_quoted(&p, end, in->image_url)) {
         return -1;
     }
-    if (!append_fmt(&p, end, ",\n  \"deep_sleep_enabled\": %s,\n",
+    if (!append_fmt(&p, end, ",\n  \"ha_url\": ")) {
+        return -1;
+    }
+    if (!append_quoted(&p, end, in->ha_url)) {
+        return -1;
+    }
+    if (!append_fmt(&p, end, ",\n  \"save_downloaded_images\": %s,\n",
+                    in->save_downloaded_images ? "true" : "false")) {
+        return -1;
+    }
+    if (!append_fmt(&p, end, "  \"deep_sleep_enabled\": %s,\n",
                     in->deep_sleep_enabled ? "true" : "false")) {
         return -1;
     }
@@ -400,7 +477,8 @@ int settings_backup_serialize(const settings_backup_t *in, char *out, size_t out
     if (!append_quoted(&p, end, in->chime_file)) {
         return -1;
     }
-    if (!append_fmt(&p, end, "\n}\n")) {
+    if (!append_fmt(&p, end, ",\n  \"debug_log_enabled\": %s\n}\n",
+                    in->debug_log_enabled ? "true" : "false")) {
         return -1;
     }
     return (int) (p - out);
@@ -423,7 +501,7 @@ bool settings_backup_parse(const char *json, settings_backup_t *out)
     }
 
     while (*p) {
-        char key[32];
+        char key[40];
         if (!parse_string(&p, key, sizeof(key)) || !expect_char(&p, ':')) {
             return false;
         }
@@ -438,6 +516,46 @@ bool settings_backup_parse(const char *json, settings_backup_t *out)
         } else if (strcmp(key, "chime_enabled") == 0) {
             ok = parse_bool(&p, &out->chime_enabled);
             out->has_chime_enabled = ok;
+        } else if (strcmp(key, "debug_log_enabled") == 0) {
+            ok = parse_bool(&p, &out->debug_log_enabled);
+            out->has_debug_log_enabled = ok;
+        } else if (strcmp(key, "save_downloaded_images") == 0) {
+            ok = parse_bool(&p, &out->save_downloaded_images);
+            out->has_save_downloaded_images = ok;
+        } else if (strcmp(key, "display_rotation_deg") == 0) {
+            int deg = 0;
+            ok = parse_int(&p, &deg);
+            if (ok && display_rotation_deg_is_valid(deg)) {
+                out->display_rotation_deg = deg;
+                out->has_display_rotation_deg = true;
+            }
+        } else if (strcmp(key, "timezone") == 0) {
+            ok = parse_string(&p, out->timezone, sizeof(out->timezone));
+            out->has_timezone = ok && out->timezone[0] != '\0';
+        } else if (strcmp(key, "ntp_server") == 0) {
+            ok = parse_string(&p, out->ntp_server, sizeof(out->ntp_server));
+            out->has_ntp_server = ok && out->ntp_server[0] != '\0';
+        } else if (strcmp(key, "device_name") == 0) {
+            ok = parse_string(&p, out->device_name, sizeof(out->device_name));
+            out->has_device_name = ok && out->device_name[0] != '\0';
+        } else if (strcmp(key, "ha_url") == 0) {
+            ok = parse_string(&p, out->ha_url, sizeof(out->ha_url));
+            out->has_ha_url = ok;
+        } else if (strcmp(key, "display_orientation") == 0) {
+            char orientation[SETTINGS_BACKUP_ENUM_MAX_LEN];
+            ok = parse_string(&p, orientation, sizeof(orientation));
+            if (ok && orientation_is_valid(orientation)) {
+                strncpy(out->display_orientation, orientation,
+                        sizeof(out->display_orientation) - 1);
+                out->has_display_orientation = true;
+            }
+        } else if (strcmp(key, "sd_rotation_mode") == 0) {
+            char mode[SETTINGS_BACKUP_ENUM_MAX_LEN];
+            ok = parse_string(&p, mode, sizeof(mode));
+            if (ok && sd_rotation_mode_is_valid(mode)) {
+                strncpy(out->sd_rotation_mode, mode, sizeof(out->sd_rotation_mode) - 1);
+                out->has_sd_rotation_mode = true;
+            }
         } else if (strcmp(key, "rotate_cron") == 0) {
             ok = parse_cron_array(&p, out);
             out->has_rotate_cron = ok && out->rotate_cron_count > 0;

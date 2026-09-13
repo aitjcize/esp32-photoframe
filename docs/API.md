@@ -143,7 +143,7 @@ Get current device configuration.
 
 **Fields:**
 - `device_name`: Device name (used for mDNS hostname)
-- `timezone`: POSIX timezone string (e.g., `UTC-8` for PST)
+- `timezone`: POSIX timezone string. Simple fixed offsets use `UTC±H[:MM]` with inverted sign (e.g. `UTC-8` for PST / UTC+8). DST-aware zones use a full POSIX TZ (e.g. `CET-1CEST,M3.5.0/2,M10.5.0/3` for Amsterdam).
 - `ntp_server`: NTP server address
 - `display_orientation`: `"landscape"` or `"portrait"`
 - `display_rotation_deg`: Display rotation in degrees (0, 90, 180, 270)
@@ -212,7 +212,7 @@ Update configuration. Only include fields to change.
 
 Same as `POST /api/config`. Both methods accept partial updates.
 
-**SD backup:** each successful `POST`/`PATCH` `/api/config` (and other calls that `touch` config, such as chime upload/delete) also writes `/storage/config/settings.json` when an SD card is mounted. That file is the backup that survives a full firmware flash at `0x0` (NVS wipe). On boot, NVS is loaded first; if the SD file exists and NVS has none of the backed-up keys, the snapshot is imported. Included keys: `auto_rotate`, `rotate_cron`, `rotation_mode`, `image_url`, `deep_sleep_enabled`, and all `chime_*` fields. WiFi is not stored here (`wifi.txt` is unchanged).
+**SD backup:** each successful `POST`/`PATCH` `/api/config` (and other calls that `touch` config, such as chime upload/delete) also writes `/storage/config/settings.json` when an SD card is mounted. That file is the backup that survives a full firmware flash at `0x0` (NVS wipe). On boot, NVS is loaded first; if the SD file exists and NVS has none of the backed-up keys, the snapshot is imported. Included keys: `device_name`, `timezone`, `ntp_server`, `display_orientation`, `display_rotation_deg`, `auto_rotate`, `rotate_cron`, `rotation_mode`, `sd_rotation_mode`, `image_url`, `ha_url`, `save_downloaded_images`, `deep_sleep_enabled`, `debug_log_enabled`, and all `chime_*` fields. Not included (stay out of this file): WiFi (`wifi.txt` / NVS), static IP / DNS, tokens, HTTP headers, CA pin, AI API keys, and runtime state (`last_index`, ETag, last fetch error).
 
 ### `POST /api/config/export-sd`
 
