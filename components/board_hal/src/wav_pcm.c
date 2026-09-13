@@ -125,6 +125,16 @@ int wav_pcm_parse_file(FILE *f, wav_pcm_info_t *out)
             }
             out->data_offset = (uint32_t) pos;
             out->data_bytes = size;
+            if (fseek(f, 0, SEEK_END) != 0) {
+                return -1;
+            }
+            long file_end = ftell(f);
+            if (file_end < 0 || !wav_pcm_data_is_complete(out, (size_t) file_end)) {
+                return -1;
+            }
+            if (fseek(f, pos, SEEK_SET) != 0) {
+                return -1;
+            }
             return 0;
         } else {
             long skip = (long) size + (long) (size & 1u);
@@ -133,6 +143,15 @@ int wav_pcm_parse_file(FILE *f, wav_pcm_info_t *out)
             }
         }
     }
+}
+
+bool wav_pcm_data_is_complete(const wav_pcm_info_t *info, size_t file_bytes)
+{
+    if (!info) {
+        return false;
+    }
+    uint64_t need = (uint64_t) info->data_offset + (uint64_t) info->data_bytes;
+    return (uint64_t) file_bytes >= need;
 }
 
 bool wav_pcm_is_supported(const wav_pcm_info_t *info)

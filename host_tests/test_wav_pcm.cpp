@@ -173,6 +173,62 @@ TEST(WavPcm, Expands8BitMonoAnd16BitStereo)
     EXPECT_EQ(dst[1], 0x7fff);
 }
 
+TEST(WavPcm, DataIsCompleteRequiresFullPayload)
+{
+    wav_pcm_info_t info = {};
+    info.data_offset = 44;
+    info.data_bytes = 16000u * 2u * 39u;  // ~39 s 16 kHz mono 16-bit
+    const size_t need = 44u + (size_t) info.data_bytes;
+    EXPECT_FALSE(wav_pcm_data_is_complete(&info, 44));
+    EXPECT_FALSE(wav_pcm_data_is_complete(&info, need - 1u));
+    // Cut heard around 28.7 s: file has header + ~29 s of PCM, header claims 39 s.
+    EXPECT_FALSE(wav_pcm_data_is_complete(&info, 44u + 16000u * 2u * 29u));
+    EXPECT_TRUE(wav_pcm_data_is_complete(&info, need));
+    EXPECT_TRUE(wav_pcm_data_is_complete(&info, need + 16u));
+    EXPECT_FALSE(wav_pcm_data_is_complete(nullptr, need));
+}
+
+TEST(WavPcm, DurationAllowsThirtyNineSecondBulletin)
+{
+    wav_pcm_info_t info = {};
+    info.sample_rate = 16000;
+    info.channels = 1;
+    info.bits_per_sample = 16;
+    info.data_bytes = 16000u * 2u * 39u;
+    EXPECT_LE(info.data_bytes, WAV_PCM_MAX_FILE_BYTES);
+    EXPECT_EQ(wav_pcm_max_play_bytes(&info), info.data_bytes);
+}
+
+TEST(WavPcm, ParseFileRejectsTruncatedDataChunk)
+{
+    std::vector<uint8_t> pcm(1000, 0x5a);
+    auto wav = make_wav(1, 16000, 16, pcm);
+    ASSERT_GT(wav.size(), 200u);
+
+    char path[] = "/tmp/chime_wav_trunc_XXXXXX";
+    int fd = mkstemp(path);
+    ASSERT_GE(fd, 0);
+    FILE *out = fdopen(fd, "wb");
+    ASSERT_TRUE(out);
+    // Keep the RIFF/fmt/data headers and only part of the PCM — same shape as
+    // an HTTP body that stopped mid-bulletin while the data-chunk size is intact.
+    const size_t keep = wav.size() - 800;
+    ASSERT_EQ(fwrite(wav.data(), 1, keep, out), keep);
+    fclose(out);
+
+    FILE *in = fopen(path, "rb");
+    ASSERT_TRUE(in);
+    wav_pcm_info_t info;
+    EXPECT_NE(wav_pcm_parse_file(in, &info), 0);
+    fclose(in);
+
+    // Memory parse is header-only; completeness is a separate check.
+    ASSERT_EQ(wav_pcm_parse(wav.data(), keep, &info), 0);
+    EXPECT_EQ(info.data_bytes, 1000u);
+    EXPECT_FALSE(wav_pcm_data_is_complete(&info, keep));
+    unlink(path);
+}
+
 TEST(WavPcm, ParseFileRoundTrip)
 {
     std::vector<uint8_t> pcm = {0x11, 0x22, 0x33, 0x44};

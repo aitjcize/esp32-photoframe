@@ -34,10 +34,14 @@ typedef struct {
 int wav_pcm_parse(const uint8_t *buf, size_t len, wav_pcm_info_t *out);
 
 // Parse from an open file (scans chunks). On success the file position is at
-// the start of PCM data. Returns 0 on success.
+// the start of PCM data. Returns 0 on success. Rejects files shorter than
+// data_offset + data_bytes so a truncated download cannot look valid.
 int wav_pcm_parse_file(FILE *f, wav_pcm_info_t *out);
 
 bool wav_pcm_is_supported(const wav_pcm_info_t *info);
+
+// True when file_bytes covers the declared PCM payload (data_offset + data_bytes).
+bool wav_pcm_data_is_complete(const wav_pcm_info_t *info, size_t file_bytes);
 
 // Bytes of source PCM that may be played (duration cap, not file-size cap).
 uint32_t wav_pcm_max_play_bytes(const wav_pcm_info_t *info);

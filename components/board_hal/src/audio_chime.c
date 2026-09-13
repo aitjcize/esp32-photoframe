@@ -379,6 +379,18 @@ static esp_err_t play_wav_session(audio_session_t *s, void *ctx)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return ESP_ERR_INVALID_STATE;
+    }
+    long file_end = ftell(f);
+    if (file_end < 0 || !wav_pcm_data_is_complete(&info, (size_t) file_end)) {
+        ESP_LOGW(TAG, "Chime WAV PCM payload truncated: %s (file %ld, need %lu+%lu)", path,
+                 file_end, (unsigned long) info.data_offset, (unsigned long) info.data_bytes);
+        fclose(f);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
     uint32_t play_bytes = wav_pcm_max_play_bytes(&info);
     ESP_LOGI(TAG, "Playing chime WAV %s (%lu Hz, %u ch, %u-bit, %lu bytes)", path,
              (unsigned long) info.sample_rate, info.channels, info.bits_per_sample,
@@ -408,6 +420,7 @@ static esp_err_t play_wav_session(audio_session_t *s, void *ctx)
         }
         size_t got = fread(src, 1, want, f);
         if (got == 0) {
+            ESP_LOGW(TAG, "Chime WAV hit EOF %lu bytes early", (unsigned long) remaining);
             break;
         }
         size_t consumed = 0;
@@ -416,14 +429,19 @@ static esp_err_t play_wav_session(audio_session_t *s, void *ctx)
             break;
         }
         size_t written = 0;
-        i2s_channel_write(s->tx, dst, frames * 4, &written, pdMS_TO_TICKS(500));
+        // 60 s of PCM is real-time blocked on I2S; 2 s covers a full DMA
+        // drain so a slow write cannot look like a ~30 s play abort.
+        esp_err_t werr = i2s_channel_write(s->tx, dst, frames * 4, &written, pdMS_TO_TICKS(2000));
+        if (werr != ESP_OK) {
+            ESP_LOGW(TAG, "Chime I2S write failed: %s", esp_err_to_name(werr));
+        }
         if (consumed > remaining) {
             consumed = remaining;
         }
         remaining -= (uint32_t) consumed;
-        // Long bulletins (up to WAV_PCM_MAX_SECONDS) must yield so IDLE can
-        // feed the task watchdog.
-        if ((remaining >> 15) != ((remaining + consumed) >> 15)) {
+        // IDLE must feed CONFIG_ESP_TASK_WDT_TIMEOUT_S (15 s). Yield every
+        // 16 KiB (~0.5–2 s of PCM) so a full WAV_PCM_MAX_SECONDS play is safe.
+        if ((remaining >> 14) != ((remaining + consumed) >> 14)) {
             vTaskDelay(1);
         }
     }
