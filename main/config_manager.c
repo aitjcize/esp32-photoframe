@@ -194,6 +194,7 @@ esp_err_t config_manager_init(void)
         // General
         size_t device_name_len = DEVICE_NAME_MAX_LEN;
         if (nvs_get_str(nvs_handle, NVS_DEVICE_NAME_KEY, device_name, &device_name_len) == ESP_OK) {
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded device name from NVS: %s", device_name);
         } else {
             strncpy(device_name, DEFAULT_DEVICE_NAME, DEVICE_NAME_MAX_LEN - 1);
@@ -203,6 +204,7 @@ esp_err_t config_manager_init(void)
 
         size_t tz_len = TIMEZONE_MAX_LEN;
         if (nvs_get_str(nvs_handle, NVS_TIMEZONE_KEY, tz_string, &tz_len) == ESP_OK) {
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded timezone from NVS: %s", tz_string);
         } else {
             strncpy(tz_string, DEFAULT_TIMEZONE, TIMEZONE_MAX_LEN - 1);
@@ -212,6 +214,7 @@ esp_err_t config_manager_init(void)
 
         size_t ntp_server_len = NTP_SERVER_MAX_LEN;
         if (nvs_get_str(nvs_handle, NVS_NTP_SERVER_KEY, ntp_server, &ntp_server_len) == ESP_OK) {
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded NTP server from NVS: %s", ntp_server);
         } else {
             strncpy(ntp_server, DEFAULT_NTP_SERVER, NTP_SERVER_MAX_LEN - 1);
@@ -241,6 +244,7 @@ esp_err_t config_manager_init(void)
 
         uint8_t stored_orientation = DISPLAY_ORIENTATION_LANDSCAPE;
         if (nvs_get_u8(nvs_handle, NVS_DISPLAY_ORIENTATION_KEY, &stored_orientation) == ESP_OK) {
+            note_nvs_backup_key();
             display_orientation = (display_orientation_t) stored_orientation;
             ESP_LOGI(
                 TAG, "Loaded display orientation from NVS: %s",
@@ -255,6 +259,7 @@ esp_err_t config_manager_init(void)
             // pipeline assumes (see apply_config_from_json). Keep the board
             // default instead.
             if (stored_display_rotation_deg == 0 || stored_display_rotation_deg == 180) {
+                note_nvs_backup_key();
                 display_rotation_deg = stored_display_rotation_deg;
                 ESP_LOGI(TAG, "Loaded display rotation from NVS: %d degrees", display_rotation_deg);
             } else {
@@ -319,6 +324,7 @@ esp_err_t config_manager_init(void)
         // Auto Rotate - SDCARD
         uint8_t stored_sd_mode = SD_ROTATION_RANDOM;
         if (nvs_get_u8(nvs_handle, NVS_SD_ROTATION_MODE_KEY, &stored_sd_mode) == ESP_OK) {
+            note_nvs_backup_key();
             sd_rotation_mode = (sd_rotation_mode_t) stored_sd_mode;
             ESP_LOGI(TAG, "Loaded SD rotation mode from NVS: %s",
                      sd_rotation_mode == SD_ROTATION_SEQUENTIAL ? "sequential" : "random");
@@ -376,6 +382,7 @@ esp_err_t config_manager_init(void)
 
         uint8_t stored_save_dl = 0;
         if (nvs_get_u8(nvs_handle, NVS_SAVE_DOWNLOADED_KEY, &stored_save_dl) == ESP_OK) {
+            note_nvs_backup_key();
             save_downloaded_images = (stored_save_dl != 0);
             ESP_LOGI(TAG, "Loaded save_downloaded_images from NVS: %s",
                      save_downloaded_images ? "yes" : "no");
@@ -389,6 +396,7 @@ esp_err_t config_manager_init(void)
         // Home Assistant
         size_t ha_url_len = HA_URL_MAX_LEN;
         if (nvs_get_str(nvs_handle, NVS_HA_URL_KEY, ha_url, &ha_url_len) == ESP_OK) {
+            note_nvs_backup_key();
             ESP_LOGI(TAG, "Loaded HA URL from NVS: %s", ha_url);
         } else {
             strncpy(ha_url, DEFAULT_HA_URL, HA_URL_MAX_LEN - 1);
@@ -488,6 +496,7 @@ esp_err_t config_manager_init(void)
         // Debugging
         uint8_t debug_log_val = 0;
         if (nvs_get_u8(nvs_handle, NVS_DEBUG_LOG_KEY, &debug_log_val) == ESP_OK) {
+            note_nvs_backup_key();
             debug_log_enabled = (debug_log_val != 0);
             ESP_LOGI(TAG, "Loaded debug log setting from NVS: %s",
                      debug_log_enabled ? "enabled" : "disabled");
@@ -540,33 +549,10 @@ esp_err_t config_manager_init(void)
         }
     }
 
-    // Apply timezone setting
-    setenv("TZ", tz_string, 1);
-    tzset();
-    ESP_LOGI(TAG, "Timezone set to: %s", tz_string);
-
-    // Log current system time in local timezone
-    time_t now;
-    struct tm timeinfo;
-    time(&now);
-    localtime_r(&now, &timeinfo);
-    char strftime_buf[64];
-    strftime(strftime_buf, sizeof(strftime_buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
-
-    // Calculate UTC offset for display
-    struct tm utc_timeinfo;
-    gmtime_r(&now, &utc_timeinfo);
-    int offset_hours = timeinfo.tm_hour - utc_timeinfo.tm_hour;
-
-    // Handle day boundary crossing
-    if (offset_hours > 12)
-        offset_hours -= 24;
-    if (offset_hours < -12)
-        offset_hours += 24;
-
     // After a full flash at 0x0, NVS is empty but the SD snapshot from the
     // last Settings save is still on the card. Import it before any rotate
-    // or UI path reads the runtime config.
+    // or UI path reads the runtime config — including timezone, which must be
+    // applied after this restore so cron/time use the snapshot TZ on this boot.
     if (settings_backup_should_restore(nvs_has_settings_backup_keys, settings_sd_file_present())) {
         ESP_LOGI(TAG, "NVS looks factory-fresh; restoring settings from %s", SETTINGS_BACKUP_PATH);
         if (config_manager_import_settings_sd() == ESP_OK) {
@@ -574,6 +560,18 @@ esp_err_t config_manager_init(void)
             config_manager_touch_config();
         }
     }
+
+    setenv("TZ", tz_string, 1);
+    tzset();
+    ESP_LOGI(TAG, "Timezone set to: %s", tz_string);
+
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    char strftime_buf[64];
+    strftime(strftime_buf, sizeof(strftime_buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    ESP_LOGI(TAG, "Local time after TZ apply: %s", strftime_buf);
 
     ESP_LOGI(TAG, "Config manager initialized");
     return ESP_OK;
@@ -1462,6 +1460,30 @@ void config_manager_touch_config(void)
 static void settings_backup_from_runtime(settings_backup_t *out)
 {
     memset(out, 0, sizeof(*out));
+    strncpy(out->device_name, device_name[0] ? device_name : DEFAULT_DEVICE_NAME,
+            sizeof(out->device_name) - 1);
+    out->has_device_name = true;
+    strncpy(out->timezone, tz_string[0] ? tz_string : DEFAULT_TIMEZONE, sizeof(out->timezone) - 1);
+    out->has_timezone = true;
+    strncpy(out->ntp_server, ntp_server[0] ? ntp_server : DEFAULT_NTP_SERVER,
+            sizeof(out->ntp_server) - 1);
+    out->has_ntp_server = true;
+    strncpy(out->display_orientation,
+            display_orientation == DISPLAY_ORIENTATION_PORTRAIT ? "portrait" : "landscape",
+            sizeof(out->display_orientation) - 1);
+    out->has_display_orientation = true;
+    out->display_rotation_deg = display_rotation_deg;
+    out->has_display_rotation_deg = true;
+    strncpy(out->sd_rotation_mode,
+            sd_rotation_mode == SD_ROTATION_SEQUENTIAL ? "sequential" : "random",
+            sizeof(out->sd_rotation_mode) - 1);
+    out->has_sd_rotation_mode = true;
+    strncpy(out->ha_url, ha_url, sizeof(out->ha_url) - 1);
+    out->has_ha_url = true;
+    out->save_downloaded_images = save_downloaded_images;
+    out->has_save_downloaded_images = true;
+    out->debug_log_enabled = debug_log_enabled;
+    out->has_debug_log_enabled = true;
     out->auto_rotate = auto_rotate_enabled;
     out->has_auto_rotate = true;
     out->rotate_cron_count = cron_rule_count;
@@ -1517,6 +1539,39 @@ static void set_chime_url_keep_cache(const char *url)
 
 static void settings_backup_apply_to_runtime(const settings_backup_t *in)
 {
+    if (in->has_device_name) {
+        config_manager_set_device_name(in->device_name);
+    }
+    if (in->has_timezone) {
+        config_manager_set_timezone(in->timezone);
+        setenv("TZ", config_manager_get_timezone(), 1);
+        tzset();
+    }
+    if (in->has_ntp_server) {
+        config_manager_set_ntp_server(in->ntp_server);
+    }
+    if (in->has_display_orientation) {
+        config_manager_set_display_orientation(strcmp(in->display_orientation, "portrait") == 0
+                                                   ? DISPLAY_ORIENTATION_PORTRAIT
+                                                   : DISPLAY_ORIENTATION_LANDSCAPE);
+    }
+    if (in->has_display_rotation_deg) {
+        config_manager_set_display_rotation_deg(in->display_rotation_deg);
+    }
+    if (in->has_sd_rotation_mode) {
+        config_manager_set_sd_rotation_mode(strcmp(in->sd_rotation_mode, "sequential") == 0
+                                                ? SD_ROTATION_SEQUENTIAL
+                                                : SD_ROTATION_RANDOM);
+    }
+    if (in->has_ha_url) {
+        config_manager_set_ha_url(in->ha_url);
+    }
+    if (in->has_save_downloaded_images) {
+        config_manager_set_save_downloaded_images(in->save_downloaded_images);
+    }
+    if (in->has_debug_log_enabled) {
+        config_manager_set_debug_log_enabled(in->debug_log_enabled);
+    }
     if (in->has_auto_rotate) {
         config_manager_set_auto_rotate(in->auto_rotate);
     }

@@ -104,6 +104,10 @@ test:
 	@echo "Running settings backup tests..."
 	@./host_tests/build/settings_backup_test
 	@echo ""
+	@echo "Running webapp unit tests..."
+	@cd webapp && [ -d node_modules ] || npm ci
+	@cd webapp && npm test
+	@echo ""
 	@echo "Running image orientation tests..."
 	@cd process-cli && npm install --silent && npm run test:orientation
 	@echo ""

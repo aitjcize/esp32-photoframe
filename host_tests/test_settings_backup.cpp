@@ -22,8 +22,26 @@ settings_backup_t sample()
     s.has_rotate_cron = true;
     strncpy(s.rotation_mode, "url", sizeof(s.rotation_mode) - 1);
     s.has_rotation_mode = true;
+    strncpy(s.sd_rotation_mode, "sequential", sizeof(s.sd_rotation_mode) - 1);
+    s.has_sd_rotation_mode = true;
     strncpy(s.image_url, "http://news.local:9607/image/immich", sizeof(s.image_url) - 1);
     s.has_image_url = true;
+    strncpy(s.ha_url, "http://ha.local:8123", sizeof(s.ha_url) - 1);
+    s.has_ha_url = true;
+    strncpy(s.timezone, "CET-1CEST,M3.5.0/2,M10.5.0/3", sizeof(s.timezone) - 1);
+    s.has_timezone = true;
+    strncpy(s.ntp_server, "nl.pool.ntp.org", sizeof(s.ntp_server) - 1);
+    s.has_ntp_server = true;
+    strncpy(s.device_name, "Woonkamer", sizeof(s.device_name) - 1);
+    s.has_device_name = true;
+    strncpy(s.display_orientation, "portrait", sizeof(s.display_orientation) - 1);
+    s.has_display_orientation = true;
+    s.display_rotation_deg = 0;
+    s.has_display_rotation_deg = true;
+    s.save_downloaded_images = true;
+    s.has_save_downloaded_images = true;
+    s.debug_log_enabled = true;
+    s.has_debug_log_enabled = true;
     s.deep_sleep_enabled = false;
     s.has_deep_sleep_enabled = true;
     s.chime_enabled = true;
@@ -61,7 +79,7 @@ TEST(SettingsBackup, RestoreOnlyWhenNvsIsFactoryFresh)
 TEST(SettingsBackup, RoundTripPreservesListedKeys)
 {
     settings_backup_t in = sample();
-    char buf[2048];
+    char buf[4096];
     ASSERT_GT(settings_backup_serialize(&in, buf, sizeof(buf)), 0);
 
     settings_backup_t out = {};
@@ -73,7 +91,17 @@ TEST(SettingsBackup, RoundTripPreservesListedKeys)
     EXPECT_STREQ(out.rotate_cron[0], "0 */12 *");
     EXPECT_STREQ(out.rotate_cron[1], "*/30 8-22 1-5");
     EXPECT_STREQ(out.rotation_mode, "url");
+    EXPECT_STREQ(out.sd_rotation_mode, "sequential");
     EXPECT_STREQ(out.image_url, "http://news.local:9607/image/immich");
+    EXPECT_STREQ(out.ha_url, "http://ha.local:8123");
+    EXPECT_TRUE(out.has_timezone);
+    EXPECT_STREQ(out.timezone, "CET-1CEST,M3.5.0/2,M10.5.0/3");
+    EXPECT_STREQ(out.ntp_server, "nl.pool.ntp.org");
+    EXPECT_STREQ(out.device_name, "Woonkamer");
+    EXPECT_STREQ(out.display_orientation, "portrait");
+    EXPECT_EQ(out.display_rotation_deg, 0);
+    EXPECT_TRUE(out.save_downloaded_images);
+    EXPECT_TRUE(out.debug_log_enabled);
     EXPECT_TRUE(out.has_deep_sleep_enabled);
     EXPECT_FALSE(out.deep_sleep_enabled);
     EXPECT_TRUE(out.chime_enabled);
@@ -83,6 +111,43 @@ TEST(SettingsBackup, RoundTripPreservesListedKeys)
     EXPECT_STREQ(out.chime_pull_mode, "with_rotate");
     EXPECT_STREQ(out.chime_play_when, "before");
     EXPECT_STREQ(out.chime_file, "doorbell.wav");
+}
+
+TEST(SettingsBackup, TimezonePosixRoundTrip)
+{
+    settings_backup_t in = {};
+    strncpy(in.timezone, "CET-1CEST,M3.5.0/2,M10.5.0/3", sizeof(in.timezone) - 1);
+    in.has_timezone = true;
+
+    char buf[4096];
+    ASSERT_GT(settings_backup_serialize(&in, buf, sizeof(buf)), 0);
+    EXPECT_NE(std::string(buf).find("\"timezone\": \"CET-1CEST,M3.5.0/2,M10.5.0/3\""),
+              std::string::npos);
+    EXPECT_NE(std::string(buf).find("\"version\": 2"), std::string::npos);
+
+    settings_backup_t out = {};
+    ASSERT_TRUE(settings_backup_parse(buf, &out));
+    EXPECT_TRUE(out.has_timezone);
+    EXPECT_STREQ(out.timezone, "CET-1CEST,M3.5.0/2,M10.5.0/3");
+}
+
+TEST(SettingsBackup, V1SnapshotWithoutTimezoneStillParses)
+{
+    const char *json =
+        "{\"version\":1,\"auto_rotate\":true,\"rotate_cron\":[\"0 */12 *\"],"
+        "\"rotation_mode\":\"url\",\"image_url\":\"http://x\","
+        "\"deep_sleep_enabled\":false,\"chime_enabled\":true,"
+        "\"chime_preset\":\"mozart\",\"chime_url\":\"\","
+        "\"chime_source\":\"preset\",\"chime_pull_mode\":\"with_rotate\","
+        "\"chime_play_when\":\"after\",\"chime_file\":\"\"}";
+
+    settings_backup_t out = {};
+    ASSERT_TRUE(settings_backup_parse(json, &out));
+    EXPECT_TRUE(out.auto_rotate);
+    EXPECT_FALSE(out.has_timezone);
+    EXPECT_STREQ(out.timezone, "");
+    EXPECT_FALSE(out.has_ntp_server);
+    EXPECT_FALSE(out.has_device_name);
 }
 
 TEST(SettingsBackup, ParsesCompactAndEscapedJson)
@@ -174,10 +239,28 @@ TEST(SettingsBackup, SerializeFailsOnTinyBuffer)
 TEST(SettingsBackup, SerializeDefaultsPullModeWithRotateAndPlayWhenAfter)
 {
     settings_backup_t in = {};
-    char buf[2048];
+    char buf[4096];
     ASSERT_GT(settings_backup_serialize(&in, buf, sizeof(buf)), 0);
     EXPECT_NE(std::string(buf).find("\"chime_pull_mode\": \"with_rotate\""), std::string::npos);
     EXPECT_NE(std::string(buf).find("\"chime_play_when\": \"after\""), std::string::npos);
+}
+
+TEST(SettingsBackup, RejectsInvalidDisplayEnumsAndKeepsValidTimezone)
+{
+    const char *json =
+        "{\"timezone\":\"UTC-1\",\"display_orientation\":\"upside-down\","
+        "\"display_rotation_deg\":90,\"sd_rotation_mode\":\"shuffle\","
+        "\"ntp_server\":\"pool.ntp.org\"}";
+
+    settings_backup_t out = {};
+    ASSERT_TRUE(settings_backup_parse(json, &out));
+    EXPECT_TRUE(out.has_timezone);
+    EXPECT_STREQ(out.timezone, "UTC-1");
+    EXPECT_FALSE(out.has_display_orientation);
+    EXPECT_FALSE(out.has_display_rotation_deg);
+    EXPECT_FALSE(out.has_sd_rotation_mode);
+    EXPECT_TRUE(out.has_ntp_server);
+    EXPECT_STREQ(out.ntp_server, "pool.ntp.org");
 }
 
 TEST(SettingsBackup, AcceptsPlayWhenBeforeAndAfter)

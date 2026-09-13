@@ -6,6 +6,7 @@ import {
   SPECTRA6,
   getDefaultParams,
 } from "@aitjcize/epaper-image-convert";
+import { loadTimezone, timezoneForSave } from "../utils/timezone";
 
 export const useSettingsStore = defineStore("settings", () => {
   const API_BASE = "";
@@ -20,6 +21,7 @@ export const useSettingsStore = defineStore("settings", () => {
   const deviceSettings = ref({
     // General
     deviceName: "PhotoFrame",
+    timezone: "UTC0",
     timezoneOffset: 0,
     ntpServer: "pool.ntp.org",
     // Network: static IP / DNS override (#43)
@@ -235,38 +237,20 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.aiCredentials.openaiApiKey = data.openai_api_key || "";
       deviceSettings.value.aiCredentials.googleApiKey = data.google_api_key || "";
 
-      // Parse timezone from POSIX format (e.g., "UTC-8" -> 8)
-      const timezone = data.timezone || "UTC0";
-      let offset = 0;
-      const match = timezone.match(/UTC([+-]?)(\d+)(?::(\d+))?/);
-      if (match) {
-        const sign = match[1] === "-" ? 1 : -1; // POSIX format is inverted
-        const hours = parseInt(match[2]) || 0;
-        const minutes = parseInt(match[3]) || 0;
-        offset = sign * (hours + minutes / 60);
-      }
-      deviceSettings.value.timezoneOffset = offset;
+      const loadedTz = loadTimezone(data.timezone);
+      deviceSettings.value.timezone = loadedTz.timezone;
+      deviceSettings.value.timezoneOffset =
+        loadedTz.timezoneOffset === null ? null : loadedTz.timezoneOffset;
     } catch (_error) {
       console.log("Device settings API not available (standalone mode)");
     }
   }
 
   async function saveDeviceSettings() {
-    // Convert UTC offset to POSIX timezone format
-    const offsetValue = deviceSettings.value.timezoneOffset || 0;
-    let timezone = "UTC0";
-    if (offsetValue !== 0) {
-      const absOffset = Math.abs(offsetValue);
-      const hours = Math.floor(absOffset);
-      const minutes = Math.round((absOffset - hours) * 60);
-      const sign = offsetValue > 0 ? "-" : "+"; // Inverted for POSIX
-
-      if (minutes === 0) {
-        timezone = `UTC${sign}${hours}`;
-      } else {
-        timezone = `UTC${sign}${hours}:${String(minutes).padStart(2, "0")}`;
-      }
-    }
+    const timezone = timezoneForSave(
+      deviceSettings.value.timezone,
+      deviceSettings.value.timezoneOffset
+    );
 
     const currentConfig = {
       auto_rotate: deviceSettings.value.autoRotate,
