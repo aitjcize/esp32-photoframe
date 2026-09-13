@@ -115,6 +115,9 @@ esp_err_t chime_validate_wav_file(const char *path)
     if (parse_ok != 0 || !wav_pcm_is_supported(&info)) {
         return ESP_ERR_NOT_SUPPORTED;
     }
+    if (!wav_pcm_data_is_complete(&info, (size_t) st.st_size)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
     return ESP_OK;
 }
 
@@ -216,10 +219,15 @@ esp_err_t chime_delete(const char *filename)
     return ESP_OK;
 }
 
+// Same budget as image fetch: ~2 MiB over flaky WiFi must not hang forever.
+#define CHIME_DOWNLOAD_TIMEOUT_MS 120000
+
 typedef struct {
     FILE *file;
     int total_read;
     bool too_large;
+    bool have_content_length;
+    long content_length;
 } chime_download_ctx_t;
 
 static esp_err_t chime_http_event(esp_http_client_event_t *evt)
@@ -228,7 +236,12 @@ static esp_err_t chime_http_event(esp_http_client_event_t *evt)
     switch (evt->event_id) {
     case HTTP_EVENT_ON_HEADER:
         if (strcasecmp(evt->header_key, "Content-Length") == 0) {
-            long len = strtol(evt->header_value, NULL, 10);
+            char *end = NULL;
+            long len = strtol(evt->header_value, &end, 10);
+            if (end != evt->header_value && len >= 0) {
+                ctx->have_content_length = true;
+                ctx->content_length = len;
+            }
             if (len > (long) WAV_PCM_MAX_FILE_BYTES) {
                 ESP_LOGW(TAG, "Chime WAV Content-Length %ld exceeds %u", len,
                          WAV_PCM_MAX_FILE_BYTES);
@@ -278,10 +291,14 @@ static esp_err_t chime_download_wav(const char *url)
         return ESP_FAIL;
     }
 
-    chime_download_ctx_t ctx = {.file = file, .total_read = 0, .too_large = false};
+    chime_download_ctx_t ctx = {.file = file,
+                                .total_read = 0,
+                                .too_large = false,
+                                .have_content_length = false,
+                                .content_length = -1};
     esp_http_client_config_t config = {
         .url = url,
-        .timeout_ms = 30000,
+        .timeout_ms = CHIME_DOWNLOAD_TIMEOUT_MS,
         .event_handler = chime_http_event,
         .user_data = &ctx,
         .max_redirection_count = 3,
@@ -298,6 +315,7 @@ static esp_err_t chime_download_wav(const char *url)
 
     esp_err_t err = esp_http_client_perform(client);
     int status = esp_http_client_get_status_code(client);
+    int http_len = esp_http_client_get_content_length(client);
     esp_http_client_cleanup(client);
     fclose(file);
 
@@ -311,6 +329,30 @@ static esp_err_t chime_download_wav(const char *url)
         unlink(CHIME_CACHE_TMP_PATH);
         return (err != ESP_OK) ? err : ESP_FAIL;
     }
+    if (ctx.have_content_length && ctx.total_read != (int) ctx.content_length) {
+        ESP_LOGW(TAG, "Chime WAV truncated (got %d of Content-Length %ld)", ctx.total_read,
+                 ctx.content_length);
+        unlink(CHIME_CACHE_TMP_PATH);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    if (http_len > 0 && ctx.total_read != http_len) {
+        ESP_LOGW(TAG, "Chime WAV truncated (got %d of HTTP length %d)", ctx.total_read, http_len);
+        unlink(CHIME_CACHE_TMP_PATH);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    struct stat st;
+    if (stat(CHIME_CACHE_TMP_PATH, &st) != 0) {
+        ESP_LOGW(TAG, "Chime WAV missing after download");
+        unlink(CHIME_CACHE_TMP_PATH);
+        return ESP_FAIL;
+    }
+    if (st.st_size != ctx.total_read) {
+        ESP_LOGW(TAG, "Chime WAV size mismatch (file=%ld read=%d)", (long) st.st_size,
+                 ctx.total_read);
+        unlink(CHIME_CACHE_TMP_PATH);
+        return ESP_FAIL;
+    }
 
     FILE *check = fopen(CHIME_CACHE_TMP_PATH, "rb");
     if (!check) {
@@ -320,8 +362,9 @@ static esp_err_t chime_download_wav(const char *url)
     wav_pcm_info_t info;
     int parse_ok = wav_pcm_parse_file(check, &info);
     fclose(check);
-    if (parse_ok != 0 || !wav_pcm_is_supported(&info)) {
-        ESP_LOGW(TAG, "Downloaded chime file is not a supported PCM WAV");
+    if (parse_ok != 0 || !wav_pcm_is_supported(&info) ||
+        !wav_pcm_data_is_complete(&info, (size_t) st.st_size)) {
+        ESP_LOGW(TAG, "Downloaded chime file is not a complete supported PCM WAV");
         unlink(CHIME_CACHE_TMP_PATH);
         return ESP_ERR_NOT_SUPPORTED;
     }
