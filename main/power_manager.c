@@ -22,6 +22,7 @@
 #include "config_manager.h"
 #include "debug_log.h"
 #include "ha_integration.h"
+#include "network_wake.h"
 #include "periodic_tasks.h"
 #include "storage.h"
 #include "utils.h"
@@ -352,7 +353,7 @@ void power_manager_enter_sleep(void)
     // Check if auto-rotate is enabled
     if (config_manager_get_auto_rotate()) {
         // Use timer-based sleep for auto-rotate
-        int wake_seconds = get_seconds_until_next_wakeup();
+        int wake_seconds = get_seconds_until_next_wakeup_after(network_wake_backoff_seconds());
 
         ESP_LOGI(TAG, "Auto-rotate enabled, setting timer wake-up for %d seconds (%s)",
                  wake_seconds, "cron");
@@ -384,6 +385,7 @@ void power_manager_enter_sleep(void)
     // state and the modem domain transitions through a normal teardown
     // rather than being yanked by the deep-sleep entry. Ignored if WiFi
     // was never started.
+    wifi_manager_disconnect();
     esp_wifi_stop();
 
     ESP_LOGI(TAG, "Configuring Board HAL for deep sleep");

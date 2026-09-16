@@ -1983,6 +1983,11 @@ static esp_err_t ota_update_handler(httpd_req_t *req)
         if (err == ESP_OK) {
             cJSON_AddStringToObject(response, "status", "success");
             cJSON_AddStringToObject(response, "message", "OTA update started");
+        } else if (err == ESP_ERR_NOT_SUPPORTED) {
+            cJSON_AddStringToObject(response, "status", "error");
+            cJSON_AddStringToObject(
+                response, "message",
+                "Wake the frame with the BOOT button before installing an update");
         } else if (err == ESP_ERR_INVALID_STATE) {
             cJSON_AddStringToObject(response, "status", "error");
             cJSON_AddStringToObject(response, "message",

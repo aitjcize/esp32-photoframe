@@ -128,3 +128,15 @@ target_link_libraries(
 )
 
 gtest_discover_tests(display_flow_test)
+
+# Production Wi-Fi/event handling and wake supervisor with deterministic time.
+add_executable(network_wake_test test_network_wake.cpp
+  ../main/network_policy.c ../main/network_wake.c ../main/wifi_manager.c ../main/cron.c)
+target_include_directories(network_wake_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/network_stubs
+  ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main)
+target_compile_options(network_wake_test PRIVATE -ffunction-sections -fdata-sections)
+target_link_options(network_wake_test PRIVATE -Wl,--gc-sections)
+target_link_libraries(network_wake_test GTest::gtest_main)
+gtest_discover_tests(network_wake_test)

@@ -10,6 +10,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "network_wake.h"
 #include "ota_manager.h"
 #include "utils.h"
 
@@ -25,6 +26,13 @@ typedef struct {
 
 static esp_err_t ha_http_event_handler(esp_http_client_event_t *evt)
 {
+    if (network_wake_active() && evt->event_id == HTTP_EVENT_ON_DATA) {
+        if (network_wake_timeout_ms(1) == 0) {
+            esp_http_client_close(evt->client);
+            return ESP_ERR_TIMEOUT;
+        }
+    }
+
     if (evt->event_id == HTTP_EVENT_ON_DATA && evt->user_data != NULL) {
         ha_response_buf_t *rb = (ha_response_buf_t *) evt->user_data;
         int space = rb->cap - 1 - rb->len;
@@ -58,6 +66,11 @@ static esp_err_t ha_send_notification(const char *state, const char *log_message
     if (!ha_is_configured()) {
         ESP_LOGD(TAG, "HA URL not configured, skipping %s notification", state);
         return ESP_OK;  // Not an error, just not configured
+    }
+
+    timeout_ms = network_wake_timeout_ms(timeout_ms);
+    if (timeout_ms == 0) {
+        return ESP_ERR_TIMEOUT;
     }
 
     // Build the API endpoint URL (no query parameters)

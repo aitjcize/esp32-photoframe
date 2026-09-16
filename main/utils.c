@@ -25,6 +25,8 @@
 #include "freertos/task.h"
 #include "image_processor.h"
 #include "mdns_service.h"
+#include "network_policy.h"
+#include "network_wake.h"
 #include "nvs.h"
 #include "periodic_tasks.h"
 #include "power_manager.h"
@@ -271,7 +273,8 @@ esp_err_t apply_config_from_json(cJSON *root)
 
             ESP_LOGI(TAG, "WiFi credentials changed, testing connection to: %s", new_ssid);
 
-            esp_err_t err = wifi_manager_connect(new_ssid, new_password);
+            esp_err_t err =
+                wifi_manager_connect(new_ssid, new_password, network_wake_deadline_us(30000));
             if (err == ESP_OK) {
                 config_manager_set_wifi_ssid(new_ssid);
                 if (wifi_password_obj && cJSON_IsString(wifi_password_obj) &&
@@ -281,7 +284,8 @@ esp_err_t apply_config_from_json(cJSON *root)
                 ESP_LOGI(TAG, "Successfully connected and saved WiFi credentials");
             } else {
                 ESP_LOGW(TAG, "Failed to connect to new WiFi, reverting to previous credentials");
-                wifi_manager_connect(current_ssid, config_manager_get_wifi_password());
+                wifi_manager_connect(current_ssid, config_manager_get_wifi_password(),
+                                     network_wake_deadline_us(30000));
                 return ESP_FAIL;
             }
         }
@@ -489,6 +493,13 @@ typedef struct {
 // HTTP event handler to write data to file
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
+    if (network_wake_active() && evt->event_id == HTTP_EVENT_ON_DATA) {
+        if (network_wake_timeout_ms(1) == 0) {
+            esp_http_client_close(evt->client);
+            return ESP_ERR_TIMEOUT;
+        }
+    }
+
     download_context_t *ctx = (download_context_t *) evt->user_data;
 
     switch (evt->event_id) {
@@ -552,7 +563,8 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 // hands out the optional thumbnail URL and remote-config payload the server
 // sent along (heap strings, caller frees; NULL/empty when absent).
 static esp_err_t fetch_perform_download(const char *url, bool *not_modified, image_format_t *format,
-                                        char **thumbnail_url_out, char **config_payload_out)
+                                        char **thumbnail_url_out, char **config_payload_out,
+                                        char **etag_out)
 {
     // Reset per-fetch; the HTTP event handler sets it if the server sends the
     // X-Post-Rotate-Wait-Sec header (on either a 200 or a 304 response).
@@ -566,11 +578,13 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
     char *content_type = NULL;
     char *thumbnail_url_buffer = NULL;
     int total_downloaded = 0;
-    const int max_retries = 3;
+    const int max_retries = network_wake_active() ? 1 : 3;
+    int attempts = 0;
 
     char *config_payload_buffer = NULL;
     char *etag_buffer = NULL;
 
+    *etag_out = NULL;
     *thumbnail_url_out = NULL;
     *config_payload_out = NULL;
 
@@ -596,6 +610,12 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
             vTaskDelay(pdMS_TO_TICKS(3000));  // 3 second delay between retries
         }
 
+        int timeout_ms = network_wake_timeout_ms(120000);
+        if (timeout_ms == 0) {
+            err = ESP_ERR_TIMEOUT;
+            break;
+        }
+        attempts++;
         FILE *file = fopen(temp_upload_path, "wb");
         if (!file) {
             ESP_LOGE(TAG, "Failed to open file for writing: %s", temp_upload_path);
@@ -620,7 +640,7 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
 
         esp_http_client_config_t config = {
             .url = url,
-            .timeout_ms = 120000,
+            .timeout_ms = timeout_ms,
             .event_handler = http_event_handler,
             .user_data = &ctx,
             .max_redirection_count = 5,
@@ -721,6 +741,9 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
         esp_http_client_set_header(client, "X-Battery-Percentage", batt_str);
 
         err = esp_http_client_perform(client);
+        if (network_wake_timeout_ms(1) == 0) {
+            err = ESP_ERR_TIMEOUT;
+        }
 
         status_code = esp_http_client_get_status_code(client);
         content_length = esp_http_client_get_content_length(client);
@@ -763,10 +786,13 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
 
         // Clean up failed download (don't free content_type - it's reused across retries)
         unlink(temp_upload_path);
+        if (!network_http_retryable(status_code)) {
+            break;
+        }
     }
     // Check final result after all retries
     if (err != ESP_OK || status_code != 200 || total_downloaded <= 0) {
-        ESP_LOGE(TAG, "Failed to download image after %d attempts", max_retries);
+        ESP_LOGE(TAG, "Failed to download image after %d attempts", attempts);
         // Store descriptive error for UI display
         char err_msg[256];
         if (err != ESP_OK) {
@@ -790,10 +816,9 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
         return ESP_FAIL;
     }
 
-    // Persist the ETag from this successful 200 response (or clear if the server
-    // dropped it) so the next request can send If-None-Match.
-    config_manager_set_image_etag(etag_buffer);
-    free(etag_buffer);
+    // Commit only after display succeeds. Deadline expiry must not cache an
+    // image that was downloaded but never shown (and then receive 304 forever).
+    *etag_out = etag_buffer;
 
     // Detect format regardless of Content-Type (which might be unreliable),
     // falling back to the header only when the magic-byte check fails
@@ -833,9 +858,15 @@ static bool fetch_download_thumbnail(const char *thumbnail_url)
                                     .config_payload = NULL,
                                     .etag = NULL};
 
+    int timeout_ms = network_wake_timeout_ms(30000);
+    if (timeout_ms == 0) {
+        fclose(thumb_file);
+        unlink(temp_jpg_path);
+        return false;
+    }
     esp_http_client_config_t thumb_config = {
         .url = thumbnail_url,
-        .timeout_ms = 30000,
+        .timeout_ms = timeout_ms,
         .event_handler = http_event_handler,
         .user_data = &thumb_ctx,
         .max_redirection_count = 5,
@@ -871,7 +902,8 @@ static bool fetch_download_thumbnail(const char *thumbnail_url)
     fclose(thumb_file);
     esp_http_client_cleanup(thumb_client);
 
-    if (thumb_err == ESP_OK && thumb_status == 200 && thumb_ctx.total_read > 0) {
+    if (thumb_err == ESP_OK && thumb_status == 200 && thumb_ctx.total_read > 0 &&
+        network_wake_timeout_ms(1) > 0) {
         ESP_LOGI(TAG, "Thumbnail downloaded successfully: %d bytes", thumb_ctx.total_read);
         return true;
     }
@@ -1171,9 +1203,10 @@ esp_err_t fetch_and_display_image_from_url(const char *url, bool *not_modified)
     image_format_t image_format = IMAGE_FORMAT_UNKNOWN;
     char *thumbnail_url = NULL;
     char *config_payload = NULL;
+    char *etag = NULL;
     bool was_not_modified = false;
     esp_err_t err = fetch_perform_download(url, &was_not_modified, &image_format, &thumbnail_url,
-                                           &config_payload);
+                                           &config_payload, &etag);
     if (err != ESP_OK) {
         return err;
     }
@@ -1184,6 +1217,13 @@ esp_err_t fetch_and_display_image_from_url(const char *url, bool *not_modified)
         return ESP_OK;
     }
 
+    if (network_wake_timeout_ms(1) == 0) {
+        free(thumbnail_url);
+        free(config_payload);
+        free(etag);
+        unlink(CURRENT_UPLOAD_PATH);
+        return ESP_ERR_TIMEOUT;
+    }
     bool thumbnail_downloaded = false;
     if (thumbnail_url && strlen(thumbnail_url) > 0) {
         thumbnail_downloaded = fetch_download_thumbnail(thumbnail_url);
@@ -1195,18 +1235,31 @@ esp_err_t fetch_and_display_image_from_url(const char *url, bool *not_modified)
     }
     free(config_payload);
 
+    if (network_wake_timeout_ms(1) == 0) {
+        free(etag);
+        unlink(CURRENT_UPLOAD_PATH);
+        return ESP_ERR_TIMEOUT;
+    }
     switch (image_format) {
     case IMAGE_FORMAT_PNG:
     case IMAGE_FORMAT_JPG:
-        return fetch_stream_display(image_format, thumbnail_downloaded);
+        err = fetch_stream_display(image_format, thumbnail_downloaded);
+        break;
     case IMAGE_FORMAT_EPD_GZ:
     case IMAGE_FORMAT_BMP:
-        return fetch_display_file(image_format, thumbnail_downloaded);
+        err = fetch_display_file(image_format, thumbnail_downloaded);
+        break;
     default:
         ESP_LOGE(TAG, "Unsupported image format: %d", image_format);
         unlink(CURRENT_UPLOAD_PATH);
-        return ESP_FAIL;
+        err = ESP_FAIL;
+        break;
     }
+    if (err == ESP_OK) {
+        config_manager_set_image_etag(etag);
+    }
+    free(etag);
+    return err;
 }
 
 esp_err_t trigger_image_rotation(void)
@@ -1228,9 +1281,12 @@ esp_err_t trigger_image_rotation(void)
                 ESP_LOGI(TAG, "Image unchanged on server, skipping display refresh");
             }
         } else {
-            ESP_LOGE(TAG,
-                     "Failed to fetch and display image from URL, falling back to local rotation");
-            display_manager_rotate_from_storage();
+            if (network_wake_active()) {
+                ESP_LOGW(TAG, "Remote rotation failed; preserving the current frame");
+            } else {
+                ESP_LOGW(TAG, "Remote rotation failed; falling back to local rotation");
+                display_manager_rotate_from_storage();
+            }
             result = ESP_FAIL;
         }
     } else {
@@ -1266,18 +1322,14 @@ cJSON *create_battery_json(void)
 
 int get_seconds_until_next_wakeup(void)
 {
-    time_t now;
-    struct tm timeinfo;
-    time(&now);
-    localtime_r(&now, &timeinfo);
+    return get_seconds_until_next_wakeup_after(0);
+}
 
+int get_seconds_until_next_wakeup_after(uint32_t minimum_sec)
+{
     cron_rule_t rules[MAX_CRON_RULES];
     int n = config_manager_get_compiled_cron_rules(rules, MAX_CRON_RULES);
-    if (n == 0) {
-        return CRON_FALLBACK_SEC;
-    }
-
-    return cron_seconds_until_next(&timeinfo, rules, n);
+    return network_next_wake_seconds(time(NULL), rules, n, minimum_sec);
 }
 
 void sanitize_hostname(const char *device_name, char *hostname, size_t max_len)

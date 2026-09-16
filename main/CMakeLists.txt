@@ -12,6 +12,8 @@ set(SOURCES
     "image_processor.c"
     "main.c"
     "mdns_service.c"
+    "network_policy.c"
+    "network_wake.c"
     "ota_manager.c"
     "periodic_tasks.c"
     "png_decoder.c"

@@ -167,3 +167,97 @@ In `idf.py menuconfig`:
 **Device not responding:**
 - Press and hold BOOT button while connecting USB
 - Try erasing flash: `idf.py erase-flash`
+
+## Bounded unattended network wakes
+
+Timer and ROTATE-button wakes that need Wi-Fi use a single monotonic budget.
+The constants live in `main/network_policy.h`: network work may run for 180
+seconds, with another 120 seconds reserved for image processing, panel refresh
+and sleep teardown. The budget starts immediately before Wi-Fi initialization,
+after the early-wake check. Local-only wakes and interactive sessions do not arm
+this supervisor. Wi-Fi association **including DHCP** has its own earlier
+absolute deadline (60 seconds on a scheduled wake, 30 seconds interactively,
+15 seconds during provisioning), capped by the remaining network budget.
+
+Each unattended image fetch gets one attempt. It never rotates a local fallback
+on a failed fetch. A new ETag is persisted only after successful display so an
+aborted download cannot falsely validate the old frame on the next wake.
+Interactive fetches retain up to three attempts for transport
+errors, HTTP 408/429 and 5xx; other statuses such as 401/404 are not retried within
+that operation. Wrong-password/authentication disconnects stop association
+retries; other disconnects retain at most five retries within the deadline.
+Late IP events cannot turn an expired attempt into success. The provisioning
+connection test uses the same API and keeps the AP running.
+
+A bounded failure count lives in RTC no-init memory, without per-wake NVS
+writes. Each unsuccessful network wake imposes a minimum sleep of 5, 10, 20,
+40, 80, 160, 320, then 360 minutes. Sleep selects the first configured cron
+boundary at or after that minimum, preserving quiet hours and longer schedules.
+An early timer re-sleep does not apply that minimum again. A successful rotation,
+304, valid HA veto or successful early-wake time correction clears the count.
+A BOOT wake remains available for configuration; ROTATE can attempt immediately.
+An unrelated reset or power loss discards the count.
+
+### Deadline recovery and limits
+
+HTTP socket timeouts alone do not bound a complete request: DNS, TLS, redirects
+and a trickling response can overrun a per-read timeout. Requests receive the
+remaining budget, streaming callbacks close expired requests, and subsequent
+operations do not start after expiry. A separate priority-6 task covers blocking
+calls and the rest of the pipeline. At 300 seconds it records a recovery marker
+and calls `esp_restart()`. The next boot recognizes that marker and takes normal
+board/storage sleep teardown before reaching cold-boot Wi-Fi or provisioning.
+It does not retry the network request on the recovery boot. If the supervisor
+cannot be allocated, the wake sleeps without starting Wi-Fi.
+
+The 300-second limit is a **pipeline restart deadline**, not a measured guarantee
+that the board is already asleep at that instant. Boot initialization and the
+recovery boot's board/storage teardown add time. The design assumes the RTOS,
+restart mechanism and board teardown are functioning; it cannot recover a dead
+CPU or a hardware hang during boot. Normal failures use cooperative cleanup.
+The forced-restart fallback can interrupt an image/storage operation and needs
+hardware qualification, especially on SD-card boards. The two-minute display
+reserve is a policy budget, not measured worst-case display timing.
+
+OTA version checks share the network budget. Firmware installation is rejected
+during a supervised wake; use a BOOT-button interactive session to install it.
+HA notifications and requested config-server windows use only the remaining
+network time and may be skipped/truncated after a slow update. CPU/display work
+and existing background-worker ordering otherwise remain unchanged; moving the
+radio-off boundary and coordinating worker teardown are separate follow-ups.
+
+### Validation before merge
+
+Host tests compile the production Wi-Fi manager, wake supervisor and backoff
+policy against a fake event loop/clock. Run them with `make test`, or use CMake
+and `ctest --test-dir host_tests/build --output-on-failure`. If `/tmp` is not
+writable, set `TMPDIR` to a writable directory before running the existing image
+tests. Host tests do not emulate lwIP, TLS, ESP-IDF restart, RTC retention or panel
+timing.
+
+On EE02 and at least one SD-card board, with USB disconnected:
+
+1. Exercise absent AP, wrong password, association without DHCP, missing IP/fail
+   events, marginal RSSI, DNS failure, invalid TLS certificate, HTTP 401/404/429,
+   5xx, stalled headers and a body that trickles indefinitely. Verify one image
+   request per unattended wake, unchanged panel content on network failure and
+   eventual deep sleep. Include HA/OTA-check/thumbnail stalls.
+2. Record Wi-Fi start, deadline/recovery boot and actual deep-sleep times. Force
+   the supervisor path by blocking the wake task beyond 300 seconds. Verify one
+   software restart, the recovery log, intact credentials, normal panel/divider
+   power-off, and a backoff sleep rather than a reboot/request loop. Check SD
+   integrity and partial-download cleanup. Repeat with task creation forced to
+   fail in a test build.
+3. Repeat failures through the six-hour cap, then restore the network and test
+   200, 304 and a valid HA veto. Verify backoff clears; test frequent schedules,
+   daily schedules, quiet hours and early timer wakes. Confirm ROTATE overrides
+   the wait and BOOT still opens configuration.
+4. Complete provisioning in DHCP and static-IP modes, with fast IP delivery,
+   wrong credentials followed by corrected credentials, and intentional
+   disconnect followed by a new explicit connection.
+5. Exercise JPEG/PNG and display-ready images on each supported panel, measuring
+   decode/refresh/teardown against the finish reserve. Check HA notifications,
+   truncated config windows and the interactive OTA installation flow.
+
+ESP-IDF target builds and these device tests are required before treating the
+budget or retained recovery path as hardware-validated.

@@ -9,6 +9,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -411,42 +412,13 @@ static esp_err_t provision_save_handler(httpd_req_t *req)
     // Switch to APSTA mode to test connection while keeping AP running
     esp_wifi_set_mode(WIFI_MODE_APSTA);
 
-    // Configure STA with provided credentials
-    wifi_config_t sta_config = {0};
-    strncpy((char *) sta_config.sta.ssid, ssid, sizeof(sta_config.sta.ssid) - 1);
-    strncpy((char *) sta_config.sta.password, password, sizeof(sta_config.sta.password) - 1);
-    sta_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-    sta_config.sta.pmf_cfg.capable = true;
-    sta_config.sta.pmf_cfg.required = false;
-
-    esp_wifi_set_config(WIFI_IF_STA, &sta_config);
-
-    // Apply the just-saved IP configuration (static address or DHCP) so the
-    // connection test exercises it (#43).
-    wifi_manager_apply_ip_config();
-
-    // Disconnect first if already connected
-    esp_wifi_disconnect();
-
-    // Wait a bit for disconnect to complete
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    // Try to connect
-    esp_wifi_connect();
-
-    // Wait for connection result (with timeout)
-    EventBits_t bits =
-        xEventGroupWaitBits(wifi_manager_get_event_group(), WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-                            pdTRUE,               // Clear bits on exit
-                            pdFALSE,              // Wait for either bit
-                            pdMS_TO_TICKS(15000)  // 15 second timeout
-        );
-
-    if (!(bits & WIFI_CONNECTED_BIT)) {
+    // Use the same finite association/DHCP path, preserving the provisioning AP.
+    esp_err_t connect_err = wifi_manager_connect(ssid, password, esp_timer_get_time() + 15000000LL);
+    if (connect_err != ESP_OK) {
         ESP_LOGW(TAG, "Failed to connect to WiFi network: %s", ssid);
 
         // Connection failed - switch back to AP-only mode
-        esp_wifi_disconnect();
+        wifi_manager_disconnect();
         esp_wifi_set_mode(WIFI_MODE_AP);
 
         const char *error_response =

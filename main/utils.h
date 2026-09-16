@@ -2,6 +2,7 @@
 #define UTILS_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "cJSON.h"
 #include "esp_err.h"
@@ -57,6 +58,8 @@ struct cJSON *create_battery_json(void);
 // Evaluates the configured cron rules (earliest match wins) and applies the
 // quiet-hours mask. Returns CRON_FALLBACK_SEC when no rules are configured.
 int get_seconds_until_next_wakeup(void);
+// Earliest configured cron boundary at least minimum_sec from now.
+int get_seconds_until_next_wakeup_after(uint32_t minimum_sec);
 
 // Sanitize device name to create a valid mDNS hostname
 // Converts to lowercase, replaces spaces and special chars with hyphens

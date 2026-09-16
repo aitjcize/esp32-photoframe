@@ -1,5 +1,7 @@
 #include "wifi_manager.h"
 
+#include <limits.h>
+#include <stdatomic.h>
 #include <string.h>
 
 #include "config.h"
@@ -8,12 +10,14 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
+#include "network_policy.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "storage.h"
@@ -25,8 +29,26 @@ static const char *TAG = "wifi_manager";
 #define WIFI_FAIL_BIT BIT1
 
 static EventGroupHandle_t s_wifi_event_group;
-static int s_retry_num = 0;
-static bool s_is_connected = false;
+static atomic_int s_retry_num = 0;
+static atomic_bool s_is_connected = false;
+static atomic_bool s_connect_allowed = false;
+static int64_t s_connect_deadline_us;
+static portMUX_TYPE s_deadline_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static int64_t connect_deadline(void)
+{
+    portENTER_CRITICAL(&s_deadline_lock);
+    int64_t value = s_connect_deadline_us;
+    portEXIT_CRITICAL(&s_deadline_lock);
+    return value;
+}
+
+static void set_connect_deadline(int64_t value)
+{
+    portENTER_CRITICAL(&s_deadline_lock);
+    s_connect_deadline_us = value;
+    portEXIT_CRITICAL(&s_deadline_lock);
+}
 static esp_netif_t *s_sta_netif = NULL;
 
 static void apply_dns_override(void);
@@ -35,7 +57,11 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
                           void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
+        if (s_connect_allowed && esp_timer_get_time() < connect_deadline()) {
+            if (esp_wifi_connect() != ESP_OK) {
+                xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+            }
+        }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
         // Bring up an IPv6 link-local address so mDNS can answer AAAA queries.
         // Without one the responder stays silent on AAAA, and clients resolving
@@ -43,16 +69,28 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
         // before falling back to the A record.
         esp_netif_create_ip6_linklocal(s_sta_netif);
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < 5) {
-            esp_wifi_connect();
-            s_retry_num++;
-            ESP_LOGI(TAG, "retry to connect to the AP");
-        } else {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
-        }
+        wifi_event_sta_disconnected_t *event = event_data;
+        int reason = event ? event->reason : 0;
+        bool terminal = reason == WIFI_REASON_AUTH_FAIL ||
+                        reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+                        reason == WIFI_REASON_HANDSHAKE_TIMEOUT;
         s_is_connected = false;
-        ESP_LOGI(TAG, "connect to the AP fail");
+        xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        ESP_LOGW(TAG, "WiFi disconnected: reason=%d (%s)", reason,
+                 terminal ? "authentication failure" : "transient/unclassified");
+        if (s_connect_allowed && !terminal && s_retry_num < 5 &&
+            esp_timer_get_time() < connect_deadline()) {
+            s_retry_num++;
+            if (esp_wifi_connect() == ESP_OK) {
+                return;
+            }
+        }
+        s_connect_allowed = false;
+        xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        if (!s_connect_allowed || esp_timer_get_time() >= connect_deadline()) {
+            return;  // A late DHCP result cannot revive an expired attempt.
+        }
         ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         // Applied after the address is up so it overrides DHCP-provided DNS
@@ -113,6 +151,9 @@ esp_err_t wifi_manager_update_hostname(void)
 esp_err_t wifi_manager_init(void)
 {
     s_wifi_event_group = xEventGroupCreate();
+    if (!s_wifi_event_group) {
+        return ESP_ERR_NO_MEM;
+    }
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -198,13 +239,19 @@ static void apply_dns_override(void)
     ESP_LOGI(TAG, "DNS server set to: %s", dns);
 }
 
-esp_err_t wifi_manager_connect(const char *ssid, const char *password)
+esp_err_t wifi_manager_connect(const char *ssid, const char *password, int64_t deadline_us)
 {
     if (!ssid || strlen(ssid) == 0) {
         ESP_LOGE(TAG, "SSID is empty");
         return ESP_ERR_INVALID_ARG;
     }
 
+    if (!s_wifi_event_group) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (deadline_us <= esp_timer_get_time()) {
+        return ESP_ERR_TIMEOUT;
+    }
     wifi_manager_apply_ip_config();
 
     wifi_config_t wifi_config = {0};
@@ -216,33 +263,63 @@ esp_err_t wifi_manager_connect(const char *ssid, const char *password)
     wifi_config.sta.pmf_cfg.capable = true;
     wifi_config.sta.pmf_cfg.required = false;
 
-    // Stop WiFi if it's running, then set config
-    esp_wifi_stop();
-
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));  // Enable power save at boot/connect
-
-    s_retry_num = 0;
-    xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-                                           pdFALSE, pdFALSE, portMAX_DELAY);
-
-    if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "connected to ap SSID:%s", ssid);
-        return ESP_OK;
-    } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGI(TAG, "Failed to connect to SSID:%s", ssid);
-        return ESP_FAIL;
-    } else {
-        ESP_LOGE(TAG, "UNEXPECTED EVENT");
-        return ESP_FAIL;
+    // Disable retries before stopping and clear stale bits BEFORE start can
+    // emit events. Previously a fast GOT_IP/FAIL could be cleared then lost.
+    s_connect_allowed = false;
+    s_is_connected = false;
+    wifi_mode_t mode;
+    esp_err_t mode_err = esp_wifi_get_mode(&mode);
+    if (mode_err != ESP_OK) {
+        return mode_err;
     }
+    bool keep_ap = mode == WIFI_MODE_APSTA;
+    if (keep_ap) {
+        // Provisioning must keep its AP alive while testing STA credentials.
+        esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(100));
+    } else {
+        esp_wifi_stop();
+    }
+    s_retry_num = 0;
+    set_connect_deadline(deadline_us);
+    xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (err != ESP_OK) {
+        return err;
+    }
+    s_connect_allowed = true;
+    err = keep_ap ? esp_wifi_connect() : esp_wifi_start();
+    if (err == ESP_OK) {
+        err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    }
+    if (err != ESP_OK) {
+        wifi_manager_disconnect();
+        return err;
+    }
+
+    int remaining_ms = network_deadline_remaining_ms(deadline_us, esp_timer_get_time(), INT_MAX);
+    uint64_t wait_ticks = (uint64_t) remaining_ms * configTICK_RATE_HZ / 1000;
+    TickType_t ticks = wait_ticks >= portMAX_DELAY ? portMAX_DELAY - 1 : (TickType_t) wait_ticks;
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                           pdFALSE, pdFALSE, ticks);
+    if ((bits & WIFI_CONNECTED_BIT) && s_is_connected && esp_timer_get_time() < deadline_us) {
+        // The deadline bounds this association/DHCP attempt. Normal connected
+        // sessions retain the existing reconnect behavior.
+        set_connect_deadline(INT64_MAX);
+        return ESP_OK;
+    }
+    wifi_manager_disconnect();
+    return (bits & WIFI_FAIL_BIT) ? ESP_FAIL : ESP_ERR_TIMEOUT;
 }
 
 esp_err_t wifi_manager_disconnect(void)
 {
+    s_connect_allowed = false;
     s_is_connected = false;
+    if (s_wifi_event_group) {
+        xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+    }
     return esp_wifi_disconnect();
 }
 

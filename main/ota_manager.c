@@ -19,6 +19,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "ha_integration.h"
+#include "network_wake.h"
 #include "nvs.h"
 #include "periodic_tasks.h"
 #include "power_manager.h"
@@ -98,6 +99,13 @@ static int version_compare(const char *v1, const char *v2)
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
+    if (network_wake_active() && evt->event_id == HTTP_EVENT_ON_DATA) {
+        if (network_wake_timeout_ms(1) == 0) {
+            esp_http_client_close(evt->client);
+            return ESP_ERR_TIMEOUT;
+        }
+    }
+
     switch (evt->event_id) {
     case HTTP_EVENT_ERROR:
         ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
@@ -136,11 +144,15 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
     char *response_buffer = NULL;
     int response_len = 0;
 
+    int timeout_ms = network_wake_timeout_ms(10000);
+    if (timeout_ms == 0) {
+        return ESP_ERR_TIMEOUT;
+    }
     esp_http_client_config_t config = {
         .url = GITHUB_API_URL,
         .event_handler = http_event_handler,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 10000,
+        .timeout_ms = timeout_ms,
         .buffer_size = 4096,
     };
 
@@ -497,6 +509,10 @@ esp_err_t ota_check_for_update(bool *update_available_out, int timeout)
 
 esp_err_t ota_start_update(void)
 {
+    if (network_wake_active()) {
+        ESP_LOGW(TAG, "Firmware installation requires an interactive wake");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     if (!update_available) {
         ESP_LOGW(TAG, "No update available");
         return ESP_ERR_INVALID_STATE;

@@ -2,6 +2,7 @@
 #define WIFI_MANAGER_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "esp_err.h"
 #include "esp_wifi.h"
@@ -22,7 +23,8 @@ esp_err_t wifi_manager_set_performance_mode(bool enable);
 // Called automatically by wifi_manager_connect; exposed for the provisioning
 // connection test, which drives esp_wifi directly (#43).
 esp_err_t wifi_manager_apply_ip_config(void);
-esp_err_t wifi_manager_connect(const char *ssid, const char *password);
+// Absolute esp_timer_get_time() deadline in microseconds, including DHCP.
+esp_err_t wifi_manager_connect(const char *ssid, const char *password, int64_t deadline_us);
 esp_err_t wifi_manager_disconnect(void);
 bool wifi_manager_is_connected(void);
 esp_err_t wifi_manager_get_ip(char *ip_str, size_t len);

@@ -33,6 +33,7 @@
 #include "image_processor.h"
 #include "mdns_service.h"
 #include "memfs.h"
+#include "network_wake.h"
 #include "nvs_flash.h"
 #include "ota_manager.h"
 #include "periodic_tasks.h"
@@ -86,8 +87,12 @@ static esp_err_t sntp_sync_periodic_callback(void)
     // early-wake re-check re-reads the clock and depends on the corrected time
     // being in place before it decides whether the timer fired early.
     const int retry_count = 10;  // up to ~10 seconds
-    for (int i = 0; i < retry_count && !s_sntp_time_applied; i++) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+    for (int i = 0; i < retry_count && !s_sntp_time_applied && network_wake_timeout_ms(1000) > 0;
+         i++) {
+        vTaskDelay(pdMS_TO_TICKS(network_wake_timeout_ms(1000)));
+    }
+    if (network_wake_active()) {
+        esp_sntp_stop();
     }
 
     if (!s_sntp_time_applied) {
@@ -121,28 +126,16 @@ static bool connect_to_wifi_with_timeout(int timeout_seconds)
     char wifi_ssid[WIFI_SSID_MAX_LEN] = {0};
     char wifi_password[WIFI_PASS_MAX_LEN] = {0};
 
-    ESP_ERROR_CHECK(wifi_manager_load_credentials(wifi_ssid, wifi_password));
-    ESP_LOGI(TAG, "Connecting to WiFi SSID: %s", wifi_ssid);
-    wifi_manager_connect(wifi_ssid, wifi_password);
-
-    // Wait for WiFi connection (with timeout)
-    ESP_LOGI(TAG, "Waiting for WiFi connection...");
-    int retry_count = 0;
-    while (!wifi_manager_is_connected() && retry_count < timeout_seconds) {
-        if (retry_count % 10 == 0 && retry_count > 0) {
-            ESP_LOGI(TAG, "WiFi connecting... (%d seconds elapsed)", retry_count);
-        }
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        retry_count++;
-    }
-
-    if (wifi_manager_is_connected()) {
-        ESP_LOGI(TAG, "WiFi connected after %d seconds", retry_count);
-        return true;
-    } else {
-        ESP_LOGE(TAG, "WiFi connection timeout after %d seconds", timeout_seconds);
+    if (wifi_manager_load_credentials(wifi_ssid, wifi_password) != ESP_OK) {
         return false;
     }
+    ESP_LOGI(TAG, "Connecting to WiFi SSID: %s", wifi_ssid);
+    esp_err_t err = wifi_manager_connect(wifi_ssid, wifi_password,
+                                         network_wake_deadline_us(timeout_seconds * 1000));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "WiFi connection failed: %s", esp_err_to_name(err));
+    }
+    return err == ESP_OK;
 }
 
 static void button_task(void *arg)
@@ -287,15 +280,25 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 
     // Initialize WiFi if needed (URL mode always needs it, SD card mode only if HA configured)
     if (rotation_mode == ROTATION_MODE_URL || ha_configured) {
+        if (network_wake_begin() != ESP_OK) {
+            ESP_LOGE(TAG, "Cannot supervise network wake; sleeping without rotation");
+            power_manager_enter_sleep();
+            return;
+        }
         ESP_LOGI(TAG, "Initializing WiFi for %s",
                  rotation_mode == ROTATION_MODE_URL ? "URL rotation" : "HA battery post");
-        ESP_ERROR_CHECK(wifi_manager_init());
+        if (wifi_manager_init() != ESP_OK) {
+            power_manager_enter_sleep();
+            return;
+        }
 
         if (connect_to_wifi_with_timeout(60)) {
             wifi_connected = true;
             ESP_LOGI(TAG, "WiFi connected");
         } else {
-            ESP_LOGW(TAG, "WiFi connection timeout");
+            ESP_LOGW(TAG, "WiFi unavailable; preserving the current frame");
+            power_manager_enter_sleep();
+            return;
         }
     }
 
@@ -315,6 +318,7 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     if (!is_button_wake && early_seconds > EARLY_WAKE_TOLERANCE_SEC) {
         ESP_LOGI(TAG, "Woke %d seconds before scheduled rotation, going back to sleep",
                  early_seconds);
+        network_wake_succeeded();
         power_manager_enter_sleep();
         // Won't reach here after sleep
     }
@@ -322,6 +326,7 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     // Whether this wake should actually rotate. Home Assistant can veto a
     // scheduled rotation (e.g. nobody home / night) via the notify response.
     bool should_rotate = true;
+    bool network_ok = true;
 
     // Bring the config server up before rotating so HA can reach us and the
     // notify response can carry the rotation decision.
@@ -332,9 +337,10 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
         // Piggyback the rotation decision on the online notification. The gate
         // is moot for a ROTATE button press (that always rotates), so don't ask
         // for or act on the decision there. Strictly fail-closed otherwise: WiFi
-        // is up but we couldn't ask HA, so don't rotate. (A total WiFi failure
-        // never reaches here, so it rotates as normal.)
+        // is up but we couldn't ask HA, so don't rotate. WiFi failures already
+        // returned to sleep above.
         esp_err_t notify_err = ha_notify_online(is_button_wake ? NULL : &should_rotate);
+        network_ok = notify_err == ESP_OK;
         if (!is_button_wake && notify_err != ESP_OK) {
             ESP_LOGW(TAG, "Could not reach Home Assistant to check rotation; skipping");
             utils_set_last_fetch_error("Could not reach Home Assistant to check rotation");
@@ -344,18 +350,26 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 
     // Honor an HA veto (timer wakes only — a ROTATE button press always rotates).
     if (!is_button_wake && !should_rotate) {
+        if (network_ok) {
+            network_wake_succeeded();
+        }
         ESP_LOGI(TAG, "Rotation skipped by Home Assistant, going back to sleep");
         power_manager_enter_sleep();
         // Won't reach here after sleep
     }
 
-    // Trigger rotation
+    if (network_wake_timeout_ms(1) == 0) {
+        power_manager_enter_sleep();
+        return;
+    }
     power_manager_reset_sleep_timer();
-    trigger_image_rotation();
+    esp_err_t rotation_err = trigger_image_rotation();
+    network_ok = network_ok && rotation_err == ESP_OK;
 
     // Notify HA that data has been updated (after both OTA check and rotation)
     if (wifi_connected && ha_configured) {
-        ha_notify_update();
+        esp_err_t notify_err = ha_notify_update();
+        network_ok = network_ok && notify_err == ESP_OK;
     }
 
     // Keep the HTTP server up briefly so a late config change — or a server-side
@@ -371,11 +385,14 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     if (wifi_connected && hold_sec > 0) {
         ensure_http_server_running();  // no-op if the HA path already started it
         ESP_LOGI(TAG, "HTTP server available for config sync (%d s)", hold_sec);
-        vTaskDelay(pdMS_TO_TICKS(hold_sec * 1000));
+        vTaskDelay(pdMS_TO_TICKS(network_wake_timeout_ms(hold_sec * 1000)));
         ESP_LOGI(TAG, "HTTP server window closed");
     }
 
     // Go back to sleep (offline notification sent inside power_manager_enter_sleep)
+    if (network_ok) {
+        network_wake_succeeded();
+    }
     ESP_LOGI(TAG, "Auto-rotate complete, going back to sleep");
     power_manager_enter_sleep();
     // Won't reach here after sleep
@@ -407,6 +424,7 @@ static void log_coredump_summary(void)
 void app_main(void)
 {
     // Check reset reason to detect crashes
+    bool deadline_recovery = network_wake_init();
     esp_reset_reason_t reset_reason = esp_reset_reason();
     const char *reset_reason_str;
     switch (reset_reason) {
@@ -559,6 +577,12 @@ void app_main(void)
     ESP_ERROR_CHECK(color_palette_init());
 
     ESP_ERROR_CHECK(power_manager_init());
+
+    if (deadline_recovery) {
+        ESP_LOGE(TAG, "Scheduled wake exceeded deadline; sleeping without network or rotation");
+        power_manager_enter_sleep();
+        return;
+    }
 
     ESP_ERROR_CHECK(ota_manager_init());
 
