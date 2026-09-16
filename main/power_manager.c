@@ -25,6 +25,7 @@
 #include "periodic_tasks.h"
 #include "storage.h"
 #include "utils.h"
+#include "wake_diagnostics.h"
 #include "wifi_manager.h"
 
 // RTC memory to store expected wakeup time (persists across deep sleep)
@@ -331,6 +332,7 @@ esp_err_t power_manager_init(void)
 
 void power_manager_enter_sleep(void)
 {
+    wake_diag_begin(WAKE_PHASE_SLEEP);
     power_manager_disable_auto_light_sleep();
 
     ESP_LOGI(TAG, "Preparing to enter deep sleep mode");
@@ -412,6 +414,7 @@ void power_manager_enter_sleep(void)
     usb_serial_jtag_ll_phy_enable_pad(false);
 #endif
 
+    wake_diag_complete(WAKE_PHASE_SLEEP);
     esp_deep_sleep_start();
 }
 

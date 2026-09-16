@@ -18,6 +18,7 @@
 #include "nvs_flash.h"
 #include "storage.h"
 #include "utils.h"
+#include "wake_diagnostics.h"
 
 static const char *TAG = "wifi_manager";
 
@@ -43,6 +44,8 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
         // before falling back to the A record.
         esp_netif_create_ip6_linklocal(s_sta_netif);
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        const wifi_event_sta_disconnected_t *disconnected = event_data;
+        wake_diag_wifi_disconnect(disconnected ? disconnected->reason : 0);
         if (s_retry_num < 5) {
             esp_wifi_connect();
             s_retry_num++;

@@ -62,6 +62,11 @@ include(GoogleTest)
 gtest_discover_tests(cron_test)
 gtest_discover_tests(wake_schedule_test)
 
+# RTC wake record format and corruption rejection (no ESP-IDF dependency).
+add_executable(wake_diagnostics_test test_wake_diagnostics.c ../main/wake_diagnostics_record.c)
+target_include_directories(wake_diagnostics_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../main)
+add_test(NAME wake_diagnostics_test COMMAND wake_diagnostics_test)
+
 # On-device image pipeline characterization tests (host build of
 # main/image_processor.c against ESP-IDF stubs + system libpng)
 find_package(PNG REQUIRED)

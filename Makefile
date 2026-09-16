@@ -82,6 +82,7 @@ test:
 	@echo ""
 	@echo "Running C unit tests..."
 	@./host_tests/build/cron_test
+	@./host_tests/build/wake_diagnostics_test
 	@echo ""
 	@echo "Running image pipeline tests..."
 	@./host_tests/build/image_pipeline_test

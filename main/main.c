@@ -41,6 +41,7 @@
 #include "splash_screen.h"
 #include "storage.h"
 #include "utils.h"
+#include "wake_diagnostics.h"
 #include "wifi_manager.h"
 #include "wifi_provisioning.h"
 
@@ -287,6 +288,7 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 
     // Initialize WiFi if needed (URL mode always needs it, SD card mode only if HA configured)
     if (rotation_mode == ROTATION_MODE_URL || ha_configured) {
+        wake_diag_begin(WAKE_PHASE_WIFI);
         ESP_LOGI(TAG, "Initializing WiFi for %s",
                  rotation_mode == ROTATION_MODE_URL ? "URL rotation" : "HA battery post");
         ESP_ERROR_CHECK(wifi_manager_init());
@@ -297,9 +299,11 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
         } else {
             ESP_LOGW(TAG, "WiFi connection timeout");
         }
+        wake_diag_complete(WAKE_PHASE_WIFI);
     }
 
     if (wifi_connected) {
+        wake_diag_begin(WAKE_PHASE_PERIODIC);
         power_manager_reset_sleep_timer();
 
         // Check and run periodic tasks (OTA check, SNTP sync if due). When SNTP
@@ -307,6 +311,7 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
         // the trustworthy anchor on RTC-less boards.
         ESP_LOGI(TAG, "Checking periodic tasks...");
         periodic_tasks_check_and_run();
+        wake_diag_complete(WAKE_PHASE_PERIODIC);
     }
 
     // Re-check now that the clock is as corrected as it will get (NTP sync
@@ -326,6 +331,7 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     // Bring the config server up before rotating so HA can reach us and the
     // notify response can carry the rotation decision.
     if (wifi_connected && ha_configured) {
+        wake_diag_begin(WAKE_PHASE_HA_CHECK);
         power_manager_reset_sleep_timer();
         ensure_http_server_running();
 
@@ -340,6 +346,7 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
             utils_set_last_fetch_error("Could not reach Home Assistant to check rotation");
             should_rotate = false;
         }
+        wake_diag_complete(WAKE_PHASE_HA_CHECK);
     }
 
     // Honor an HA veto (timer wakes only — a ROTATE button press always rotates).
@@ -350,12 +357,16 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     }
 
     // Trigger rotation
+    wake_diag_begin(WAKE_PHASE_ROTATION);
     power_manager_reset_sleep_timer();
     trigger_image_rotation();
+    wake_diag_complete(WAKE_PHASE_ROTATION);
 
     // Notify HA that data has been updated (after both OTA check and rotation)
     if (wifi_connected && ha_configured) {
+        wake_diag_begin(WAKE_PHASE_HA_UPDATE);
         ha_notify_update();
+        wake_diag_complete(WAKE_PHASE_HA_UPDATE);
     }
 
     // Keep the HTTP server up briefly so a late config change — or a server-side
@@ -369,10 +380,12 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
         hold_sec = server_wait;
     }
     if (wifi_connected && hold_sec > 0) {
+        wake_diag_begin(WAKE_PHASE_HTTP_WINDOW);
         ensure_http_server_running();  // no-op if the HA path already started it
         ESP_LOGI(TAG, "HTTP server available for config sync (%d s)", hold_sec);
         vTaskDelay(pdMS_TO_TICKS(hold_sec * 1000));
         ESP_LOGI(TAG, "HTTP server window closed");
+        wake_diag_complete(WAKE_PHASE_HTTP_WINDOW);
     }
 
     // Go back to sleep (offline notification sent inside power_manager_enter_sleep)
@@ -388,24 +401,34 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 // xtensa-esp32s3-elf-addr2line. Used to root-cause the #105 wake-path crash.
 static void log_coredump_summary(void)
 {
-    if (esp_core_dump_image_check() != ESP_OK) {
-        return;  // no valid core dump stored
+    esp_err_t check = esp_core_dump_image_check();
+    if (check == ESP_ERR_NOT_FOUND) {
+        ESP_LOGI(TAG, "No previous coredump");
+        return;
+    }
+    if (check != ESP_OK) {
+        ESP_LOGW(TAG, "Previous coredump unavailable or corrupt: %s", esp_err_to_name(check));
+        return;  // retain the image for offline inspection
     }
     esp_core_dump_summary_t summary;
-    if (esp_core_dump_get_summary(&summary) == ESP_OK) {
-        ESP_LOGE(TAG, "COREDUMP: task '%s' crashed at PC 0x%08x (%u frames)", summary.exc_task,
-                 (unsigned) summary.exc_pc, (unsigned) summary.exc_bt_info.depth);
-        for (uint32_t i = 0; i < summary.exc_bt_info.depth; i++) {
-            ESP_LOGE(TAG, "COREDUMP   bt[%u] 0x%08x", (unsigned) i,
-                     (unsigned) summary.exc_bt_info.bt[i]);
-        }
+    esp_err_t err = esp_core_dump_get_summary(&summary);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Could not summarize previous coredump: %s", esp_err_to_name(err));
+        return;
     }
-    esp_core_dump_image_erase();  // clear so it isn't re-reported on every boot
+    ESP_LOGE(TAG, "COREDUMP: task '%s' crashed at PC 0x%08x (%u frames)", summary.exc_task,
+             (unsigned) summary.exc_pc, (unsigned) summary.exc_bt_info.depth);
+    for (uint32_t i = 0; i < summary.exc_bt_info.depth; i++) {
+        ESP_LOGE(TAG, "COREDUMP   bt[%u] 0x%08x", (unsigned) i,
+                 (unsigned) summary.exc_bt_info.bt[i]);
+    }
+    esp_core_dump_image_erase();  // clear only after a successful report
 }
 #endif
 
 void app_main(void)
 {
+    wake_diag_boot();
     // Check reset reason to detect crashes
     esp_reset_reason_t reset_reason = esp_reset_reason();
     const char *reset_reason_str;
@@ -439,18 +462,25 @@ void app_main(void)
         break;
     }
     ESP_LOGI(TAG, "PhotoFrame starting...");
+    // Console fallback: storage or config can fail before persistent logging starts.
+    wake_diag_log_previous(reset_reason);
 
     // Log initial memory state
     ESP_LOGI(TAG, "Free heap: %lu bytes, Largest free block: %lu bytes", esp_get_free_heap_size(),
              heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    wake_diag_complete(WAKE_PHASE_BOOT);
 
     // Initialize Board HAL
+    wake_diag_begin(WAKE_PHASE_BOARD);
     ESP_LOGI(TAG, "Initializing Board HAL...");
     ESP_ERROR_CHECK(board_hal_init());
+    wake_diag_complete(WAKE_PHASE_BOARD);
 
     // Initialize the storage subsystem (handles SD, LittleFS, MemFS fallbacks)
+    wake_diag_begin(WAKE_PHASE_STORAGE);
     ESP_LOGI(TAG, "Initializing storage subsystem...");
     ESP_ERROR_CHECK(storage_init());
+    wake_diag_complete(WAKE_PHASE_STORAGE);
 
     // Bring up NVS, config, and debug-log capture as early as possible — before
     // the external-RTC / I2C init below — so the persistent log covers the RTC
@@ -463,7 +493,9 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    wake_diag_begin(WAKE_PHASE_CONFIG);
     ESP_ERROR_CHECK(config_manager_init());
+    wake_diag_complete(WAKE_PHASE_CONFIG);
 
     // Start mirroring console logs to storage if debug logging is enabled.
     debug_log_init();
@@ -476,6 +508,7 @@ void app_main(void)
     // comes up as anything other than a clean deep-sleep wake (brownout, panic,
     // watchdog, power-on) lands in normal-init instead of the rotation path.
     ESP_LOGI(TAG, "Reset reason: %s", reset_reason_str);
+    wake_diag_log_previous(reset_reason);
 
 #if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH
     // Dev builds: surface any core dump left by a previous crash into the log.
@@ -484,6 +517,7 @@ void app_main(void)
 
     // Initialize external RTC (via HAL). Kept after debug_log_init so this — the
     // suspected #105 crash site — is captured in the persistent log.
+    wake_diag_begin(WAKE_PHASE_RTC);
     ESP_LOGI(TAG, "Initializing RTC...");
     esp_err_t rtc_ret = board_hal_rtc_init();
     if (rtc_ret == ESP_OK) {
@@ -540,8 +574,10 @@ void app_main(void)
     // internal clock's (untrusted) estimate — corrected by the "SNTP sync" line
     // once NTP runs.
     log_wall_clock(time_restored ? "external RTC" : "internal, pre-sync");
+    wake_diag_complete(WAKE_PHASE_RTC);
 
     // Initialize periodic tasks system
+    wake_diag_begin(WAKE_PHASE_SERVICES);
     ESP_LOGI(TAG, "Initializing periodic tasks...");
     ESP_ERROR_CHECK(periodic_tasks_init());
 
@@ -563,17 +599,21 @@ void app_main(void)
     ESP_ERROR_CHECK(ota_manager_init());
 
     ESP_ERROR_CHECK(album_manager_init());
+    wake_diag_complete(WAKE_PHASE_SERVICES);
 
     // Check wake-up source
     wakeup_source_t wakeup_src = power_manager_get_wakeup_source();
+    wake_diag_set_source(wakeup_src);
     ESP_LOGI(TAG, "Wake-up source: %d", wakeup_src);
 
     switch (wakeup_src) {
     case WAKEUP_SOURCE_CLEAR_BUTTON:
         ESP_LOGI(TAG, "CLEAR button wakeup detected - clearing display and sleeping");
-        board_hal_init();             // Ensure HAL is active
-        display_manager_init();       // Initialize display
-        display_manager_clear();      // Clear screen
+        wake_diag_begin(WAKE_PHASE_ROTATION);
+        board_hal_init();         // Ensure HAL is active
+        display_manager_init();   // Initialize display
+        display_manager_clear();  // Clear screen
+        wake_diag_complete(WAKE_PHASE_ROTATION);
         power_manager_enter_sleep();  // Go back to sleep
         // Won't reach here
         break;

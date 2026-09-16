@@ -21,6 +21,8 @@ set(SOURCES
     "storage.c"
     "cron.c"
     "utils.c"
+    "wake_diagnostics.c"
+    "wake_diagnostics_record.c"
     "wifi_manager.c"
     "wifi_provisioning.c"
 )
