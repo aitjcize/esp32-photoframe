@@ -38,6 +38,7 @@
 #include "periodic_tasks.h"
 #include "power_manager.h"
 #include "processing_settings.h"
+#include "scheduled_wake.h"
 #include "splash_screen.h"
 #include "storage.h"
 #include "utils.h"
@@ -568,6 +569,12 @@ void app_main(void)
     wakeup_source_t wakeup_src = power_manager_get_wakeup_source();
     ESP_LOGI(TAG, "Wake-up source: %d", wakeup_src);
 
+    if (scheduled_wake_start(wakeup_src)) {
+        // The wake task owns WiFi, rotation and sleep from here. Do not run
+        // cold-boot initialization concurrently with it.
+        return;
+    }
+
     switch (wakeup_src) {
     case WAKEUP_SOURCE_CLEAR_BUTTON:
         ESP_LOGI(TAG, "CLEAR button wakeup detected - clearing display and sleeping");
@@ -576,13 +583,6 @@ void app_main(void)
         display_manager_clear();      // Clear screen
         power_manager_enter_sleep();  // Go back to sleep
         // Won't reach here
-        break;
-
-    case WAKEUP_SOURCE_TIMER:
-    case WAKEUP_SOURCE_ROTATE_BUTTON:
-        ESP_LOGI(TAG, "Entering deep sleep wake path (timer or rotate button)");
-        deep_sleep_wake_main(wakeup_src);
-        // Won't reach here after sleep
         break;
 
     case WAKEUP_SOURCE_BOOT_BUTTON:

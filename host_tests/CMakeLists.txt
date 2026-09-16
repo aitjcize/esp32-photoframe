@@ -62,6 +62,15 @@ include(GoogleTest)
 gtest_discover_tests(cron_test)
 gtest_discover_tests(wake_schedule_test)
 
+# Compile the real scheduled-wake dispatch against a fake task scheduler.
+add_executable(scheduled_wake_test test_scheduled_wake.cpp ../main/scheduled_wake.c)
+target_include_directories(scheduled_wake_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+target_link_libraries(scheduled_wake_test GTest::gtest_main)
+gtest_discover_tests(scheduled_wake_test)
+
 # On-device image pipeline characterization tests (host build of
 # main/image_processor.c against ESP-IDF stubs + system libpng)
 find_package(PNG REQUIRED)

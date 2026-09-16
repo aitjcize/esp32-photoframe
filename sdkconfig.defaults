@@ -33,6 +33,7 @@ CONFIG_FATFS_MAX_LFN=255
 CONFIG_FREERTOS_HZ=1000
 
 # Main task stack size - Increase for WiFi and HTTP client operations
+# Timer/rotate wakes use a separate 12288-byte task (scheduled_wake.c).
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
 
 # Component config

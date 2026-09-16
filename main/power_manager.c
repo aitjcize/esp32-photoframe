@@ -389,6 +389,11 @@ void power_manager_enter_sleep(void)
     ESP_LOGI(TAG, "Configuring Board HAL for deep sleep");
     board_hal_prepare_for_sleep();
 
+    // ESP-IDF reports the minimum free stack over the calling task's lifetime
+    // in bytes. Sample after wake work and board teardown, before log flush.
+    ESP_LOGI(TAG, "Sleep entry: task=%s stack_min=%lu bytes", pcTaskGetName(NULL),
+             (unsigned long) uxTaskGetStackHighWaterMark(NULL));
+
     // Flush buffered debug log lines and close the file before storage goes
     // away. Capture resumes automatically on the next boot.
     debug_log_flush();

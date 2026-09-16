@@ -3,6 +3,7 @@
 
 typedef int TickType_t;
 typedef int BaseType_t;
+typedef unsigned int UBaseType_t;
 
 #define pdMS_TO_TICKS(ms) (ms)
 #define portTICK_PERIOD_MS 1

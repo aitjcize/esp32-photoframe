@@ -147,6 +147,48 @@ esp32-photoframe/
 
 ## Debugging
 
+### Scheduled-wake task validation
+
+Timer and ROTATE-button wakes run `deep_sleep_wake_main()` on the
+`deep_sleep_wake` task with a 12288-byte stack and priority 5. Shared board,
+storage and service initialization still runs in `app_main()`, which returns
+immediately after handing off the wake. Its stack remains 6144 bytes. Cold
+boot, BOOT-button and CLEAR-button dispatch keep their existing behavior.
+
+If task allocation fails, the device logs the failure and uses the normal
+sleep teardown without attempting rotation. A wake pipeline that unexpectedly
+returns also enters sleep. If that recovery sleep call returns, the firmware
+panics instead of continuing boot initialization or returning from a FreeRTOS
+task. This change does not impose a deadline on existing Wi-Fi/HTTP operations.
+
+Before flushing debug logs, sleep teardown reports
+`Sleep entry: task=deep_sleep_wake stack_min=<bytes> bytes`. ESP-IDF's
+high-water mark is the minimum free stack over the task's lifetime, in bytes;
+the sample includes rotation and board teardown but precedes log flush and
+storage unmount. The initial 12288-byte budget follows the
+[independent fork's wake-task change](https://github.com/t3ste/Tlg-esp32-photoframe/commit/d8c98968cd6a3e66e0d19920630f53faca4ec21c)
+and still needs measurement on this firmware. See also
+[ESP-IDF stack measurement guidance](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/performance/ram-usage.html).
+
+Run `make test` for the host dispatch tests (deferred execution, wake-source
+lifetime, allocation failure and unexpected returns). Before merging, validate
+on EE02 and another board using a debug build with coredumps enabled:
+
+1. Exercise timer and ROTATE-button wakes with URL + HA + JPEG/PNG, local
+   rotation, HTTP 304, HA veto, early timer wake and failed Wi-Fi. Confirm one
+   rotation at most, no cold-boot Wi-Fi/provisioning initialization after the
+   handoff, and eventual deep sleep. Repeat battery-powered cycles with USB
+   disconnected; collect logs after reconnecting.
+2. Record the minimum reported stack headroom for each case and check for
+   coredumps. Use at least 2048 bytes as an initial review target, subject to
+   maintainer agreement; do not describe the budget as validated before these
+   measurements. Also test cold boot and BOOT/CLEAR-button wakes.
+3. In a temporary test build, force the task creation result to fail. Confirm
+   the allocation error, no download/rotation, and normal panel/storage sleep
+   teardown. With auto-rotate enabled, confirm the next scheduled timer wake.
+4. Temporarily make the wake pipeline return immediately. Confirm the logged
+   recovery and deep sleep. Remove both fault injections before release.
+
 ### Enable Verbose Logging
 
 In `idf.py menuconfig`:
