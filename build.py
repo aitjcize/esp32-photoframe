@@ -78,7 +78,7 @@ def build_firmware(board, extra_args, debug=False):
     print(f"Running: {' '.join(build_cmd)}")
 
     try:
-        subprocess.run(build_cmd, check=True)
+        subprocess.run(build_cmd, shell=(os.name == "nt"), check=True)  # Added shell=True to fix Windows 10 issue -JR
     except subprocess.CalledProcessError as e:
         print(f"Build failed with exit code {e.returncode}")
         sys.exit(e.returncode)

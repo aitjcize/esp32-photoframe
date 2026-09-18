@@ -139,7 +139,7 @@ static void gpio_init(void)
         };
         ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_config(&en_conf));
         gpio_set_level(g_cfg.pin_enable, 1);
-        vTaskDelay(pdMS_TO_TICKS(100));  // allow display power to stabilize
+        vTaskDelay(pdMS_TO_TICKS(2000));  // allow display power to stabilize (changed from 100 to 2000 -JR)
     }
 }
 
