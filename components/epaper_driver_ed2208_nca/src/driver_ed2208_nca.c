@@ -48,6 +48,7 @@ static const uint8_t rb1DataBuf[] = {0x02};
 
 // --- Low-level SPI helpers ---
 
+// This function is now wrapped by cmd_data and cmd_data_both
 static void cmd_data_internal(uint8_t cmd, const uint8_t *data, size_t len)
 {
     // Send Command
@@ -80,13 +81,10 @@ static void cmd_data_both(uint8_t cmd, const uint8_t *data, size_t len)
     spi_device_acquire_bus(spi, portMAX_DELAY);
     gpio_set_level(g_cfg.pin_cs1, 0);
     gpio_set_level(g_cfg.pin_cs, 0);  // CS low
-    
     cmd_data_internal(cmd, data, len);
-    
     gpio_set_level(g_cfg.pin_cs, 1);  // CS high
     gpio_set_level(g_cfg.pin_cs1, 1);
     spi_device_release_bus(spi);
-    
     vTaskDelay(pdMS_TO_TICKS(10));
 }
 
@@ -151,7 +149,10 @@ static void gpio_init(void)
         };
         ESP_ERROR_CHECK_WITHOUT_ABORT(gpio_config(&en_conf));
         gpio_set_level(g_cfg.pin_enable, 1);
-        vTaskDelay(pdMS_TO_TICKS(2000));  // allow display power to stabilize (changed from 100 to 2000 -JR)
+        // Allow display power to stabilize
+        // Note: this failed at 100 and worked at 2000. 
+        // If someone cares about update speed, this most likely can be reduced.
+        vTaskDelay(pdMS_TO_TICKS(2000)); 
     }
 }
 
