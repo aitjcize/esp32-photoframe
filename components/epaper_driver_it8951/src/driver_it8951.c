@@ -338,6 +338,14 @@ void epaper_init(const epaper_config_t *cfg)
     s_pin_busy = cfg->pin_busy;      // HRDY
     s_pin_enable = cfg->pin_enable;  // EPD bias enable (optional)
 
+    // Release the pad hold latched by the previous deep-sleep cycle (see
+    // epaper_enter_deepsleep) so gpio_config + gpio_set_level below can
+    // re-drive the bias enable. Without this the pin stays latched LOW and
+    // the panel never gets bias again after the first sleep. Idempotent.
+    if (s_pin_enable >= 0) {
+        gpio_hold_dis(s_pin_enable);
+    }
+
     // GPIOs: CS/RST/EN as outputs, HRDY as input.
     gpio_config_t out_cfg = {
         .mode = GPIO_MODE_OUTPUT,
@@ -531,6 +539,15 @@ void epaper_enter_deepsleep(void)
     // Drop EPD bias to save power; the board cuts IT8951 core power separately.
     if (s_pin_enable >= 0) {
         gpio_set_level(s_pin_enable, 0);
+        // Latch the pad so the rail stays cut once the digital IO domain
+        // powers down at the start of deep sleep. Without the hold the pin
+        // simply stops being driven there, leaving the TPS65185 enable free
+        // to float back up and hold the bias rail on for the whole sleep
+        // interval — milliamps drawn continuously between hourly wakes,
+        // which dwarfs everything the wake itself costs. ed2208_nca/gca
+        // already latch their enable pins this way.
+        gpio_hold_en(s_pin_enable);
+        gpio_deep_sleep_hold_en();
     }
 #ifdef CONFIG_PM_ENABLE
     if (pm_lock) {
