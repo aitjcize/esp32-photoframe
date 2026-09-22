@@ -169,29 +169,43 @@ static uint16_t spi_read16(void)
     return ((uint16_t) rx[0] << 8) | rx[1];
 }
 
+// Each of the four primitives below holds CS low across two or more SPI
+// transactions with a wait_ready() in between -- and wait_ready() yields
+// (vTaskDelay(1)), so another task is guaranteed a chance to run inside the
+// CS-low window. The SD card shares this SPI2_HOST bus, so an SD transaction
+// taking that opening (the debug-log writer, a thumbnail being written) gets
+// clocked straight into the IT8951 while it is still selected. Hold the bus
+// for the CS-low window, exactly as the image stream in epaper_display() and
+// cmd_data() in the ed2208 drivers do. Acquired after the leading wait_ready
+// so a long controller wait doesn't block the SD for no reason.
 static void it8951_write_cmd(uint16_t cmd)
 {
     wait_ready();
+    spi_device_acquire_bus(s_spi, portMAX_DELAY);
     cs_low();
     spi_write16(IT8951_PRE_CMD);
     wait_ready();
     spi_write16(cmd);
     cs_high();
+    spi_device_release_bus(s_spi);
 }
 
 static void it8951_write_data(uint16_t data)
 {
     wait_ready();
+    spi_device_acquire_bus(s_spi, portMAX_DELAY);
     cs_low();
     spi_write16(IT8951_PRE_WR_DATA);
     wait_ready();
     spi_write16(data);
     cs_high();
+    spi_device_release_bus(s_spi);
 }
 
 static uint16_t it8951_read_data(void)
 {
     wait_ready();
+    spi_device_acquire_bus(s_spi, portMAX_DELAY);
     cs_low();
     spi_write16(IT8951_PRE_RD_DATA);
     wait_ready();
@@ -199,12 +213,14 @@ static uint16_t it8951_read_data(void)
     wait_ready();
     uint16_t v = spi_read16();
     cs_high();
+    spi_device_release_bus(s_spi);
     return v;
 }
 
 static void it8951_read_data_buf(uint16_t *buf, size_t words)
 {
     wait_ready();
+    spi_device_acquire_bus(s_spi, portMAX_DELAY);
     cs_low();
     spi_write16(IT8951_PRE_RD_DATA);
     wait_ready();
@@ -230,6 +246,7 @@ static void it8951_read_data_buf(uint16_t *buf, size_t words)
         }
     }
     cs_high();
+    spi_device_release_bus(s_spi);
 }
 
 static void it8951_write_reg(uint16_t reg, uint16_t val)
