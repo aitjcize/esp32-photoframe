@@ -4,6 +4,14 @@ import { useAppStore, useSettingsStore } from "../stores";
 import ImageProcessing from "./ImageProcessing.vue";
 import ProcessingControls from "./ProcessingControls.vue";
 import { wideEdit } from "../utils/uiPrefs";
+import {
+  orientCanvas,
+  logicalFrame,
+  denormalizeRect,
+  rectToZoomPan,
+  loadImageFile,
+  toCanvas,
+} from "../utils/framing";
 
 const appStore = useAppStore();
 const settingsStore = useSettingsStore();
@@ -88,25 +96,12 @@ async function processFile(file) {
   previewUrl.value = URL.createObjectURL(file);
   showPreview.value = true;
 
-  // Load image and create source canvas for upload processing
-  const img = await loadImage(file);
-  sourceCanvas.value = document.createElement("canvas");
-  sourceCanvas.value.width = img.width;
-  sourceCanvas.value.height = img.height;
-  const ctx = sourceCanvas.value.getContext("2d");
-  ctx.drawImage(img, 0, 0);
+  // Load image and create the full-resolution source canvas for upload
+  const img = await loadImageFile(file);
+  sourceCanvas.value = toCanvas(img);
 
   // Switch to processing tab so user can adjust settings
   settingsStore.activeSettingsTab = "processing";
-}
-
-function loadImage(file) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
-  });
 }
 
 async function uploadImage(mode = "upload") {
@@ -144,25 +139,35 @@ async function uploadImage(mode = "upload") {
         })
       : imageProcessor.SPECTRA6;
 
-    // Get scale mode and params from the preview component
-    // Vue auto-unwraps refs from defineExpose, so no .value needed
-    const scaleMode = imageProcessingRef.value?.scaleMode || "cover";
-    const uploadParams = imageProcessingRef.value?.getUploadParams() || {};
+    // Framing chosen in the preview: rotation / mirror are applied to the
+    // photo here, and a custom window becomes the library's zoom + pan in
+    // the frame's logical orientation (the library rotates to native layout).
+    const framing = imageProcessingRef.value?.getFraming() || {};
+    const source = orientCanvas(sourceCanvas.value, framing.rotation || 0, !!framing.flipH);
+    const frame = logicalFrame(targetWidth, targetHeight, orientation);
+    const layout = {
+      scaleMode: framing.scaleMode || "cover",
+      backgroundColor: framing.backgroundColorName || "white",
+    };
+    if (layout.scaleMode === "custom") {
+      if (framing.rect) {
+        const region = denormalizeRect(framing.rect, source.width, source.height);
+        Object.assign(layout, rectToZoomPan(region, frame.width));
+      } else {
+        layout.scaleMode = "cover";
+      }
+    }
 
     // Process image with theoretical palette for device at native dimensions.
     // The library handles rotation, scaling (cover/fit/custom), and clean
     // background replacement after dithering.
-    const result = imageProcessor.processImage(sourceCanvas.value, {
+    const result = imageProcessor.processImage(source, {
       displayWidth: targetWidth,
       displayHeight: targetHeight,
       palette,
       params,
       orientation,
-      scaleMode,
-      backgroundColor: uploadParams.backgroundColorName || "white",
-      zoom: uploadParams.zoom,
-      panX: uploadParams.panX,
-      panY: uploadParams.panY,
+      ...layout,
       usePerceivedOutput: false, // Use theoretical palette
     });
 
@@ -579,7 +584,7 @@ async function generateAiImage() {
       </div>
     </v-card-text>
 
-    <v-card-actions v-if="showPreview" class="px-4 pb-4">
+    <v-card-actions v-if="showPreview" class="upload-actions px-4 pb-4">
       <v-btn variant="text" @click="resetUpload"> Cancel </v-btn>
       <v-spacer />
       <v-select
@@ -590,13 +595,11 @@ async function generateAiImage() {
         variant="outlined"
         density="compact"
         hide-details
-        style="max-width: 200px"
-        class="mr-2"
+        class="album-select"
       />
       <v-btn
         v-if="canSaveToAlbum"
         color="secondary"
-        class="mr-2"
         :loading="uploading"
         @click="uploadImage('display')"
       >
@@ -686,6 +689,23 @@ async function generateAiImage() {
 }
 .upload-zone:hover {
   background-color: rgba(0, 0, 0, 0.04);
+}
+
+/* Actions wrap on narrow screens instead of overflowing the card. */
+.upload-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.album-select {
+  flex: 1 1 160px;
+  max-width: 220px;
+}
+@media (max-width: 600px) {
+  .album-select {
+    flex-basis: 100%;
+    max-width: none;
+    order: -1;
+  }
 }
 
 /* Wide-edit mode: break the card out of the page column to ~80vw (centered),
