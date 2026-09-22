@@ -48,12 +48,10 @@ static const uint8_t rb1DataBuf[] = {0x02};
 
 // --- Low-level SPI helpers ---
 
-// Send a command with optional data bytes in a single CS window.
-// CS stays LOW for the entire command+data sequence.
-static void cmd_data(uint8_t cmd, const uint8_t *data, size_t len)
+// Clock out a command byte and its optional data. Caller owns the bus lock and
+// the CS lines; cmd_data / cmd_data_both are the entry points.
+static void cmd_data_internal(uint8_t cmd, const uint8_t *data, size_t len)
 {
-    gpio_set_level(g_cfg.pin_cs, 0);  // CS low
-
     // Send Command
     gpio_set_level(g_cfg.pin_dc, 0);  // DC low = command
     spi_transaction_t t_cmd = {.length = 8, .tx_buffer = &cmd};
@@ -65,16 +63,36 @@ static void cmd_data(uint8_t cmd, const uint8_t *data, size_t len)
         spi_transaction_t t_data = {.length = len * 8, .tx_buffer = data};
         spi_device_transmit(spi, &t_data);
     }
-
-    gpio_set_level(g_cfg.pin_cs, 1);  // CS high
 }
 
-// Send a command targeting both controllers (CS1 LOW during cmd_data)
+// Send a command with optional data bytes in a single CS window.
+// CS stays LOW for the entire command+data sequence, so hold the SPI bus for
+// it: the SD card shares this SPI2_HOST, and a transaction that wins the bus
+// between the command byte and its data gets clocked into the panel while CS
+// is still low. On the dual-CS E1004 that desyncs one controller and its half
+// of the panel then misses the update. Same reasoning as the pixel transfer in
+// epaper_display(); this is the command path that fix left open.
+static void cmd_data(uint8_t cmd, const uint8_t *data, size_t len)
+{
+    spi_device_acquire_bus(spi, portMAX_DELAY);
+    gpio_set_level(g_cfg.pin_cs, 0);  // CS low
+    cmd_data_internal(cmd, data, len);
+    gpio_set_level(g_cfg.pin_cs, 1);  // CS high
+    spi_device_release_bus(spi);
+}
+
+// Send a command targeting both controllers (CS1 LOW during the transfer).
+// Repeats cmd_data's CS handling instead of calling it: spi_device_acquire_bus
+// is not recursive, so nesting the two would deadlock the display task.
 static void cmd_data_both(uint8_t cmd, const uint8_t *data, size_t len)
 {
+    spi_device_acquire_bus(spi, portMAX_DELAY);
     gpio_set_level(g_cfg.pin_cs1, 0);
-    cmd_data(cmd, data, len);
+    gpio_set_level(g_cfg.pin_cs, 0);  // CS low
+    cmd_data_internal(cmd, data, len);
+    gpio_set_level(g_cfg.pin_cs, 1);  // CS high
     gpio_set_level(g_cfg.pin_cs1, 1);
+    spi_device_release_bus(spi);
     vTaskDelay(pdMS_TO_TICKS(10));
 }
 
