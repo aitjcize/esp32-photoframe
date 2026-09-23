@@ -715,10 +715,19 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
             free(palette_json);
         }
 
-        // Add battery level
-        char batt_str[4];
-        snprintf(batt_str, sizeof(batt_str), "%i", board_hal_get_battery_percent());
-        esp_http_client_set_header(client, "X-Battery-Percentage", batt_str);
+        // Report the battery level, but only when it is actually known.
+        // board_hal_get_battery_percent() answers -1 when it has no reading,
+        // and that sentinel was going out on the wire, where the server drops
+        // it (it only records 0..100) -- indistinguishable from a frame that
+        // never reported at all, which is how #123 looked from the outside.
+        // Omitting the header instead makes absence unambiguously mean
+        // "unknown" for any consumer.
+        int battery_percent = board_hal_get_battery_percent();
+        if (battery_percent >= 0 && battery_percent <= 100) {
+            char batt_str[4];
+            snprintf(batt_str, sizeof(batt_str), "%d", battery_percent);
+            esp_http_client_set_header(client, "X-Battery-Percentage", batt_str);
+        }
 
         err = esp_http_client_perform(client);
 
