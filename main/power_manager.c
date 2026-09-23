@@ -333,6 +333,18 @@ void power_manager_enter_sleep(void)
 {
     power_manager_disable_auto_light_sleep();
 
+    // Report how close this wake came to exhausting its stack. Every sleep
+    // path goes through here, so the worst case across the whole wake --
+    // including the rotation work -- shows up in the debug log. Nothing else
+    // in the firmware measures this, which is why the "is 6144 bytes enough?"
+    // question has only ever been answered by guesswork (see #121 / PR #133).
+    // Scheduled wakes reach this from the main task; interactive ones from
+    // sleep_timer or httpd, hence the task name. StackType_t is uint8_t on
+    // ESP-IDF, so the multiply is a no-op there and only keeps this correct
+    // for word-sized ports.
+    ESP_LOGI(TAG, "Stack headroom at sleep: task '%s' had %u bytes free (min)", pcTaskGetName(NULL),
+             (unsigned) (uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)));
+
     ESP_LOGI(TAG, "Preparing to enter deep sleep mode");
 
     // Only notify HA offline when the network is actually up. The early-wake
@@ -386,12 +398,15 @@ void power_manager_enter_sleep(void)
     // was never started.
     esp_wifi_stop();
 
+    // Flush buffered debug log lines and close the file BEFORE the board
+    // teardown below, which on SD-backed boards calls sdcard_deinit() and cuts
+    // the card's power rail -- writing to storage after that is a silent no-op
+    // and loses the tail of every session. Nothing past this point logs
+    // anything that needs to survive. Capture resumes on the next boot.
+    debug_log_flush();
+
     ESP_LOGI(TAG, "Configuring Board HAL for deep sleep");
     board_hal_prepare_for_sleep();
-
-    // Flush buffered debug log lines and close the file before storage goes
-    // away. Capture resumes automatically on the next boot.
-    debug_log_flush();
 
     // Unmount LittleFS and force flash power domain off to prevent
     // VDD_SPI from staying active during deep sleep (~1-2mA drain).
