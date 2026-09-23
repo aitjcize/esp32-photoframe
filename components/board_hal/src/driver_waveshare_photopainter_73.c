@@ -143,8 +143,18 @@ esp_err_t board_hal_prepare_for_sleep(void)
     return ESP_OK;
 }
 
+// A battery reading at or above this is taken as proof a pack is attached.
+// Below any usable LiPo (3.0V cutoff) but far above the ~0mV the AXP2101
+// reports with no battery, so it separates the two cleanly.
+#define BATTERY_PRESENT_MIN_MV 2500
+
 bool board_hal_is_battery_connected(void)
 {
+    // Prefer the voltage reading over the AXP2101's detection bit, which is
+    // unreliable here -- see board_hal_get_battery_percent below.
+    if (axp2101_get_battery_voltage() >= BATTERY_PRESENT_MIN_MV) {
+        return true;
+    }
     return axp2101_is_battery_connected();
 }
 
@@ -156,12 +166,19 @@ int board_hal_get_battery_percent(void)
     // its SOC output stays frozen (#107 — stuck at a constant percentage).
     // Derive the percentage from the battery voltage instead, like the other
     // boards (simple linear approximation: 4.2V = 100%, 3.3V = 0%).
-    if (!axp2101_is_battery_connected()) {
-        return -1;
-    }
-
+    //
+    // Don't gate this on axp2101_is_battery_connected(). Sleep teardown
+    // disables battery detection (axp2101_basic_sleep_start, matching stock
+    // firmware) and init only re-enables it when a register read reports it
+    // off -- a read this chip is documented to NACK intermittently, see the
+    // USB-status cache in axp2101.cpp. With an external supply present the
+    // detection bit is ambiguous as well, which is how #120 surfaced: the
+    // frame answered -1% while charging. A plausible battery voltage is the
+    // stronger evidence, so trust that and reserve -1 for genuinely having
+    // no reading. That matters beyond the display -- -1 also went out as
+    // X-Battery-Percentage and was silently dropped server-side (#123).
     int voltage = axp2101_get_battery_voltage();
-    if (voltage <= 0) {
+    if (voltage < BATTERY_PRESENT_MIN_MV) {
         return -1;
     }
     if (voltage >= 4200) {
