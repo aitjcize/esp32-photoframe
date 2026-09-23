@@ -266,3 +266,8 @@ void board_hal_led_set(board_hal_led_t led, bool on)
         break;
     }
 }
+
+i2c_master_bus_handle_t board_hal_get_i2c_bus(void)
+{
+    return i2c_bus;
+}

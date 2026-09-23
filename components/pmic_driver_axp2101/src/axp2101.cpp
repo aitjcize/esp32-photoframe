@@ -342,3 +342,28 @@ void axp2101_shutdown(void)
     ESP_LOGI(TAG, "Triggering hard power-off via AXP2101");
     axp2101.shutdown();
 }
+
+void axp2101_prepare_audio_rails(void)
+{
+    // Stock Waveshare 01_Audio_Test Custom_PmicRegisterInit sets ALDO1–4 to
+    // 3.3 V. ALDO3 is the ES8311 analog/digital rail; the codec sits on the
+    // same I2C bus as the RTC/SHTC3, so it must be powered before we talk
+    // to 0x18.
+    if (axp2101.getALDO1Voltage() != 3300) {
+        axp2101.setALDO1Voltage(3300);
+    }
+    if (axp2101.getALDO2Voltage() != 3300) {
+        axp2101.setALDO2Voltage(3300);
+    }
+    if (axp2101.getALDO3Voltage() != 3300) {
+        axp2101.setALDO3Voltage(3300);
+    }
+    if (axp2101.getALDO4Voltage() != 3300) {
+        axp2101.setALDO4Voltage(3300);
+    }
+    axp2101.enableALDO1();
+    axp2101.enableALDO2();
+    axp2101.enableALDO3();
+    axp2101.enableALDO4();
+    ESP_LOGI(TAG, "AXP2101 ALDO1-4 enabled at 3.3V for ES8311 audio");
+}

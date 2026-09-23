@@ -111,6 +111,57 @@ Configure your API keys in **Settings > AI Generation**.
 
 The reTerminal E1002, E1003, and E1004 also include a SHT40 temperature/humidity sensor, PCF8563 RTC, and battery monitoring. The XIAO EE03 has a SHT40 sensor and battery monitoring as well (but no RTC).
 
+### Speaker chime (Waveshare PhotoPainter 7.3")
+
+On `waveshare_photopainter_73`, a short local speaker chime plays on the onboard ES8311 DAC + speaker on a successful image display or URL rotate (when a new image is actually shown). By default it starts only after the e-ink panel has finished drawing (`chime_play_when=after`); set `before` to play when rotate starts, immediately before the panel wait. Built-in presets are public-domain tunes synthesized on the device (a few seconds; no copyrighted game or OS ringtones). Optionally pull a small PCM WAV from a URL (for example a Raspberry Pi at `http://news.local:8080/chime.wav`). This is on-device audio only — no Xiaozhi/TTS/cloud path.
+
+Pin and power sequence are taken from Waveshare's stock Arduino audio example (`waveshareteam/ESP32-S3-PhotoPainter` → `05_ArduinoExample/01_Audio_Test`, `USER_CODEC_BOARD`):
+
+| Signal | GPIO | Notes |
+|--------|------|--------|
+| I2C SDA / SCL | 47 / 48 | Shared with AXP2101, RTC, SHTC3 |
+| I2S MCLK / BCLK / WS | 14 / 15 / 16 | `use_mclk: 1` |
+| I2S DOUT / DIN | 17 / 18 | Playback uses DOUT → ES8311 |
+| **PA enable** | **7** | NS4150B CTRL, **active-high** — required for sound |
+| ES8311 I2C address | `0x18` | |
+
+The AXP2101 ALDO1–4 rails are set to 3.3 V and enabled before talking to the codec (same as `Custom_PmicRegisterInit` in that example). ALDO3 powers the ES8311. Deep sleep is unchanged: the chime only runs while the device is awake for a refresh, then the existing PMIC sleep path cuts the rails.
+
+**Settings → Chimes** (when the board has a speaker; Power stays deep-sleep / battery only):
+
+- **Enable speaker chime** — master mute (`chime_enabled`, NVS `chime_en`, default on)
+- **Chime source** — `preset` (built-in), `wav` (last pulled URL file), or `uploaded` (a WAV stored in `chimes/`). When a URL is set and source is WAV, preview and after-display play that cache. Upload or pick a stored file to use a custom sound; set source to preset to use a built-in tone.
+- **Uploaded chimes** — Settings upload button (`POST /api/chime/upload`); list/select/delete via `GET`/`DELETE /api/chimes`
+- **Built-in chime** — `mozart` (default, Eine kleine Nachtmusik opening), `ode` (Ode to Joy), `frere` (Frère Jacques), `twinkle`, `fanfare`, `triad` (C–E–G flourish), `dingdong` (doorbell), `softping`, `alert`, `doublebeep`. `ascending` is kept as an alias of `fanfare`. Tunes are about 2–8 seconds.
+- **Chime sound URL** — optional HTTP(S) WAV. PCM only: 8–22.05 kHz, 8/16-bit, mono or stereo, max **2 MiB** and **60 seconds** played (`WAV_PCM_MAX_FILE_BYTES` / `WAV_PCM_MAX_SECONDS`; SD-backed cache; typical Pi bulletin files are ~1.2 MiB / ~27 s). Larger or longer files are skipped or truncated.
+- **WAV pull** — `once` reuses the cache; use **Pull now** (`POST /api/chime/pull`) to GET `chime_url`, validate, and cache explicitly (preview also fetches when the cache is empty). `with_rotate` (default) re-GETs the URL at play time in the same wake window, then plays. Fetch/play failure falls back to the selected preset.
+- **Play before / after photo rotate** — `chime_play_when`: `after` (default) waits until the panel refresh completes; `before` plays after decode, immediately before the ~30 s e-ink wait.
+- **Preview chime** — `POST /api/chime` (plays the currently saved selection; JSON `played` is `wav`, `preset`, or `uploaded`)
+
+```bash
+# Mute
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"chime_enabled": false}' http://photopainter.local/api/config
+
+# Custom WAV from a Pi, refresh with each image rotate
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"chime_source":"wav","chime_url":"http://news.local:8080/chime.wav","chime_pull_mode":"with_rotate"}' \
+  http://photopainter.local/api/config
+
+# Upload a custom WAV (becomes the active uploaded chime)
+curl -X POST -F 'file=@doorbell.wav' http://photopainter.local/api/chime/upload
+
+# Pull / cache the URL WAV now (once mode)
+curl -X POST http://photopainter.local/api/chime/pull
+
+# Preview / remote trigger
+curl -X POST http://photopainter.local/api/chime
+```
+
+### Restoring Waveshare factory firmware (`Fac.bin`)
+
+This firmware replaces the stock image. Waveshare ships a factory blob (commonly `Fac.bin` in their PhotoPainter firmware package / wiki downloads). To go back to stock, enter download mode (hold **BOOT** and press **PWR**) and flash that `Fac.bin` at address `0x0` with `esptool` or Waveshare's flash tool — the same offset used for this project's merged image. This repo does not ship `Fac.bin`.
+
 ### Button Functions
 
 Buttons behave differently depending on whether the device is awake (web UI accessible) or in deep sleep.
@@ -137,6 +188,10 @@ Buttons behave differently depending on whether the device is awake (web UI acce
 ### 💾 Internal Flash Storage
 Boards with larger flash chips (XIAO EE02/EE03/EE04, reTerminal E1002/E1004) use internal flash as persistent storage via LittleFS. On the reTerminal, the SD card takes priority when inserted; internal flash serves as a fallback. The Waveshare board does not have internal flash storage due to its 16MB flash being fully allocated to OTA partitions.
 
+### Settings survive reflash via SD `config/settings.json`
+
+Flashing a merged image at `0x0` wipes NVS (timezone, auto-rotate, image URL, chime settings, and the rest of `/api/config`). Photos and `wifi.txt` already live on the SD card and survive that. On every successful Settings save the firmware also writes a JSON snapshot to **`config/settings.json`** on the SD card (mounted path `/storage/config/settings.json`). The snapshot covers the device settings that should survive a reflash (including POSIX timezone, NTP server, device name, display orientation/rotation, debug log, save-downloaded-images, HA URL, rotation, and chime). WiFi stays on `wifi.txt` / NVS and is not stored in this file. On boot, NVS is loaded first; if that snapshot exists and NVS looks factory-fresh (none of those keys are present), it is imported back into NVS. Factory reset deletes the snapshot so defaults actually come back. Manual `POST /api/config/export-sd` and `POST /api/config/import-sd` are available if you want to force a write or restore.
+
 ### Known Issues 🚧
 
 - **PhotoPainter Restarts**: All existing Waveshare PhotoPainter boards on the market use the AXP2101 power management IC, which causes unexplained restarts when connected to both Type-C and a lithium battery simultaneously. **Workaround:** use either USB power only or battery only. Using both at the same time may cause frequent firmware restarts due to unstable power supply. Waveshare has confirmed this issue and future boards will ship with TG28 as a replacement, which will not have this problem. See [waveshareteam/ESP32-S3-PhotoPainter#5](https://github.com/waveshareteam/ESP32-S3-PhotoPainter/issues/5#issuecomment-3876269519) for details.
@@ -160,10 +215,10 @@ esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 phot
 
 **Build from source:**
 
-We provide a `build.py` helper script to simplify building for different boards.
+We provide a `build.py` helper script to simplify building for different boards. For PhotoPainter 7.3" (this fork's speaker-chime target):
 
 ```bash
-# Build for Waveshare PhotoPainter (default)
+# Build for Waveshare PhotoPainter 7.3" (default; includes ES8311 chime)
 ./build.py --board waveshare_photopainter_73
 
 # Build for Seeed Studio XIAO EE02
@@ -206,7 +261,7 @@ The device supports two methods for WiFi provisioning:
    - Line 2: WiFi password
    - Line 3: Device name (optional, defaults to "PhotoFrame")
    - Use plain text, no quotes or extra formatting
-   - The file can be placed at the root or in a `config/` folder
+   - The file can be placed at the root or in a `config/` folder (next to `settings.json`, which restores auto-rotate / chime after a reflash)
 
 2. Insert SD card and power on the device
 3. Device automatically reads credentials, saves to memory, and connects

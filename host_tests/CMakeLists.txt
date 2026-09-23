@@ -128,3 +128,101 @@ target_link_libraries(
 )
 
 gtest_discover_tests(display_flow_test)
+
+# PCM WAV header / expand helpers used by the PhotoPainter chime path.
+add_executable(
+  wav_pcm_test
+  test_wav_pcm.cpp
+  ../components/board_hal/src/wav_pcm.c
+)
+
+target_include_directories(
+  wav_pcm_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../components/board_hal/include
+)
+
+target_link_libraries(
+  wav_pcm_test
+  GTest::gtest_main
+)
+
+gtest_discover_tests(wav_pcm_test)
+
+add_executable(
+  chime_name_test
+  test_chime_name.cpp
+  ../main/chime_name.c
+)
+
+target_include_directories(
+  chime_name_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
+target_link_libraries(
+  chime_name_test
+  GTest::gtest_main
+)
+
+gtest_discover_tests(chime_name_test)
+
+add_executable(
+  chime_presets_test
+  test_chime_presets.cpp
+  ../components/board_hal/src/chime_presets.c
+)
+
+target_include_directories(
+  chime_presets_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../components/board_hal/include
+)
+
+target_link_libraries(
+  chime_presets_test
+  GTest::gtest_main
+)
+
+gtest_discover_tests(chime_presets_test)
+
+add_executable(
+  chime_policy_test
+  test_chime_policy.cpp
+)
+
+target_include_directories(
+  chime_policy_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
+target_link_libraries(
+  chime_policy_test
+  GTest::gtest_main
+)
+
+gtest_discover_tests(chime_policy_test)
+
+add_executable(
+  settings_backup_test
+  test_settings_backup.cpp
+  ../main/settings_backup.c
+  ../main/chime_name.c
+  ../components/board_hal/src/chime_presets.c
+)
+
+target_include_directories(
+  settings_backup_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+  ${CMAKE_CURRENT_SOURCE_DIR}/../components/board_hal/include
+)
+
+target_link_libraries(
+  settings_backup_test
+  GTest::gtest_main
+)
+
+gtest_discover_tests(settings_backup_test)

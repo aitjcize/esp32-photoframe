@@ -1,6 +1,8 @@
 set(SOURCES
     "album_manager.c"
     "cert_pin.c"
+    "chime.c"
+    "chime_name.c"
     "color_palette.c"
     "config_manager.c"
     "debug_log.c"
@@ -17,6 +19,7 @@ set(SOURCES
     "png_decoder.c"
     "power_manager.c"
     "processing_settings.c"
+    "settings_backup.c"
     "splash_screen.c"
     "storage.c"
     "cron.c"

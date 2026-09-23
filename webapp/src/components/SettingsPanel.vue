@@ -7,6 +7,15 @@ import ProcessingControls from "./ProcessingControls.vue";
 import RotationSchedule from "./RotationSchedule.vue";
 import { isValidCron } from "../utils/cron";
 import { wideEdit } from "../utils/uiPrefs";
+import {
+  TIMEZONE_PRESETS,
+  formatDeviceWallClock,
+  formatUtcOffset,
+  isSimpleUtcTimezone,
+  parseDeviceWallClock,
+  parseUtcOffset,
+  timezoneValueFromInput,
+} from "../utils/timezone";
 
 const settingsStore = useSettingsStore();
 const appStore = useAppStore();
@@ -18,59 +27,70 @@ const scheduleValid = computed(() => {
   return rules.length >= 1 && rules.length <= 7 && rules.every((r) => isValidCron(r));
 });
 
-// Device time state
+// Device time state. Prefer the wall-clock string from /api/time (already in
+// the device TZ, including DST) so a CET/CEST setting is never shown as UTC.
 const deviceTime = ref("");
 const syncingTime = ref(false);
-let deviceTimestamp = null; // Unix timestamp from device
-let localTimeOffset = 0; // Offset between device time and local time
+let deviceWallClock = null;
+let wallClockSyncedAt = 0;
 let tickInterval = null;
 
+const timezonePresets = TIMEZONE_PRESETS;
+
+const timezoneModel = computed({
+  get: () => {
+    const tz = settingsStore.deviceSettings.timezone || "UTC0";
+    return TIMEZONE_PRESETS.find((p) => p.value === tz) || tz;
+  },
+  set: (value) => {
+    const next = timezoneValueFromInput(value) || "UTC0";
+    settingsStore.deviceSettings.timezone = next;
+    settingsStore.deviceSettings.timezoneOffset = parseUtcOffset(next);
+  },
+});
+
+const showUtcOffsetHelper = computed(() =>
+  isSimpleUtcTimezone(settingsStore.deviceSettings.timezone)
+);
+
+const timezoneOffsetHelper = computed({
+  get: () => {
+    const offset = parseUtcOffset(settingsStore.deviceSettings.timezone);
+    return offset === null ? "" : offset;
+  },
+  set: (value) => {
+    if (value === "" || value === null || Number.isNaN(Number(value))) return;
+    const next = formatUtcOffset(Number(value));
+    settingsStore.deviceSettings.timezone = next;
+    settingsStore.deviceSettings.timezoneOffset = parseUtcOffset(next);
+  },
+});
+
 function updateDisplayTime() {
-  if (deviceTimestamp === null) return;
-  // Calculate current device time based on elapsed local time
-  const elapsed = Math.floor((Date.now() - localTimeOffset) / 1000);
-  const currentTimestamp = deviceTimestamp + elapsed;
-
-  // Apply timezone offset for display
-  // We shift the timestamp by the offset so that toISOString() (which is UTC)
-  // displays the correct local time numbers.
-  const offsetHours = settingsStore.deviceSettings.timezoneOffset || 0;
-  const adjustedTimestamp = currentTimestamp + offsetHours * 3600;
-
-  const date = new Date(adjustedTimestamp * 1000);
-  // Format as YYYY-MM-DD HH:MM:SS
-  deviceTime.value = date.toISOString().slice(0, 19).replace("T", " ");
+  if (!deviceWallClock) return;
+  const elapsed = Math.floor((Date.now() - wallClockSyncedAt) / 1000);
+  const current = new Date(deviceWallClock.getTime() + elapsed * 1000);
+  deviceTime.value = formatDeviceWallClock(current);
 }
 
-async function parseTimezone(timezoneStr) {
-  if (!timezoneStr) return;
-
-  // Posix format: UTC[+/-]H[:MM] (e.g., UTC-8 or UTC+5:30)
-  // Note: POSIX sign is inverted relative to ISO8601
-  let offset = 0;
-  const match = timezoneStr.match(/UTC([+-]?)(\d+)(?::(\d+))?/);
-  if (match) {
-    const sign = match[1] === "-" ? 1 : -1; // POSIX Inverted
-    const hours = parseInt(match[2]) || 0;
-    const minutes = parseInt(match[3]) || 0;
-    offset = sign * (hours + minutes / 60);
-
-    // Update store if different, to keep UI in sync
-    if (settingsStore.deviceSettings.timezoneOffset !== offset) {
-      settingsStore.deviceSettings.timezoneOffset = offset;
-    }
+function applyDeviceTimeResponse(data) {
+  const parsed = parseDeviceWallClock(data.time);
+  if (parsed) {
+    deviceWallClock = parsed;
+    wallClockSyncedAt = Date.now();
   }
+  if (data.timezone) {
+    settingsStore.deviceSettings.timezone = data.timezone;
+    settingsStore.deviceSettings.timezoneOffset = parseUtcOffset(data.timezone);
+  }
+  updateDisplayTime();
 }
 
 async function fetchDeviceTime() {
   try {
     const response = await fetch("/api/time");
     if (response.ok) {
-      const data = await response.json();
-      deviceTimestamp = data.timestamp;
-      localTimeOffset = Date.now();
-      await parseTimezone(data.timezone);
-      updateDisplayTime();
+      applyDeviceTimeResponse(await response.json());
     }
   } catch (error) {
     console.error("Failed to fetch device time:", error);
@@ -84,10 +104,7 @@ async function syncTime() {
     if (response.ok) {
       const data = await response.json();
       if (data.status === "success") {
-        deviceTimestamp = data.timestamp;
-        localTimeOffset = Date.now();
-        await parseTimezone(data.timezone);
-        updateDisplayTime();
+        applyDeviceTimeResponse(data);
       }
     }
   } catch (error) {
@@ -99,6 +116,7 @@ async function syncTime() {
 
 onMounted(() => {
   fetchDeviceTime();
+  loadUploadedChimes();
   // Tick every second to update display
   tickInterval = setInterval(updateDisplayTime, 1000);
 });
@@ -146,6 +164,202 @@ const sdRotationModeOptions = [
   { title: "Random - Shuffle images", value: "random" },
   { title: "Sequential - In sequence", value: "sequential" },
 ];
+
+const chimePresetOptions = [
+  { title: "Mozart — Eine kleine Nachtmusik", value: "mozart" },
+  { title: "Ode to Joy", value: "ode" },
+  { title: "Frère Jacques", value: "frere" },
+  { title: "Twinkle, Twinkle", value: "twinkle" },
+  { title: "Fanfare", value: "fanfare" },
+  { title: "Triad (C–E–G)", value: "triad" },
+  { title: "Doorbell (ding-dong)", value: "dingdong" },
+  { title: "Soft ping", value: "softping" },
+  { title: "Alert", value: "alert" },
+  { title: "Double beep", value: "doublebeep" },
+];
+
+const chimeSourceOptions = [
+  { title: "Built-in preset", value: "preset" },
+  { title: "WAV from URL", value: "wav" },
+  { title: "Uploaded WAV", value: "uploaded" },
+];
+
+const chimePullModeOptions = [
+  { title: "Once — download and cache", value: "once" },
+  { title: "With each rotate — refresh then play", value: "with_rotate" },
+];
+
+const chimePlayWhenOptions = [
+  { title: "Play after photo rotate (default)", value: "after" },
+  { title: "Play before photo rotate", value: "before" },
+];
+
+const previewingChime = ref(false);
+const pullingChime = ref(false);
+const chimePreviewMessage = ref("");
+const uploadedChimes = ref([]);
+const uploadingChime = ref(false);
+const deletingChime = ref("");
+const chimeFileInput = ref(null);
+
+function prettyChimeSize(bytes) {
+  if (!bytes) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+async function persistChimeSettings() {
+  const response = await fetch("/api/config", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chime_enabled: settingsStore.deviceSettings.chimeEnabled,
+      chime_source: settingsStore.deviceSettings.chimeSource,
+      chime_preset: settingsStore.deviceSettings.chimePreset,
+      chime_url: settingsStore.deviceSettings.chimeUrl,
+      chime_pull_mode: settingsStore.deviceSettings.chimePullMode,
+      chime_play_when: settingsStore.deviceSettings.chimePlayWhen,
+      chime_file: settingsStore.deviceSettings.chimeFile,
+    }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || "Failed to save chime settings");
+  }
+}
+
+function formatChimeApiMessage(data, fallback) {
+  let msg = data.message || fallback;
+  if (data.played && data.played !== "none") {
+    msg += ` (${data.played})`;
+  }
+  if (data.error) {
+    msg += `: ${data.error}`;
+  }
+  return msg;
+}
+
+async function loadUploadedChimes() {
+  try {
+    const response = await fetch("/api/chimes");
+    if (!response.ok) return;
+    const data = await response.json();
+    uploadedChimes.value = Array.isArray(data.chimes) ? data.chimes : [];
+  } catch (error) {
+    console.error("Failed to list chimes:", error);
+  }
+}
+
+async function uploadChimeFile(file) {
+  if (!file) return;
+  uploadingChime.value = true;
+  chimePreviewMessage.value = "";
+  try {
+    const body = new FormData();
+    body.append("file", file, file.name);
+    const response = await fetch("/api/chime/upload", { method: "POST", body });
+    const data = await response.json();
+    if (!response.ok || data.status !== "success") {
+      chimePreviewMessage.value = data.message || "Failed to upload chime";
+      return;
+    }
+    settingsStore.deviceSettings.chimeSource = "uploaded";
+    settingsStore.deviceSettings.chimeFile = data.filename || file.name;
+    await settingsStore.loadDeviceSettings();
+    await loadUploadedChimes();
+    chimePreviewMessage.value = `Uploaded ${data.filename || file.name}`;
+  } catch (error) {
+    console.error("Failed to upload chime:", error);
+    chimePreviewMessage.value = "Failed to upload chime";
+  } finally {
+    uploadingChime.value = false;
+    if (chimeFileInput.value) chimeFileInput.value.value = "";
+  }
+}
+
+function onChimeFileSelected(event) {
+  const file = event.target.files?.[0];
+  uploadChimeFile(file);
+}
+
+async function selectUploadedChime(name) {
+  settingsStore.deviceSettings.chimeSource = "uploaded";
+  settingsStore.deviceSettings.chimeFile = name;
+  try {
+    await fetch("/api/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chime_source: "uploaded", chime_file: name }),
+    });
+    await settingsStore.loadDeviceSettings();
+  } catch (error) {
+    console.error("Failed to select chime:", error);
+  }
+}
+
+async function deleteUploadedChime(name) {
+  deletingChime.value = name;
+  try {
+    const response = await fetch(`/api/chimes?name=${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      chimePreviewMessage.value = data.message || "Failed to delete chime";
+      return;
+    }
+    await settingsStore.loadDeviceSettings();
+    await loadUploadedChimes();
+  } catch (error) {
+    console.error("Failed to delete chime:", error);
+    chimePreviewMessage.value = "Failed to delete chime";
+  } finally {
+    deletingChime.value = "";
+  }
+}
+
+async function pullChimeNow() {
+  pullingChime.value = true;
+  chimePreviewMessage.value = "";
+  try {
+    await persistChimeSettings();
+    const response = await fetch("/api/chime/pull", { method: "POST" });
+    const data = await response.json();
+    await settingsStore.loadDeviceSettings();
+    if (!response.ok || data.status !== "success") {
+      chimePreviewMessage.value = data.message || "Failed to pull chime";
+      return;
+    }
+    const bytes = data.bytes ? ` (${prettyChimeSize(data.bytes)})` : "";
+    chimePreviewMessage.value = `${data.message || "Chime WAV cached"}${bytes}`;
+  } catch (error) {
+    console.error("Failed to pull chime:", error);
+    chimePreviewMessage.value = error.message || "Failed to pull chime";
+  } finally {
+    pullingChime.value = false;
+  }
+}
+
+async function previewChime() {
+  previewingChime.value = true;
+  chimePreviewMessage.value = "";
+  try {
+    await persistChimeSettings();
+    const response = await fetch("/api/chime", { method: "POST" });
+    const data = await response.json();
+    await settingsStore.loadDeviceSettings();
+    chimePreviewMessage.value = formatChimeApiMessage(
+      data,
+      data.status === "success" ? "Chime played" : "Chime failed"
+    );
+  } catch (error) {
+    console.error("Failed to preview chime:", error);
+    chimePreviewMessage.value = error.message || "Failed to preview chime";
+  } finally {
+    previewingChime.value = false;
+  }
+}
 
 const saving = ref(false);
 const saveSuccess = ref(false);
@@ -395,6 +609,7 @@ async function performFactoryReset() {
         <v-tab value="general"> General </v-tab>
         <v-tab value="autoRotate"> Auto Rotate </v-tab>
         <v-tab value="power"> Power </v-tab>
+        <v-tab value="chimes"> Chimes </v-tab>
         <v-tab value="homeAssistant"> Home Assistant </v-tab>
         <v-tab value="processing"> Processing </v-tab>
         <v-tab value="ai"> AI Generation </v-tab>
@@ -491,15 +706,29 @@ async function performFactoryReset() {
                 </v-text-field>
               </v-col>
               <v-col cols="12" md="6">
+                <v-combobox
+                  v-model="timezoneModel"
+                  :items="timezonePresets"
+                  item-title="title"
+                  item-value="value"
+                  label="Timezone (POSIX TZ)"
+                  variant="outlined"
+                  hint="Presets or a POSIX string (e.g. CET-1CEST,…). Saving without edits keeps the current value."
+                  persistent-hint
+                />
+              </v-col>
+            </v-row>
+            <v-row v-if="showUtcOffsetHelper">
+              <v-col cols="12" md="6" offset-md="6">
                 <v-text-field
-                  v-model.number="settingsStore.deviceSettings.timezoneOffset"
-                  label="Timezone (UTC offset)"
+                  v-model.number="timezoneOffsetHelper"
+                  label="UTC offset (hours)"
                   type="number"
                   :min="-12"
                   :max="14"
                   :step="0.5"
                   variant="outlined"
-                  hint="e.g., -8 for PST, +1 for CET, +8 for CST"
+                  hint="ISO-style helper for fixed UTC± offsets only. POSIX UTC-1 means UTC+1."
                   persistent-hint
                 />
               </v-col>
@@ -738,6 +967,166 @@ async function performFactoryReset() {
                 power consumption. Only disable if permanently powered via USB.
               </v-alert>
             </v-expand-transition>
+          </v-tabs-window-item>
+
+          <!-- Chimes Tab -->
+          <v-tabs-window-item value="chimes">
+            <v-alert
+              v-if="!settingsStore.deviceSettings.chimeSupported"
+              type="info"
+              variant="tonal"
+              class="mt-2"
+            >
+              This board has no speaker. Chime settings apply to Waveshare PhotoPainter 7.3".
+            </v-alert>
+
+            <div v-else>
+              <v-switch
+                v-model="settingsStore.deviceSettings.chimeEnabled"
+                label="Enable speaker chime"
+                color="primary"
+                class="mb-2"
+                hint="Master mute. Local ES8311 audio on a successful image display (timing below). Disable for battery or quiet hours."
+                persistent-hint
+              />
+
+              <v-expand-transition>
+                <div v-if="settingsStore.deviceSettings.chimeEnabled" class="mt-4">
+                  <v-select
+                    v-model="settingsStore.deviceSettings.chimeSource"
+                    :items="chimeSourceOptions"
+                    item-title="title"
+                    item-value="value"
+                    label="Chime source"
+                    variant="outlined"
+                    hint="Built-in tune, last WAV pulled from a URL, or a file uploaded below. Upload/select applies immediately; Pull now and Preview also save the URL fields."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-select
+                    v-model="settingsStore.deviceSettings.chimePreset"
+                    :items="chimePresetOptions"
+                    item-title="title"
+                    item-value="value"
+                    label="Built-in chime"
+                    variant="outlined"
+                    hint="Public-domain tunes synthesized on the device (about 2–8 seconds). Also used if a WAV fetch or play fails."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-text-field
+                    v-model="settingsStore.deviceSettings.chimeUrl"
+                    label="Chime sound URL"
+                    variant="outlined"
+                    placeholder="http://news.local:8080/chime.wav"
+                    hint="Optional PCM WAV (mono/stereo, 8–22.05 kHz, 8/16-bit, max 2 MiB / 60 seconds). When source is WAV, the frame plays the last downloaded file. Clear the URL and set source to Built-in to use a preset."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-select
+                    v-model="settingsStore.deviceSettings.chimePullMode"
+                    :items="chimePullModeOptions"
+                    item-title="title"
+                    item-value="value"
+                    label="WAV pull"
+                    variant="outlined"
+                    :disabled="settingsStore.deviceSettings.chimeSource !== 'wav'"
+                    hint="Once: cache until you hit Pull now (or the first play if nothing is cached). With each rotate: GET the URL at play time (after or before the panel refresh, see below), replace the cache, then play."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-select
+                    v-model="settingsStore.deviceSettings.chimePlayWhen"
+                    :items="chimePlayWhenOptions"
+                    item-title="title"
+                    item-value="value"
+                    label="Play before / after photo rotate"
+                    variant="outlined"
+                    hint="After (default): do not start the speaker until the e-ink panel has finished drawing. Before: play when rotate starts, immediately before the panel wait."
+                    persistent-hint
+                    class="mb-4"
+                  />
+                  <v-btn
+                    variant="outlined"
+                    class="mb-2"
+                    :loading="pullingChime"
+                    :disabled="
+                      settingsStore.deviceSettings.chimeSource !== 'wav' ||
+                      !settingsStore.deviceSettings.chimeUrl
+                    "
+                    @click="pullChimeNow"
+                  >
+                    <v-icon start>mdi-cloud-download</v-icon>
+                    Pull now
+                  </v-btn>
+                  <div class="text-caption text-grey mb-4">
+                    Downloads the WAV from the URL, validates it, and caches it on the SD card (or
+                    flash). Once mode does not fetch until you pull or the first play needs a cache.
+                    Cached: {{ settingsStore.deviceSettings.chimeCached ? "yes" : "no" }}.
+                  </div>
+
+                  <div class="text-subtitle-2 mb-2">Uploaded chimes</div>
+                  <div class="text-caption text-grey mb-3">
+                    PCM WAV only (8–22.05 kHz, 8/16-bit, mono or stereo, max 2 MiB / 60 seconds).
+                    Stored in chimes/ on the SD card (or flash). Selecting one sets the active
+                    custom sound immediately.
+                  </div>
+                  <input
+                    ref="chimeFileInput"
+                    type="file"
+                    accept=".wav,audio/wav,audio/x-wav"
+                    hidden
+                    @change="onChimeFileSelected"
+                  />
+                  <v-btn
+                    variant="outlined"
+                    class="mb-4"
+                    :loading="uploadingChime"
+                    @click="chimeFileInput?.click()"
+                  >
+                    <v-icon start>mdi-upload</v-icon>
+                    Upload WAV
+                  </v-btn>
+                  <v-list v-if="uploadedChimes.length" class="mb-4 pa-0" density="compact">
+                    <v-list-item
+                      v-for="chime in uploadedChimes"
+                      :key="chime.name"
+                      :active="
+                        settingsStore.deviceSettings.chimeSource === 'uploaded' &&
+                        settingsStore.deviceSettings.chimeFile === chime.name
+                      "
+                      @click="selectUploadedChime(chime.name)"
+                    >
+                      <v-list-item-title>{{ chime.name }}</v-list-item-title>
+                      <v-list-item-subtitle>{{ prettyChimeSize(chime.size) }}</v-list-item-subtitle>
+                      <template #append>
+                        <v-btn
+                          icon="mdi-delete"
+                          variant="text"
+                          size="small"
+                          :loading="deletingChime === chime.name"
+                          @click.stop="deleteUploadedChime(chime.name)"
+                        />
+                      </template>
+                    </v-list-item>
+                  </v-list>
+                  <div v-else class="text-caption text-grey mb-4">No uploaded chimes yet.</div>
+
+                  <v-btn
+                    variant="outlined"
+                    :loading="previewingChime"
+                    :disabled="!settingsStore.deviceSettings.chimeEnabled"
+                    @click="previewChime"
+                  >
+                    <v-icon start>mdi-volume-high</v-icon>
+                    Preview chime
+                  </v-btn>
+                  <div v-if="chimePreviewMessage" class="text-caption text-grey mt-2">
+                    {{ chimePreviewMessage }}
+                  </div>
+                </div>
+              </v-expand-transition>
+            </div>
           </v-tabs-window-item>
 
           <!-- Home Assistant Tab -->

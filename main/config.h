@@ -54,6 +54,10 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 
 #define IMAGE_DIRECTORY FS_MOUNT_POINT "/images"
 #define DOWNLOAD_DIRECTORY IMAGE_DIRECTORY "/Downloads"
+#define CHIME_CACHE_PATH FS_MOUNT_POINT "/.chime.wav"
+#define CHIME_CACHE_TMP_PATH FS_MOUNT_POINT "/.chime.tmp"
+#define CHIME_DIRECTORY FS_MOUNT_POINT "/chimes"
+#define CHIME_UPLOAD_TMP_PATH CHIME_DIRECTORY "/.upload.tmp"
 
 #define CURRENT_UPLOAD_PATH FS_MOUNT_POINT "/.current.tmp"
 #define CURRENT_JPG_PATH FS_MOUNT_POINT "/.current.jpg"
@@ -146,6 +150,32 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 
 // Power
 #define NVS_DEEP_SLEEP_KEY "deep_sleep"
+
+// Speaker chime on a successful image display / URL rotate.
+// Default on; persist a 0 to disable for battery or quiet hours.
+#define NVS_CHIME_ENABLED_KEY "chime_en"
+#define NVS_CHIME_PRESET_KEY "chime_preset"
+#define NVS_CHIME_URL_KEY "chime_url"
+#define NVS_CHIME_SOURCE_KEY "chime_source"
+#define NVS_CHIME_PULL_MODE_KEY "chime_pull_mode"
+#define NVS_CHIME_PLAY_WHEN_KEY "chime_play_when"
+#define NVS_CHIME_FILE_KEY "chime_file"
+
+#define CHIME_PRESET_MAX_LEN 16
+#define DEFAULT_CHIME_PRESET "mozart"
+
+typedef enum {
+    CHIME_SOURCE_PRESET = 0,
+    CHIME_SOURCE_WAV = 1,
+    CHIME_SOURCE_UPLOADED = 2
+} chime_source_t;
+
+typedef enum { CHIME_PULL_ONCE = 0, CHIME_PULL_WITH_ROTATE = 1 } chime_pull_mode_t;
+
+// When to start speaker playback relative to the e-ink refresh.
+// after (default): wait until epaper_display() returns (panel draw done).
+// before: play after decode succeeds, immediately before the panel wait.
+typedef enum { CHIME_PLAY_WHEN_AFTER = 0, CHIME_PLAY_WHEN_BEFORE = 1 } chime_play_when_t;
 
 // Debugging
 #define NVS_DEBUG_LOG_KEY "debug_log"

@@ -13,6 +13,7 @@
 #include "album_manager.h"
 #include "board_hal.h"
 #include "cJSON.h"
+#include "chime.h"
 #include "color_palette.h"
 #include "config.h"
 #include "config_manager.h"
@@ -35,8 +36,10 @@
 #include "power_manager.h"
 #include "processing_settings.h"
 #include "sdcard.h"
+#include "settings_backup.h"
 #include "storage.h"
 #include "utils.h"
+#include "wav_pcm.h"
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -266,7 +269,8 @@ static esp_err_t parse_multipart_upload(httpd_req_t *req, const char *base_dir,
                 if (filename_end && filename_end < buf + buf_len) {
                     int name_len = filename_end - filename_start;
 
-                    if (strcmp(current_field, "image") == 0) {
+                    if (strcmp(current_field, "image") == 0 || strcmp(current_field, "file") == 0 ||
+                        strcmp(current_field, "chime") == 0) {
                         // Capture original filename
                         strncpy(result->original_filename, filename_start,
                                 MIN(name_len, sizeof(result->original_filename) - 1));
@@ -1451,6 +1455,31 @@ static esp_err_t config_handler(httpd_req_t *req)
 
         // Other
         cJSON_AddBoolToObject(root, "deep_sleep_enabled", config_manager_get_deep_sleep_enabled());
+        cJSON_AddBoolToObject(root, "chime_enabled", config_manager_get_chime_enabled());
+        cJSON_AddBoolToObject(root, "chime_supported", board_hal_has_speaker());
+        cJSON_AddStringToObject(root, "chime_preset", config_manager_get_chime_preset());
+        const char *chime_url = config_manager_get_chime_url();
+        cJSON_AddStringToObject(root, "chime_url", chime_url ? chime_url : "");
+        {
+            chime_source_t src = config_manager_get_chime_source();
+            const char *src_str = "preset";
+            if (src == CHIME_SOURCE_WAV) {
+                src_str = "wav";
+            } else if (src == CHIME_SOURCE_UPLOADED) {
+                src_str = "uploaded";
+            }
+            cJSON_AddStringToObject(root, "chime_source", src_str);
+        }
+        cJSON_AddStringToObject(root, "chime_pull_mode",
+                                config_manager_get_chime_pull_mode() == CHIME_PULL_WITH_ROTATE
+                                    ? "with_rotate"
+                                    : "once");
+        cJSON_AddStringToObject(
+            root, "chime_play_when",
+            config_manager_get_chime_play_when() == CHIME_PLAY_WHEN_BEFORE ? "before" : "after");
+        const char *chime_file = config_manager_get_chime_file();
+        cJSON_AddStringToObject(root, "chime_file", chime_file ? chime_file : "");
+        cJSON_AddBoolToObject(root, "chime_cached", chime_cache_exists());
         cJSON_AddBoolToObject(root, "debug_log_enabled", config_manager_get_debug_log_enabled());
 
         char *json_str = cJSON_Print(root);
@@ -1550,6 +1579,65 @@ static esp_err_t config_handler(httpd_req_t *req)
     httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
     return ESP_FAIL;
 }
+
+static esp_err_t send_settings_sd_status(httpd_req_t *req, const char *status, const char *message)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "status", status);
+    if (message) {
+        cJSON_AddStringToObject(root, "message", message);
+    }
+    cJSON_AddStringToObject(root, "path", SETTINGS_BACKUP_PATH);
+    char *json_str = cJSON_Print(root);
+    httpd_resp_set_type(req, "application/json");
+    if (strcmp(status, "success") != 0) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+    }
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+static esp_err_t config_export_sd_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System is still initializing");
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = config_manager_export_settings_sd();
+    if (err == ESP_ERR_NOT_FOUND) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "SD card not mounted");
+        return ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        return send_settings_sd_status(req, "error", "Failed to write settings snapshot");
+    }
+    return send_settings_sd_status(req, "success", "Wrote settings snapshot to SD");
+}
+
+static esp_err_t config_import_sd_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System is still initializing");
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = config_manager_import_settings_sd();
+    if (err == ESP_ERR_NOT_FOUND) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "SD settings snapshot not found");
+        return ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        return send_settings_sd_status(req, "error", "Failed to import settings snapshot");
+    }
+    config_manager_touch_config();
+    return send_settings_sd_status(req, "success", "Imported settings snapshot from SD");
+}
+
 static esp_err_t albums_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -2022,6 +2110,379 @@ static esp_err_t keep_alive_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static void wav_too_large_message(char *buf, size_t len)
+{
+    char label[16];
+    wav_pcm_max_file_label(label, sizeof(label));
+    snprintf(buf, len, "WAV is too large (max %s)", label);
+}
+
+static const char *chime_fetch_error_message(esp_err_t err, char *buf, size_t len)
+{
+    switch (err) {
+    case ESP_ERR_INVALID_SIZE:
+        wav_too_large_message(buf, len);
+        return buf;
+    case ESP_ERR_NOT_SUPPORTED:
+        return "Unsupported WAV (need mono/stereo PCM, 8/16-bit, 8-22.05 kHz)";
+    case ESP_ERR_INVALID_ARG:
+        return "Missing or invalid chime URL (use http:// or https://)";
+    case ESP_ERR_NOT_FOUND:
+        return "WAV file not found";
+    default:
+        return esp_err_to_name(err);
+    }
+}
+
+static bool chime_query_flag(httpd_req_t *req, const char *key)
+{
+    char query[128];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+        return false;
+    }
+    char val[8];
+    if (httpd_query_key_value(query, key, val, sizeof(val)) != ESP_OK) {
+        return false;
+    }
+    return strcmp(val, "1") == 0 || strcasecmp(val, "true") == 0;
+}
+
+static bool chime_body_refresh_flag(httpd_req_t *req)
+{
+    if (req->content_len <= 0 || req->content_len >= 256) {
+        return false;
+    }
+    char buf[256];
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (ret <= 0) {
+        return false;
+    }
+    buf[ret] = '\0';
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        return false;
+    }
+    cJSON *item = cJSON_GetObjectItem(root, "refresh");
+    bool refresh = cJSON_IsTrue(item);
+    cJSON_Delete(root);
+    return refresh;
+}
+
+static esp_err_t chime_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System is still initializing");
+        return ESP_FAIL;
+    }
+
+    power_manager_reset_sleep_timer();
+
+    bool refresh = chime_query_flag(req, "refresh") || chime_body_refresh_flag(req);
+
+    cJSON *response = cJSON_CreateObject();
+    if (!board_hal_has_speaker()) {
+        cJSON_AddStringToObject(response, "status", "unsupported");
+        cJSON_AddStringToObject(response, "message", "This board has no speaker");
+        httpd_resp_set_status(req, "404 Not Found");
+    } else if (!config_manager_get_chime_enabled()) {
+        cJSON_AddStringToObject(response, "status", "disabled");
+        cJSON_AddStringToObject(response, "message",
+                                "Chime is disabled (set chime_enabled in /api/config)");
+    } else {
+        chime_play_result_t result = {0};
+        esp_err_t err = chime_play_detailed(CHIME_PLAY_PREVIEW, refresh, &result);
+        cJSON_AddStringToObject(response, "played", chime_played_name(result.played));
+        cJSON_AddBoolToObject(response, "cached", chime_cache_exists());
+        if (result.fetch_err != ESP_OK) {
+            char errbuf[64];
+            cJSON_AddStringToObject(
+                response, "error",
+                chime_fetch_error_message(result.fetch_err, errbuf, sizeof(errbuf)));
+        }
+        if (err == ESP_OK) {
+            cJSON_AddStringToObject(response, "status", "success");
+            if (result.fetch_err != ESP_OK && result.played == CHIME_PLAYED_PRESET) {
+                cJSON_AddStringToObject(response, "message", "Chime played (preset fallback)");
+            } else {
+                cJSON_AddStringToObject(response, "message", "Chime played");
+            }
+        } else {
+            cJSON_AddStringToObject(response, "status", "error");
+            cJSON_AddStringToObject(response, "message", esp_err_to_name(err));
+            httpd_resp_set_status(req, "500 Internal Server Error");
+        }
+    }
+
+    char *json_str = cJSON_Print(response);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(response);
+    return ESP_OK;
+}
+
+static esp_err_t chime_pull_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System is still initializing");
+        return ESP_FAIL;
+    }
+
+    power_manager_reset_sleep_timer();
+
+    cJSON *response = cJSON_CreateObject();
+    if (!board_hal_has_speaker()) {
+        cJSON_AddStringToObject(response, "status", "unsupported");
+        cJSON_AddStringToObject(response, "message", "This board has no speaker");
+        httpd_resp_set_status(req, "404 Not Found");
+    } else {
+        const char *url = config_manager_get_chime_url();
+        if (!url || !url[0]) {
+            cJSON_AddStringToObject(response, "status", "error");
+            cJSON_AddStringToObject(response, "message",
+                                    "chime_url is empty (set it in /api/config first)");
+            cJSON_AddBoolToObject(response, "cached", chime_cache_exists());
+            httpd_resp_set_status(req, "400 Bad Request");
+        } else {
+            esp_err_t err = chime_pull_url();
+            bool cached = chime_cache_exists();
+            cJSON_AddBoolToObject(response, "cached", cached);
+            if (cached) {
+                cJSON_AddNumberToObject(response, "bytes", (double) chime_cache_size());
+            }
+            if (err == ESP_OK) {
+                cJSON_AddStringToObject(response, "status", "success");
+                cJSON_AddStringToObject(response, "message", "Chime WAV cached");
+            } else {
+                char errbuf[64];
+                cJSON_AddStringToObject(response, "status", "error");
+                cJSON_AddStringToObject(response, "message",
+                                        chime_fetch_error_message(err, errbuf, sizeof(errbuf)));
+                httpd_resp_set_status(req, "400 Bad Request");
+            }
+        }
+    }
+
+    char *json_str = cJSON_Print(response);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(response);
+    return ESP_OK;
+}
+
+static esp_err_t send_chime_json(httpd_req_t *req, const char *status, const char *message,
+                                 const char *filename, const char *http_status)
+{
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "status", status);
+    if (message) {
+        cJSON_AddStringToObject(response, "message", message);
+    }
+    if (filename) {
+        cJSON_AddStringToObject(response, "filename", filename);
+    }
+    char *json_str = cJSON_Print(response);
+    httpd_resp_set_type(req, "application/json");
+    if (http_status) {
+        httpd_resp_set_status(req, http_status);
+    }
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(response);
+    return ESP_OK;
+}
+
+static const char *chime_upload_error_message(esp_err_t err, char *buf, size_t len)
+{
+    switch (err) {
+    case ESP_ERR_INVALID_SIZE:
+        wav_too_large_message(buf, len);
+        return buf;
+    case ESP_ERR_NOT_SUPPORTED:
+        return "Unsupported WAV (need mono/stereo PCM, 8/16-bit, 8-22.05 kHz)";
+    case ESP_ERR_INVALID_ARG:
+        return "Invalid filename (use a short name.wav)";
+    case ESP_ERR_NO_MEM:
+        return "Chime library is full (delete one first)";
+    default:
+        return "Failed to store chime WAV";
+    }
+}
+
+static esp_err_t chime_upload_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System is still initializing");
+        return ESP_FAIL;
+    }
+    if (!storage_has_persistent_storage()) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Storage not found");
+        return ESP_FAIL;
+    }
+
+    power_manager_reset_sleep_timer();
+
+    if (req->content_len <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty upload");
+        return ESP_FAIL;
+    }
+    if ((size_t) req->content_len > WAV_PCM_MAX_FILE_BYTES + 8192) {
+        char too_large[64];
+        wav_too_large_message(too_large, sizeof(too_large));
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, too_large);
+        return ESP_FAIL;
+    }
+
+    if (chime_ensure_dir() != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create chimes/");
+        return ESP_FAIL;
+    }
+
+    char original_name[CHIME_FILENAME_MAX_LEN] = "chime.wav";
+    char query[256];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char name_param[CHIME_FILENAME_MAX_LEN];
+        if (httpd_query_key_value(query, "name", name_param, sizeof(name_param)) == ESP_OK) {
+            char decoded[CHIME_FILENAME_MAX_LEN];
+            url_decode(decoded, name_param, sizeof(decoded));
+            strncpy(original_name, decoded, sizeof(original_name) - 1);
+            original_name[sizeof(original_name) - 1] = '\0';
+        }
+    }
+
+    unlink(CHIME_UPLOAD_TMP_PATH);
+
+    char content_type[128] = {0};
+    httpd_req_get_hdr_value_str(req, "Content-Type", content_type, sizeof(content_type));
+
+    if (strstr(content_type, "multipart/form-data") != NULL) {
+        multipart_result_t result = {0};
+        if (parse_multipart_upload(req, CHIME_DIRECTORY, ".upload.tmp", NULL, &result, false) !=
+            ESP_OK) {
+            unlink(CHIME_UPLOAD_TMP_PATH);
+            return ESP_FAIL;
+        }
+        if (!result.has_image) {
+            unlink(CHIME_UPLOAD_TMP_PATH);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No WAV file in multipart upload");
+            return ESP_FAIL;
+        }
+        if (result.original_filename[0]) {
+            strncpy(original_name, result.original_filename, sizeof(original_name) - 1);
+            original_name[sizeof(original_name) - 1] = '\0';
+        }
+    } else if (receive_raw_body(req, CHIME_UPLOAD_TMP_PATH) != ESP_OK) {
+        unlink(CHIME_UPLOAD_TMP_PATH);
+        return ESP_FAIL;
+    }
+
+    char stored[CHIME_FILENAME_MAX_LEN];
+    esp_err_t err =
+        chime_install_upload(CHIME_UPLOAD_TMP_PATH, original_name, stored, sizeof(stored));
+    unlink(CHIME_UPLOAD_TMP_PATH);
+    if (err != ESP_OK) {
+        char errbuf[64];
+        send_chime_json(req, "error", chime_upload_error_message(err, errbuf, sizeof(errbuf)), NULL,
+                        "400 Bad Request");
+        return ESP_FAIL;
+    }
+
+    config_manager_set_chime_file(stored);
+    config_manager_set_chime_source(CHIME_SOURCE_UPLOADED);
+    config_manager_touch_config();
+    return send_chime_json(req, "success", "Chime uploaded", stored, NULL);
+}
+
+static esp_err_t chimes_list_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System is still initializing");
+        return ESP_FAIL;
+    }
+
+    chime_entry_t entries[CHIME_MAX_STORED];
+    int count = chime_list(entries, CHIME_MAX_STORED);
+    const char *active = config_manager_get_chime_file();
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON *arr = cJSON_AddArrayToObject(root, "chimes");
+    for (int i = 0; i < count; i++) {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "name", entries[i].name);
+        cJSON_AddNumberToObject(item, "size", (double) entries[i].size);
+        cJSON_AddItemToArray(arr, item);
+    }
+    cJSON_AddStringToObject(root, "active", active ? active : "");
+
+    char *json_str = cJSON_Print(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+static esp_err_t chimes_delete_handler(httpd_req_t *req)
+{
+    if (!system_ready) {
+        httpd_resp_set_status(req, HTTPD_503);
+        httpd_resp_sendstr(req, "System is still initializing");
+        return ESP_FAIL;
+    }
+    if (!storage_has_persistent_storage()) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Storage not found");
+        return ESP_FAIL;
+    }
+
+    power_manager_reset_sleep_timer();
+
+    char name[CHIME_FILENAME_MAX_LEN] = {0};
+    char query[256];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char name_param[CHIME_FILENAME_MAX_LEN];
+        if (httpd_query_key_value(query, "name", name_param, sizeof(name_param)) == ESP_OK) {
+            url_decode(name, name_param, sizeof(name));
+        }
+    }
+    if (!name[0] && req->content_len > 0 && req->content_len < 256) {
+        char buf[256];
+        int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+        if (ret > 0) {
+            buf[ret] = '\0';
+            cJSON *root = cJSON_Parse(buf);
+            if (root) {
+                cJSON *item = cJSON_GetObjectItem(root, "name");
+                if (item && cJSON_IsString(item)) {
+                    strncpy(name, cJSON_GetStringValue(item), sizeof(name) - 1);
+                }
+                cJSON_Delete(root);
+            }
+        }
+    }
+
+    esp_err_t err = chime_delete(name);
+    if (err == ESP_ERR_INVALID_ARG) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid or missing name");
+        return ESP_FAIL;
+    }
+    if (err == ESP_ERR_NOT_FOUND) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Chime not found");
+        return ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to delete chime");
+        return ESP_FAIL;
+    }
+
+    config_manager_touch_config();
+    return send_chime_json(req, "success", "Chime deleted", name, NULL);
+}
+
 static void restart_task(void *arg)
 {
     vTaskDelay(pdMS_TO_TICKS(1000));  // Wait 1 second for response to be sent
@@ -2045,6 +2506,7 @@ static esp_err_t factory_reset_handler(httpd_req_t *req)
     }
 
     ESP_LOGI(TAG, "NVS erased successfully");
+    config_manager_delete_settings_sd();
 
     // Send success response
     httpd_resp_set_type(req, "application/json");
@@ -2422,6 +2884,18 @@ esp_err_t http_server_init(void)
                                         .user_ctx = NULL};
         httpd_register_uri_handler(server, &config_patch_uri);
 
+        httpd_uri_t config_export_sd_uri = {.uri = "/api/config/export-sd",
+                                            .method = HTTP_POST,
+                                            .handler = config_export_sd_handler,
+                                            .user_ctx = NULL};
+        httpd_register_uri_handler(server, &config_export_sd_uri);
+
+        httpd_uri_t config_import_sd_uri = {.uri = "/api/config/import-sd",
+                                            .method = HTTP_POST,
+                                            .handler = config_import_sd_handler,
+                                            .user_ctx = NULL};
+        httpd_register_uri_handler(server, &config_import_sd_uri);
+
         httpd_uri_t debug_log_uri = {.uri = "/api/debug/log",
                                      .method = HTTP_GET,
                                      .handler = debug_log_download_handler,
@@ -2487,6 +2961,34 @@ esp_err_t http_server_init(void)
                                       .handler = keep_alive_handler,
                                       .user_ctx = NULL};
         httpd_register_uri_handler(server, &keep_alive_uri);
+
+        httpd_uri_t chime_uri = {
+            .uri = "/api/chime", .method = HTTP_POST, .handler = chime_handler, .user_ctx = NULL};
+        httpd_register_uri_handler(server, &chime_uri);
+
+        httpd_uri_t chime_pull_uri = {.uri = "/api/chime/pull",
+                                      .method = HTTP_POST,
+                                      .handler = chime_pull_handler,
+                                      .user_ctx = NULL};
+        httpd_register_uri_handler(server, &chime_pull_uri);
+
+        httpd_uri_t chime_upload_uri = {.uri = "/api/chime/upload",
+                                        .method = HTTP_POST,
+                                        .handler = chime_upload_handler,
+                                        .user_ctx = NULL};
+        httpd_register_uri_handler(server, &chime_upload_uri);
+
+        httpd_uri_t chimes_list_uri = {.uri = "/api/chimes",
+                                       .method = HTTP_GET,
+                                       .handler = chimes_list_handler,
+                                       .user_ctx = NULL};
+        httpd_register_uri_handler(server, &chimes_list_uri);
+
+        httpd_uri_t chimes_delete_uri = {.uri = "/api/chimes",
+                                         .method = HTTP_DELETE,
+                                         .handler = chimes_delete_handler,
+                                         .user_ctx = NULL};
+        httpd_register_uri_handler(server, &chimes_delete_uri);
 
         httpd_uri_t format_storage_uri = {.uri = "/api/format-storage",
                                           .method = HTTP_POST,

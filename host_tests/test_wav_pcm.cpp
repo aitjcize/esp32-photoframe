@@ -1,0 +1,257 @@
+#include <gtest/gtest.h>
+#include <unistd.h>
+
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <vector>
+
+extern "C" {
+#include "wav_pcm.h"
+}
+
+namespace
+{
+
+void put_le16(std::vector<uint8_t> &b, uint16_t v)
+{
+    b.push_back((uint8_t) (v & 0xff));
+    b.push_back((uint8_t) (v >> 8));
+}
+
+void put_le32(std::vector<uint8_t> &b, uint32_t v)
+{
+    b.push_back((uint8_t) (v & 0xff));
+    b.push_back((uint8_t) ((v >> 8) & 0xff));
+    b.push_back((uint8_t) ((v >> 16) & 0xff));
+    b.push_back((uint8_t) (v >> 24));
+}
+
+std::vector<uint8_t> make_wav(uint16_t channels, uint32_t rate, uint16_t bits,
+                              const std::vector<uint8_t> &pcm, bool extra_list_chunk = false)
+{
+    std::vector<uint8_t> fmt;
+    put_le16(fmt, 1);  // PCM
+    put_le16(fmt, channels);
+    put_le32(fmt, rate);
+    uint32_t byte_rate = rate * channels * (bits / 8);
+    put_le32(fmt, byte_rate);
+    put_le16(fmt, (uint16_t) (channels * (bits / 8)));
+    put_le16(fmt, bits);
+
+    std::vector<uint8_t> extra;
+    if (extra_list_chunk) {
+        extra.insert(extra.end(), {'L', 'I', 'S', 'T'});
+        put_le32(extra, 4);
+        extra.insert(extra.end(), {'I', 'N', 'F', 'O'});
+    }
+
+    uint32_t riff_size =
+        4 + 8 + (uint32_t) fmt.size() + (uint32_t) extra.size() + 8 + (uint32_t) pcm.size();
+    std::vector<uint8_t> wav;
+    wav.insert(wav.end(), {'R', 'I', 'F', 'F'});
+    put_le32(wav, riff_size);
+    wav.insert(wav.end(), {'W', 'A', 'V', 'E'});
+    wav.insert(wav.end(), {'f', 'm', 't', ' '});
+    put_le32(wav, (uint32_t) fmt.size());
+    wav.insert(wav.end(), fmt.begin(), fmt.end());
+    wav.insert(wav.end(), extra.begin(), extra.end());
+    wav.insert(wav.end(), {'d', 'a', 't', 'a'});
+    put_le32(wav, (uint32_t) pcm.size());
+    wav.insert(wav.end(), pcm.begin(), pcm.end());
+    return wav;
+}
+
+}  // namespace
+
+TEST(WavPcm, ParsesMono16)
+{
+    std::vector<uint8_t> pcm(16, 0);
+    auto wav = make_wav(1, 16000, 16, pcm);
+    wav_pcm_info_t info;
+    ASSERT_EQ(wav_pcm_parse(wav.data(), wav.size(), &info), 0);
+    EXPECT_EQ(info.sample_rate, 16000u);
+    EXPECT_EQ(info.channels, 1);
+    EXPECT_EQ(info.bits_per_sample, 16);
+    EXPECT_EQ(info.data_bytes, 16u);
+    EXPECT_TRUE(wav_pcm_is_supported(&info));
+}
+
+TEST(WavPcm, ParsesStereo8WithListChunk)
+{
+    std::vector<uint8_t> pcm = {128, 128, 200, 50};
+    auto wav = make_wav(2, 8000, 8, pcm, true);
+    wav_pcm_info_t info;
+    ASSERT_EQ(wav_pcm_parse(wav.data(), wav.size(), &info), 0);
+    EXPECT_EQ(info.sample_rate, 8000u);
+    EXPECT_EQ(info.channels, 2);
+    EXPECT_EQ(info.bits_per_sample, 8);
+    EXPECT_TRUE(wav_pcm_is_supported(&info));
+}
+
+TEST(WavPcm, RejectsCompressedAndOutOfRange)
+{
+    std::vector<uint8_t> pcm(8, 0);
+    auto wav = make_wav(1, 16000, 16, pcm);
+    wav[20] = 3;  // AudioFormat = 3 (IEEE float)
+    wav_pcm_info_t info;
+    EXPECT_NE(wav_pcm_parse(wav.data(), wav.size(), &info), 0);
+
+    auto hi = make_wav(1, 44100, 16, pcm);
+    ASSERT_EQ(wav_pcm_parse(hi.data(), hi.size(), &info), 0);
+    EXPECT_FALSE(wav_pcm_is_supported(&info));
+
+    auto bad_magic = wav;
+    bad_magic[0] = 'X';
+    EXPECT_NE(wav_pcm_parse(bad_magic.data(), bad_magic.size(), &info), 0);
+}
+
+TEST(WavPcm, MaxFileBytesFitsTypicalPiWav)
+{
+    // SD-backed cache: typical Pi doorbell WAVs are ~1.2 MiB.
+    EXPECT_EQ(WAV_PCM_MAX_FILE_BYTES, 2u * 1024u * 1024u);
+    EXPECT_GE(WAV_PCM_MAX_FILE_BYTES, 1536u * 1024u);
+
+    char label[16];
+    wav_pcm_max_file_label(label, sizeof(label));
+    EXPECT_STREQ(label, "2 MiB");
+}
+
+TEST(WavPcm, CapsPlayDuration)
+{
+    EXPECT_EQ(WAV_PCM_MAX_SECONDS, 60u);
+    EXPECT_GE(WAV_PCM_MAX_SECONDS, 45u);
+
+    // 16-bit mono @ 8 kHz: longer than the play cap so the duration limit binds.
+    const uint32_t seconds = WAV_PCM_MAX_SECONDS + 10u;
+    std::vector<uint8_t> pcm(8000 * 2 * seconds, 0);
+    auto wav = make_wav(1, 8000, 16, pcm);
+    wav_pcm_info_t info;
+    ASSERT_EQ(wav_pcm_parse(wav.data(), wav.size(), &info), 0);
+    EXPECT_EQ(wav_pcm_max_play_bytes(&info), 8000u * 2u * WAV_PCM_MAX_SECONDS);
+}
+
+TEST(WavPcm, DurationAllowsSpokenBulletin)
+{
+    // ~27 s Dutch bulletin at typical Pi rates must play in full, not 6 s.
+    wav_pcm_info_t info = {};
+    info.sample_rate = 22050;
+    info.channels = 1;
+    info.bits_per_sample = 16;
+    info.data_bytes = 22050u * 2u * 27u;
+    EXPECT_LE(info.data_bytes, WAV_PCM_MAX_FILE_BYTES);
+    EXPECT_EQ(wav_pcm_max_play_bytes(&info), info.data_bytes);
+}
+
+TEST(WavPcm, Expands8BitMonoAnd16BitStereo)
+{
+    wav_pcm_info_t mono8 = {};
+    mono8.sample_rate = 8000;
+    mono8.channels = 1;
+    mono8.bits_per_sample = 8;
+    mono8.data_bytes = 2;
+    uint8_t src8[] = {128, 255};
+    int16_t dst[8] = {0};
+    size_t consumed = 0;
+    EXPECT_EQ(wav_pcm_expand_s16_stereo(&mono8, src8, sizeof(src8), dst, 4, &consumed), 2u);
+    EXPECT_EQ(consumed, 2u);
+    EXPECT_EQ(dst[0], 0);
+    EXPECT_EQ(dst[1], 0);
+    EXPECT_EQ(dst[2], (int16_t) (((int) 255 - 128) << 8));
+    EXPECT_EQ(dst[3], dst[2]);
+
+    wav_pcm_info_t st16 = {};
+    st16.sample_rate = 16000;
+    st16.channels = 2;
+    st16.bits_per_sample = 16;
+    st16.data_bytes = 4;
+    uint8_t src16[] = {0x00, 0x10, 0xff, 0x7f};  // 0x1000, 0x7fff
+    memset(dst, 0, sizeof(dst));
+    EXPECT_EQ(wav_pcm_expand_s16_stereo(&st16, src16, sizeof(src16), dst, 2, &consumed), 1u);
+    EXPECT_EQ(dst[0], 0x1000);
+    EXPECT_EQ(dst[1], 0x7fff);
+}
+
+TEST(WavPcm, DataIsCompleteRequiresFullPayload)
+{
+    wav_pcm_info_t info = {};
+    info.data_offset = 44;
+    info.data_bytes = 16000u * 2u * 39u;  // ~39 s 16 kHz mono 16-bit
+    const size_t need = 44u + (size_t) info.data_bytes;
+    EXPECT_FALSE(wav_pcm_data_is_complete(&info, 44));
+    EXPECT_FALSE(wav_pcm_data_is_complete(&info, need - 1u));
+    // Cut heard around 28.7 s: file has header + ~29 s of PCM, header claims 39 s.
+    EXPECT_FALSE(wav_pcm_data_is_complete(&info, 44u + 16000u * 2u * 29u));
+    EXPECT_TRUE(wav_pcm_data_is_complete(&info, need));
+    EXPECT_TRUE(wav_pcm_data_is_complete(&info, need + 16u));
+    EXPECT_FALSE(wav_pcm_data_is_complete(nullptr, need));
+}
+
+TEST(WavPcm, DurationAllowsThirtyNineSecondBulletin)
+{
+    wav_pcm_info_t info = {};
+    info.sample_rate = 16000;
+    info.channels = 1;
+    info.bits_per_sample = 16;
+    info.data_bytes = 16000u * 2u * 39u;
+    EXPECT_LE(info.data_bytes, WAV_PCM_MAX_FILE_BYTES);
+    EXPECT_EQ(wav_pcm_max_play_bytes(&info), info.data_bytes);
+}
+
+TEST(WavPcm, ParseFileRejectsTruncatedDataChunk)
+{
+    std::vector<uint8_t> pcm(1000, 0x5a);
+    auto wav = make_wav(1, 16000, 16, pcm);
+    ASSERT_GT(wav.size(), 200u);
+
+    char path[] = "/tmp/chime_wav_trunc_XXXXXX";
+    int fd = mkstemp(path);
+    ASSERT_GE(fd, 0);
+    FILE *out = fdopen(fd, "wb");
+    ASSERT_TRUE(out);
+    // Keep the RIFF/fmt/data headers and only part of the PCM — same shape as
+    // an HTTP body that stopped mid-bulletin while the data-chunk size is intact.
+    const size_t keep = wav.size() - 800;
+    ASSERT_EQ(fwrite(wav.data(), 1, keep, out), keep);
+    fclose(out);
+
+    FILE *in = fopen(path, "rb");
+    ASSERT_TRUE(in);
+    wav_pcm_info_t info;
+    EXPECT_NE(wav_pcm_parse_file(in, &info), 0);
+    fclose(in);
+
+    // Memory parse is header-only; completeness is a separate check.
+    ASSERT_EQ(wav_pcm_parse(wav.data(), keep, &info), 0);
+    EXPECT_EQ(info.data_bytes, 1000u);
+    EXPECT_FALSE(wav_pcm_data_is_complete(&info, keep));
+    unlink(path);
+}
+
+TEST(WavPcm, ParseFileRoundTrip)
+{
+    std::vector<uint8_t> pcm = {0x11, 0x22, 0x33, 0x44};
+    auto wav = make_wav(1, 22050, 16, pcm, true);
+    char path[] = "/tmp/chime_wav_pcm_XXXXXX";
+    int fd = mkstemp(path);
+    ASSERT_GE(fd, 0);
+    FILE *out = fdopen(fd, "wb");
+    ASSERT_TRUE(out);
+    ASSERT_EQ(fwrite(wav.data(), 1, wav.size(), out), wav.size());
+    fclose(out);
+
+    FILE *in = fopen(path, "rb");
+    ASSERT_TRUE(in);
+    wav_pcm_info_t info;
+    ASSERT_EQ(wav_pcm_parse_file(in, &info), 0);
+    EXPECT_EQ(info.sample_rate, 22050u);
+    EXPECT_EQ(info.channels, 1);
+    EXPECT_EQ(info.bits_per_sample, 16);
+    EXPECT_EQ(info.data_bytes, 4u);
+    uint8_t got[4];
+    ASSERT_EQ(fread(got, 1, 4, in), 4u);
+    EXPECT_EQ(memcmp(got, pcm.data(), 4), 0);
+    fclose(in);
+    unlink(path);
+}

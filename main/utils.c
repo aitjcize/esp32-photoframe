@@ -9,6 +9,7 @@
 #include "board_hal.h"
 #include "cJSON.h"
 #include "cert_pin.h"
+#include "chime.h"
 #include "color_palette.h"
 #include "config.h"
 #include "config_manager.h"
@@ -465,6 +466,83 @@ esp_err_t apply_config_from_json(cJSON *root)
     item = cJSON_GetObjectItem(root, "deep_sleep_enabled");
     if (item && cJSON_IsBool(item)) {
         power_manager_set_deep_sleep_enabled(cJSON_IsTrue(item));
+    }
+
+    item = cJSON_GetObjectItem(root, "chime_enabled");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_chime_enabled(cJSON_IsTrue(item));
+    }
+
+    item = cJSON_GetObjectItem(root, "chime_preset");
+    if (item && cJSON_IsString(item)) {
+        const char *preset = cJSON_GetStringValue(item);
+        if (!chime_preset_is_valid(preset)) {
+            utils_set_config_error("Invalid chime_preset");
+            return ESP_FAIL;
+        }
+        config_manager_set_chime_preset(preset);
+    }
+
+    item = cJSON_GetObjectItem(root, "chime_url");
+    if (item && cJSON_IsString(item)) {
+        const char *url = cJSON_GetStringValue(item);
+        if (strlen(url) >= IMAGE_URL_MAX_LEN) {
+            utils_set_config_error("chime_url too long");
+            return ESP_FAIL;
+        }
+        if (url[0] != '\0' && strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0) {
+            utils_set_config_error("chime_url must be http:// or https://");
+            return ESP_FAIL;
+        }
+        config_manager_set_chime_url(url);
+    }
+
+    item = cJSON_GetObjectItem(root, "chime_source");
+    if (item && cJSON_IsString(item)) {
+        const char *source = cJSON_GetStringValue(item);
+        if (!chime_source_is_valid(source)) {
+            utils_set_config_error("Invalid chime_source (use preset, wav, or uploaded)");
+            return ESP_FAIL;
+        }
+        if (strcmp(source, "wav") == 0) {
+            config_manager_set_chime_source(CHIME_SOURCE_WAV);
+        } else if (strcmp(source, "uploaded") == 0) {
+            config_manager_set_chime_source(CHIME_SOURCE_UPLOADED);
+        } else {
+            config_manager_set_chime_source(CHIME_SOURCE_PRESET);
+        }
+    }
+
+    item = cJSON_GetObjectItem(root, "chime_file");
+    if (item && cJSON_IsString(item)) {
+        const char *filename = cJSON_GetStringValue(item);
+        if (filename[0] != '\0' && !chime_filename_is_valid(filename)) {
+            utils_set_config_error("Invalid chime_file");
+            return ESP_FAIL;
+        }
+        config_manager_set_chime_file(filename);
+    }
+
+    item = cJSON_GetObjectItem(root, "chime_pull_mode");
+    if (item && cJSON_IsString(item)) {
+        const char *mode = cJSON_GetStringValue(item);
+        if (!chime_pull_mode_is_valid(mode)) {
+            utils_set_config_error("Invalid chime_pull_mode (use once or with_rotate)");
+            return ESP_FAIL;
+        }
+        config_manager_set_chime_pull_mode(strcmp(mode, "with_rotate") == 0 ? CHIME_PULL_WITH_ROTATE
+                                                                            : CHIME_PULL_ONCE);
+    }
+
+    item = cJSON_GetObjectItem(root, "chime_play_when");
+    if (item && cJSON_IsString(item)) {
+        const char *when = cJSON_GetStringValue(item);
+        if (!chime_play_when_is_valid(when)) {
+            utils_set_config_error("Invalid chime_play_when (use before or after)");
+            return ESP_FAIL;
+        }
+        config_manager_set_chime_play_when(strcmp(when, "before") == 0 ? CHIME_PLAY_WHEN_BEFORE
+                                                                       : CHIME_PLAY_WHEN_AFTER);
     }
 
     // Debugging

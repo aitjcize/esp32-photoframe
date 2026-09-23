@@ -89,6 +89,25 @@ test:
 	@echo "Running display flow tests..."
 	@cd host_tests/build && ./display_flow_test
 	@echo ""
+	@echo "Running WAV PCM tests..."
+	@./host_tests/build/wav_pcm_test
+	@echo ""
+	@echo "Running chime filename tests..."
+	@./host_tests/build/chime_name_test
+	@echo ""
+	@echo "Running chime preset tune tests..."
+	@./host_tests/build/chime_presets_test
+	@echo ""
+	@echo "Running chime policy tests..."
+	@./host_tests/build/chime_policy_test
+	@echo ""
+	@echo "Running settings backup tests..."
+	@./host_tests/build/settings_backup_test
+	@echo ""
+	@echo "Running webapp unit tests..."
+	@cd webapp && [ -d node_modules ] || npm ci
+	@cd webapp && npm test
+	@echo ""
 	@echo "Running image orientation tests..."
 	@cd process-cli && npm install --silent && npm run test:orientation
 	@echo ""

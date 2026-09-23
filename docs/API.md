@@ -128,13 +128,22 @@ Get current device configuration.
   "ha_url": "",
   "openai_api_key": "",
   "google_api_key": "",
-  "deep_sleep_enabled": true
+  "deep_sleep_enabled": true,
+  "chime_enabled": true,
+  "chime_supported": true,
+  "chime_preset": "mozart",
+  "chime_url": "",
+  "chime_source": "preset",
+  "chime_pull_mode": "with_rotate",
+  "chime_play_when": "after",
+  "chime_file": "",
+  "chime_cached": false
 }
 ```
 
 **Fields:**
 - `device_name`: Device name (used for mDNS hostname)
-- `timezone`: POSIX timezone string (e.g., `UTC-8` for PST)
+- `timezone`: POSIX timezone string. Simple fixed offsets use `UTC±H[:MM]` with inverted sign (e.g. `UTC-8` for PST / UTC+8). DST-aware zones use a full POSIX TZ (e.g. `CET-1CEST,M3.5.0/2,M10.5.0/3` for Amsterdam).
 - `ntp_server`: NTP server address
 - `display_orientation`: `"landscape"` or `"portrait"`
 - `display_rotation_deg`: Display rotation in degrees (0, 90, 180, 270)
@@ -160,6 +169,21 @@ Get current device configuration.
 - `ha_url`: Home Assistant URL for integration
 - `openai_api_key`/`google_api_key`: AI API keys for client-side generation
 - `deep_sleep_enabled`: Enable deep sleep between rotations
+- `chime_enabled`: Master mute. Play a local ES8311 speaker chime on a successful image display / URL rotate (default `true`). Timing is `chime_play_when`. Set `false` for battery or quiet hours. Persisted in NVS as `chime_en`.
+- `chime_supported`: Read-only. `true` on `waveshare_photopainter_73` (onboard ES8311 + PA). Other boards report `false`.
+- `chime_preset`: Built-in synthesized public-domain tune (2–8 seconds): `mozart` (default, Eine kleine Nachtmusik opening), `ode` (Ode to Joy), `frere` (Frère Jacques), `twinkle`, `fanfare`, `triad` (C–E–G flourish), `dingdong` (two-tone doorbell), `softping`, `alert`, `doublebeep`. `ascending` remains accepted as an alias of `fanfare`. Used when `chime_source` is `preset`, and as fallback if a WAV fetch/play fails. Persisted as `chime_preset`. Unknown names are rejected by `POST`/`PATCH /api/config`. Playback of an unknown HAL name falls back to `triad`.
+- `chime_url`: Optional HTTP(S) URL of a small PCM WAV (similar to `image_url`, max 256 chars). Example: `http://news.local:8080/chime.wav`. Persisted as `chime_url`. Changing the URL clears the on-device cache.
+- `chime_source`: `preset` (default) plays `chime_preset`. `wav` plays the last pulled WAV when `chime_url` is set. `uploaded` plays the file named by `chime_file` from `chimes/` on storage.
+- `chime_file`: Filename of the active uploaded WAV (e.g. `doorbell.wav`). Empty when none is selected. Persisted as `chime_file`.
+- `chime_pull_mode`: How `chime_url` is fetched when `chime_source` is `wav`.
+  - `once`: reuse the on-device cache. Preview fetches if the cache is empty; **Pull now** (`POST /api/chime/pull`) GETs the URL on demand. On a display rotate, fetch only if nothing is cached.
+  - `with_rotate` (default): GET `chime_url` at the same moment playback starts (`chime_play_when`), replace the cache, then play that WAV. Falls back to `chime_preset` if the fetch fails (existing cache is tried first).
+- `chime_play_when`: When to start speaker playback relative to the e-ink image update. `POST`/`PATCH /api/config` accepts `before` or `after`; any other value is rejected with `400`.
+  - `after` (default): do not start playback until `epaper_display()` has returned — that call is blocking (Power On → Send Data → Refresh → Power Off), so the chime (preset or WAV, including a `with_rotate` pull) starts only after the panel has finished drawing. Persisted as `chime_play_when`.
+  - `before`: play after the new image has been decoded into the frame buffer, immediately before the panel wait. With `with_rotate`, the URL is GET-pulled at that earlier moment, then the WAV plays, then the ~30 s refresh begins.
+- `chime_cached`: Read-only. `true` if a cached WAV is present on storage.
+
+WAV limits (rejected/skipped gracefully): PCM only (not MP3/float), mono or stereo, 8- or 16-bit, 8–22.05 kHz, max **2 MiB** (`WAV_PCM_MAX_FILE_BYTES`, SD-backed cache; typical Pi bulletin files are ~1.2 MiB / ~27 s), first **60 seconds** played (`WAV_PCM_MAX_SECONDS`). Do not ship copyrighted OS ringtones in firmware; serve your own WAV from a Pi if you want a custom sound.
 
 ### `POST /api/config`
 
@@ -187,6 +211,16 @@ Update configuration. Only include fields to change.
 ### `PATCH /api/config`
 
 Same as `POST /api/config`. Both methods accept partial updates.
+
+**SD backup:** each successful `POST`/`PATCH` `/api/config` (and other calls that `touch` config, such as chime upload/delete) also writes `/storage/config/settings.json` when an SD card is mounted. That file is the backup that survives a full firmware flash at `0x0` (NVS wipe). On boot, NVS is loaded first; if the SD file exists and NVS has none of the backed-up keys, the snapshot is imported. Included keys: `device_name`, `timezone`, `ntp_server`, `display_orientation`, `display_rotation_deg`, `auto_rotate`, `rotate_cron`, `rotation_mode`, `sd_rotation_mode`, `image_url`, `ha_url`, `save_downloaded_images`, `deep_sleep_enabled`, `debug_log_enabled`, and all `chime_*` fields. Not included (stay out of this file): WiFi (`wifi.txt` / NVS), static IP / DNS, tokens, HTTP headers, CA pin, AI API keys, and runtime state (`last_index`, ETag, last fetch error).
+
+### `POST /api/config/export-sd`
+
+Write the current runtime settings snapshot to `/storage/config/settings.json`. Returns `404` if no SD card is mounted.
+
+### `POST /api/config/import-sd`
+
+Read `/storage/config/settings.json` and apply it to NVS/runtime immediately (even if NVS is not factory-fresh). Returns `404` if the file is missing.
 
 ---
 
@@ -230,6 +264,88 @@ curl -X POST \
 ### `POST /api/rotate`
 
 Trigger image rotation (respects rotation mode).
+
+### `POST /api/chime`
+
+Play the currently selected speaker chime (Waveshare PhotoPainter 7.3" only): the built-in `chime_preset`, the last cached URL WAV when `chime_source` is `wav`, or the uploaded file when `chime_source` is `uploaded`. Intended for a Raspberry Pi / remote trigger and for the Settings → Chimes preview button. Respects `chime_enabled`. Resets the auto-sleep timer.
+
+When `chime_source` is `wav`, the device GET-pulls `chime_url` first if the cache is empty or the caller asked to refresh (`?refresh=1` or `{"refresh":true}`), then plays the WAV. It falls back to `chime_preset` only if fetch/validate/play fails. Upload and list selection apply immediately; the web UI also persists URL fields before preview.
+
+**Response (played):**
+```json
+{
+  "status": "success",
+  "message": "Chime played",
+  "played": "wav",
+  "cached": true
+}
+```
+
+`played` is `wav`, `preset`, or `uploaded`. If a WAV fetch failed and the preset was used instead, `message` is `"Chime played (preset fallback)"` and `error` describes the fetch failure.
+
+**Response (disabled via config):**
+```json
+{
+  "status": "disabled",
+  "message": "Chime is disabled (set chime_enabled in /api/config)"
+}
+```
+
+**Response (board has no speaker):** `404` with `"status": "unsupported"`.
+
+### `POST /api/chime/pull`
+
+GET `chime_url`, validate a supported PCM WAV, and replace the on-device cache. Does not play. Used by Settings → Chimes **Pull now** so `chime_pull_mode=once` can refresh without waiting for the first play. Resets the auto-sleep timer. Requires a non-empty `chime_url`.
+
+```bash
+curl -X POST http://photopainter.local/api/chime/pull
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Chime WAV cached",
+  "cached": true,
+  "bytes": 1234567
+}
+```
+
+On failure (`400`): `status` is `error`, `cached` reports whether a previous cache remains, and `message` explains the problem (empty URL, too large, unsupported format, HTTP error).
+
+### `POST /api/chime/upload`
+
+Upload a custom PCM WAV (multipart field `file` / `chime` / `image`, or raw `audio/wav` body). Stored under `chimes/` on SD (or flash if no SD). Same format limits as `chime_url` (PCM, 8–22.05 kHz, 8/16-bit, max 2 MiB / 60 seconds played). On success, that file becomes the active custom sound (`chime_source=uploaded`, `chime_file=<name>`). Optional `?name=doorbell.wav` for raw-body uploads.
+
+```bash
+curl -X POST -F 'file=@doorbell.wav' http://photopainter.local/api/chime/upload
+curl -X POST -H 'Content-Type: audio/wav' --data-binary @doorbell.wav \
+  'http://photopainter.local/api/chime/upload?name=doorbell.wav'
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Chime uploaded",
+  "filename": "doorbell.wav"
+}
+```
+
+### `GET /api/chimes`
+
+List uploaded chimes.
+
+```json
+{
+  "chimes": [{ "name": "doorbell.wav", "size": 12340 }],
+  "active": "doorbell.wav"
+}
+```
+
+### `DELETE /api/chimes?name=doorbell.wav`
+
+Delete an uploaded chime. If it was the active file, `chime_file` is cleared and source falls back to `preset`. Also accepts `{"name":"doorbell.wav"}` in the body.
 
 ### `GET /api/current_image`
 
@@ -438,7 +554,7 @@ storage is available).
 
 ### `POST /api/factory-reset`
 
-Factory reset all settings to defaults.
+Factory reset all settings to defaults. Erases NVS and deletes the SD settings snapshot (`/storage/config/settings.json`) so the next boot does not re-import the previous auto-rotate / chime backup. Photos on the card are left in place.
 
 ---
 

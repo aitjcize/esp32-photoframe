@@ -135,6 +135,27 @@ const char *config_manager_get_google_api_key(void);
 void config_manager_set_deep_sleep_enabled(bool enabled);
 bool config_manager_get_deep_sleep_enabled(void);
 
+void config_manager_set_chime_enabled(bool enabled);
+bool config_manager_get_chime_enabled(void);
+
+void config_manager_set_chime_preset(const char *preset);
+const char *config_manager_get_chime_preset(void);
+
+void config_manager_set_chime_url(const char *url);
+const char *config_manager_get_chime_url(void);
+
+void config_manager_set_chime_source(chime_source_t source);
+chime_source_t config_manager_get_chime_source(void);
+
+void config_manager_set_chime_pull_mode(chime_pull_mode_t mode);
+chime_pull_mode_t config_manager_get_chime_pull_mode(void);
+
+void config_manager_set_chime_play_when(chime_play_when_t when);
+chime_play_when_t config_manager_get_chime_play_when(void);
+
+void config_manager_set_chime_file(const char *filename);
+const char *config_manager_get_chime_file(void);
+
 // ============================================================================
 // Debugging
 // ============================================================================
@@ -149,5 +170,12 @@ bool config_manager_get_debug_log_enabled(void);
 void config_manager_set_config_last_updated(int64_t timestamp);
 int64_t config_manager_get_config_last_updated(void);
 void config_manager_touch_config(void);
+
+// SD settings snapshot (`/storage/config/settings.json` when an SD card is
+// mounted). touch_config() writes it automatically. Import restores into RAM
+// and NVS without WiFi/cert-pin side effects. Factory reset deletes the file.
+esp_err_t config_manager_export_settings_sd(void);
+esp_err_t config_manager_import_settings_sd(void);
+void config_manager_delete_settings_sd(void);
 
 #endif

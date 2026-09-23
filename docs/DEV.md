@@ -138,6 +138,7 @@ esp32-photoframe/
 │   ├── http_server.c          # Web server and API
 │   ├── image_processor.c      # Image processing (dithering, tone mapping)
 │   ├── power_manager.c        # Sleep/wake management
+│   ├── settings_backup.c      # SD config/settings.json codec (host-tested)
 │   └── webapp/                # Web interface files
 ├── components/
 │   └── epaper_src/            # E-paper driver
@@ -152,6 +153,12 @@ esp32-photoframe/
 In `idf.py menuconfig`:
 1. Navigate to `Component config` → `Log output`
 2. Set default log level to `Debug` or `Verbose`
+
+### Speaker chime (PhotoPainter)
+
+`waveshare_photopainter_73` plays a local ES8311 chime on a successful panel refresh. Implementation is a thin helper in `components/board_hal/src/audio_chime.c` (PCM WAV file play + sine playback) plus `components/board_hal/src/chime_presets.c` (`{freq_hz, duration_ms}` public-domain tune tables, 0 Hz = rest, capped at `CHIME_PRESET_MAX_MS` / 8 s; host-tested) and `main/chime.c` (URL pull / cache / source selection). WAV header parsing lives in `components/board_hal/src/wav_pcm.c` (no IDF deps; covered by host tests). Pins and PA GPIO 7 come from Waveshare `05_ArduinoExample/01_Audio_Test` (`USER_CODEC_BOARD` in `board_cfg.h`). Deep sleep is unchanged; audio is torn down before the existing `board_hal_prepare_for_sleep()` path.
+
+`chime_enabled` is the master mute. `chime_source` is `preset`, `wav` (URL-pull cache), or `uploaded` (files in `/storage/chimes`). `chime_pull_mode` defaults to `with_rotate` (`once` still accepted). `chime_play_when` is `after` (default: play only after `epaper_display()` returns — that call blocks until the panel refresh finishes) or `before` (play after decode, immediately before the panel wait). `POST /api/chime/pull` GETs `chime_url` and caches it (Settings → Chimes **Pull now**). Preview (`POST /api/chime`) fetches when the cache is empty or `refresh=1`, then plays; JSON reports `played` (`wav` / `preset` / `uploaded`). WAV caps are `WAV_PCM_MAX_FILE_BYTES` (2 MiB, SD-backed) and `WAV_PCM_MAX_SECONDS` (60 s play truncate; host-tested). Filename sanitizing is in `main/chime_name.c` (host-tested). Fetch-vs-play and before/after hook policy is in `main/chime_policy.h` (host-tested). Settings that live in NVS (timezone, device name, NTP server, display orientation/rotation, auto-rotate, image URL, HA URL, debug log, save-downloaded-images, chime_*) are also snapshotted to SD `/storage/config/settings.json` on each config save (`main/settings_backup.c`, host-tested) so they survive a merged-bin flash that wipes NVS. WiFi, static IP/DNS, secrets, and runtime fetch state stay out of that file. Other boards keep the no-op `board_hal_play_chime*()` stubs. Keep `esp_driver_i2c` on `board_hal` **REQUIRES** (public headers include `driver/i2c_master.h`).
 
 ### Common Issues
 
