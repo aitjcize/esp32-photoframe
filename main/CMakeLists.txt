@@ -21,6 +21,7 @@ set(SOURCES
     "storage.c"
     "cron.c"
     "utils.c"
+    "http_auth.c"
     "wifi_manager.c"
     "wifi_provisioning.c"
 )

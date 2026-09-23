@@ -46,6 +46,7 @@ static char image_url[IMAGE_URL_MAX_LEN] = {0};
 static uint8_t *ca_cert_der = NULL;  // Heap-allocated DER certificate
 static size_t ca_cert_der_len = 0;
 static char access_token[ACCESS_TOKEN_MAX_LEN] = {0};
+static char http_password[HTTP_PASSWORD_MAX_LEN] = {0};
 static char http_header_key[HTTP_HEADER_KEY_MAX_LEN] = {0};
 static char http_header_value[HTTP_HEADER_VALUE_MAX_LEN] = {0};
 static bool save_downloaded_images = false;
@@ -173,6 +174,21 @@ esp_err_t config_manager_init(void)
             strncpy(tz_string, DEFAULT_TIMEZONE, TIMEZONE_MAX_LEN - 1);
             tz_string[TIMEZONE_MAX_LEN - 1] = '\0';
             ESP_LOGI(TAG, "No timezone in NVS, using default: %s", tz_string);
+        }
+
+        size_t http_password_len = HTTP_PASSWORD_MAX_LEN;
+        esp_err_t pw_err =
+            nvs_get_str(nvs_handle, NVS_HTTP_PASSWORD_KEY, http_password, &http_password_len);
+        if (pw_err != ESP_OK) {
+            // Not found is the normal "auth off" default. Any other error
+            // also leaves auth off rather than failing closed: the routes that
+            // could repair it, factory reset included, sit behind the same
+            // gate, so a lockout here would need a reflash to undo.
+            if (pw_err != ESP_ERR_NVS_NOT_FOUND) {
+                ESP_LOGE(TAG, "Failed to read HTTP API password (%s); auth is OFF",
+                         esp_err_to_name(pw_err));
+            }
+            http_password[0] = '\0';
         }
 
         size_t ntp_server_len = NTP_SERVER_MAX_LEN;
@@ -934,6 +950,43 @@ void config_manager_set_access_token(const char *token)
 const char *config_manager_get_access_token(void)
 {
     return access_token;
+}
+
+esp_err_t config_manager_set_http_password(const char *password)
+{
+    if (password == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (strlen(password) >= HTTP_PASSWORD_MAX_LEN) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    // Persist first and only then switch the live value, so a failed write
+    // can't leave a password that guards this boot but vanishes on the next.
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (err == ESP_OK) {
+        err = nvs_set_str(nvs_handle, NVS_HTTP_PASSWORD_KEY, password);
+        if (err == ESP_OK) {
+            err = nvs_commit(nvs_handle);
+        }
+        nvs_close(nvs_handle);
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to store HTTP API password: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    strcpy(http_password, password);  // length checked above
+
+    // Never log the value itself.
+    ESP_LOGI(TAG, "HTTP API password %s", http_password[0] ? "set" : "cleared");
+    return ESP_OK;
+}
+
+const char *config_manager_get_http_password(void)
+{
+    return http_password;
 }
 
 void config_manager_set_http_header_key(const char *key)

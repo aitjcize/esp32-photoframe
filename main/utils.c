@@ -429,6 +429,22 @@ esp_err_t apply_config_from_json(cJSON *root)
         config_manager_set_access_token(cJSON_GetStringValue(item));
     }
 
+    // Optional password for the device's own HTTP API (#130). Send "" to
+    // disable it again. Never echoed back by GET /api/config.
+    // Refuse an over-long one rather than store a truncated prefix: the owner
+    // would then be locked out by the very password they typed.
+    item = cJSON_GetObjectItem(root, "http_password");
+    if (item && cJSON_IsString(item)) {
+        esp_err_t pw_err = config_manager_set_http_password(cJSON_GetStringValue(item));
+        if (pw_err == ESP_ERR_INVALID_SIZE) {
+            utils_set_config_error("Device password is too long (max 63 bytes)");
+            return ESP_FAIL;
+        } else if (pw_err != ESP_OK) {
+            utils_set_config_error("Failed to save the device password");
+            return ESP_FAIL;
+        }
+    }
+
     item = cJSON_GetObjectItem(root, "http_header_key");
     if (item && cJSON_IsString(item)) {
         config_manager_set_http_header_key(cJSON_GetStringValue(item));

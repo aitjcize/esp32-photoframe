@@ -43,6 +43,11 @@ export const useSettingsStore = defineStore("settings", () => {
     caCertSet: false,
     lastFetchError: "",
     accessToken: "",
+    // Write-only: the device reports only whether a password is set, never the
+    // value. Blank means "leave whatever is stored alone".
+    httpPassword: "",
+    httpAuthEnabled: false,
+    httpAuthWasEnabled: false,
     httpHeaderKey: "",
     httpHeaderValue: "",
     saveDownloadedImages: true,
@@ -195,6 +200,11 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.haUrl = data.ha_url || "";
       deviceSettings.value.saveDownloadedImages = data.save_downloaded_images !== false;
       deviceSettings.value.accessToken = data.access_token || "";
+      // The HTTP API password is never echoed back; keep the input blank and
+      // track only whether one is configured.
+      deviceSettings.value.httpPassword = "";
+      deviceSettings.value.httpAuthEnabled = data.http_auth_enabled === true;
+      deviceSettings.value.httpAuthWasEnabled = data.http_auth_enabled === true;
       deviceSettings.value.httpHeaderKey = data.http_header_key || "";
       deviceSettings.value.httpHeaderValue = data.http_header_value || "";
       deviceSettings.value.displayOrientation = data.display_orientation || "landscape";
@@ -230,6 +240,31 @@ export const useSettingsStore = defineStore("settings", () => {
     } catch (_error) {
       console.log("Device settings API not available (standalone mode)");
     }
+  }
+
+  // The device stores at most this many bytes (HTTP_PASSWORD_MAX_LEN - 1).
+  const HTTP_PASSWORD_MAX_BYTES = 63;
+
+  // The password is write-only, so it never appears in originalConfig and
+  // can't go through the changed-fields diff. Decide here whether this save
+  // touches it: undefined leaves the stored password alone, "" clears it, and
+  // a non-empty string sets it.
+  function httpPasswordChange() {
+    const { httpAuthEnabled, httpAuthWasEnabled, httpPassword } = deviceSettings.value;
+    if (!httpAuthEnabled) {
+      return { value: httpAuthWasEnabled ? "" : undefined };
+    }
+    if (!httpPassword) {
+      // Blank keeps an existing password; there is nothing to keep when auth
+      // is being switched on, and saving would silently leave it off.
+      return httpAuthWasEnabled
+        ? { value: undefined }
+        : { error: "Enter a password to require one for this device" };
+    }
+    if (new TextEncoder().encode(httpPassword).length > HTTP_PASSWORD_MAX_BYTES) {
+      return { error: `Device password is too long (max ${HTTP_PASSWORD_MAX_BYTES} bytes)` };
+    }
+    return { value: httpPassword };
   }
 
   async function saveDeviceSettings() {
@@ -297,6 +332,14 @@ export const useSettingsStore = defineStore("settings", () => {
       }
     }
 
+    const passwordChange = httpPasswordChange();
+    if (passwordChange.error) {
+      return { success: false, message: passwordChange.error };
+    }
+    if (passwordChange.value !== undefined) {
+      changedFields.http_password = passwordChange.value;
+    }
+
     // If nothing changed, return success
     if (Object.keys(changedFields).length === 0) {
       return { success: true, message: "No changes to save" };
@@ -305,6 +348,16 @@ export const useSettingsStore = defineStore("settings", () => {
     // Check if WiFi credentials are being changed
     const wifiChanging =
       changedFields.wifi_ssid !== undefined || changedFields.wifi_password !== undefined;
+
+    // The WiFi flow below polls /api/config to confirm the reconnect. If the
+    // same save switched on the password, those polls would carry no
+    // credentials, get a 401 and report a failed reconnect.
+    if (wifiChanging && changedFields.http_password) {
+      return {
+        success: false,
+        message: "Change WiFi and the device password in separate saves",
+      };
+    }
 
     // If WiFi is changing, expect connection reset and handle specially
     if (wifiChanging) {
@@ -384,8 +437,14 @@ export const useSettingsStore = defineStore("settings", () => {
       const data = await response.json();
 
       if (data.status === "success") {
-        // Update original config with new values
-        Object.assign(originalConfig, changedFields);
+        // Update original config with new values. The write-only password
+        // is not part of it; record only whether one is now set.
+        const { http_password: savedPassword, ...savedFields } = changedFields;
+        Object.assign(originalConfig, savedFields);
+        if (savedPassword !== undefined) {
+          deviceSettings.value.httpAuthWasEnabled = savedPassword !== "";
+          deviceSettings.value.httpPassword = "";
+        }
         appliedOrientation.value = deviceSettings.value.displayOrientation;
         return { success: true, message: "Settings saved successfully" };
       } else {

@@ -28,6 +28,7 @@
 #include "esp_vfs_fat.h"
 #include "freertos/task.h"
 #include "ha_integration.h"
+#include "http_auth.h"
 #include "image_processor.h"
 #include "nvs_flash.h"
 #include "ota_manager.h"
@@ -86,6 +87,71 @@ extern const uint8_t icon_svg_start[] asm("_binary_icon_svg_gz_start");
 extern const uint8_t icon_svg_end[] asm("_binary_icon_svg_gz_end");
 extern const uint8_t measurement_sample_jpg_start[] asm("_binary_measurement_sample_jpg_start");
 extern const uint8_t measurement_sample_jpg_end[] asm("_binary_measurement_sample_jpg_end");
+
+// --- Optional HTTP API authentication (#130) ---
+//
+// Off by default: config_manager_get_http_password() returns "" unless the
+// owner sets one, and most frames sit on a trusted home network. When a
+// password is set, every route registered through register_uri() is gated,
+// so a new endpoint is protected by construction rather than by remembering
+// to add a check.
+//
+// HTTP Basic, deliberately: browsers prompt for it natively, so this needs no
+// login page, session or cookie in the webapp. The username is ignored; the
+// password is the whole credential.
+//
+// This is not confidential over plain HTTP -- the credential is base64, not
+// encrypted, and a passive listener on the same network can replay it. It
+// raises the bar against casual access on a shared LAN; it is not a defence
+// against an attacker who can already sniff your traffic. Serving TLS from the
+// device was considered and rejected (cert trust, RAM, battery).
+//
+// The captive-portal provisioning server in wifi_provisioning.c is a separate
+// httpd instance and is intentionally not gated -- there is nothing to
+// authenticate against before the device has been configured.
+
+typedef esp_err_t (*http_handler_fn)(httpd_req_t *);
+
+static bool http_auth_ok(httpd_req_t *req)
+{
+    const char *expected = config_manager_get_http_password();
+    if (expected == NULL || expected[0] == '\0') {
+        return true;  // authentication disabled
+    }
+
+    size_t len = httpd_req_get_hdr_value_len(req, "Authorization");
+    if (len == 0 || len > 256) {
+        return false;
+    }
+    char header[257];
+    if (httpd_req_get_hdr_value_str(req, "Authorization", header, sizeof(header)) != ESP_OK) {
+        return false;
+    }
+    return http_auth_header_matches(header, expected);
+}
+
+// Dispatch trampoline: the real handler travels in user_ctx (no route used it).
+static esp_err_t auth_gate(httpd_req_t *req)
+{
+    if (!http_auth_ok(req)) {
+        httpd_resp_set_status(req, "401 Unauthorized");
+        httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"ESP32 PhotoFrame\"");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"authentication required\"}");
+        return ESP_OK;
+    }
+    return ((http_handler_fn) req->user_ctx)(req);
+}
+
+// Register a route behind the optional auth gate. The real handler rides in
+// user_ctx; every route goes through here so authentication cannot be
+// forgotten when a new endpoint is added.
+static void register_uri(const char *uri, httpd_method_t method, http_handler_fn handler)
+{
+    httpd_uri_t u = {
+        .uri = uri, .method = method, .handler = auth_gate, .user_ctx = (void *) handler};
+    httpd_register_uri_handler(server, &u);
+}
 
 static esp_err_t index_handler(httpd_req_t *req)
 {
@@ -1428,6 +1494,16 @@ static esp_err_t config_handler(httpd_req_t *req)
 
         const char *access_token = config_manager_get_access_token();
         cJSON_AddStringToObject(root, "access_token", access_token ? access_token : "");
+        // The HTTP API password is the one secret this endpoint does NOT
+        // return. It is the credential guarding this very endpoint, so
+        // serving it here would be circular -- anyone who reaches /api/config
+        // once, before authentication is switched on or through any gap,
+        // would walk away with the password meant to stop them. Report only
+        // whether one is set; nothing needs the value back. (The access token
+        // above is different: the server issues and can rotate it, and with
+        // authentication off this endpoint exposes far more than that anyway.)
+        const char *http_password = config_manager_get_http_password();
+        cJSON_AddBoolToObject(root, "http_auth_enabled", http_password && http_password[0] != '\0');
 
         const char *http_header_key = config_manager_get_http_header_key();
         cJSON_AddStringToObject(root, "http_header_key", http_header_key ? http_header_key : "");
@@ -1485,9 +1561,11 @@ static esp_err_t config_handler(httpd_req_t *req)
         }
         buf[received] = '\0';
 
-        // Debug level only: the body can contain WiFi credentials and API keys.
-        ESP_LOGD(TAG, "Config %s request (%d bytes): %s",
-                 req->method == HTTP_PATCH ? "PATCH" : "POST", received, buf);
+        // Never log the body: it can carry WiFi credentials, API keys and the
+        // device's own HTTP password, and the debug log is persisted and
+        // served back over /api/debug/log.
+        ESP_LOGD(TAG, "Config %s request (%d bytes)", req->method == HTTP_PATCH ? "PATCH" : "POST",
+                 received);
 
         cJSON *root = cJSON_Parse(buf);
         free(buf);
@@ -2348,255 +2426,96 @@ esp_err_t http_server_init(void)
     config.lru_purge_enable = true;  // Enable LRU purging of connections
 
     if (httpd_start(&server, &config) == ESP_OK) {
-        httpd_uri_t index_uri = {
-            .uri = "/", .method = HTTP_GET, .handler = index_handler, .user_ctx = NULL};
-        httpd_register_uri_handler(server, &index_uri);
+        register_uri("/", HTTP_GET, index_handler);
 
-        httpd_uri_t index_css_uri = {.uri = "/assets/index.css",
-                                     .method = HTTP_GET,
-                                     .handler = index_css_handler,
-                                     .user_ctx = NULL};
-        httpd_register_uri_handler(server, &index_css_uri);
+        register_uri("/assets/index.css", HTTP_GET, index_css_handler);
 
-        httpd_uri_t index_js_uri = {.uri = "/assets/index.js",
-                                    .method = HTTP_GET,
-                                    .handler = index_js_handler,
-                                    .user_ctx = NULL};
-        httpd_register_uri_handler(server, &index_js_uri);
+        register_uri("/assets/index.js", HTTP_GET, index_js_handler);
 
-        httpd_uri_t index2_js_uri = {.uri = "/assets/index2.js",
-                                     .method = HTTP_GET,
-                                     .handler = index2_js_handler,
-                                     .user_ctx = NULL};
-        httpd_register_uri_handler(server, &index2_js_uri);
+        register_uri("/assets/index2.js", HTTP_GET, index2_js_handler);
 
-        httpd_uri_t exif_reader_js_uri = {.uri = "/assets/exif-reader.js",
-                                          .method = HTTP_GET,
-                                          .handler = exif_reader_js_handler,
-                                          .user_ctx = NULL};
-        httpd_register_uri_handler(server, &exif_reader_js_uri);
+        register_uri("/assets/exif-reader.js", HTTP_GET, exif_reader_js_handler);
 
-        httpd_uri_t browser_js_uri = {.uri = "/assets/browser.js",
-                                      .method = HTTP_GET,
-                                      .handler = browser_js_handler,
-                                      .user_ctx = NULL};
-        httpd_register_uri_handler(server, &browser_js_uri);
+        register_uri("/assets/browser.js", HTTP_GET, browser_js_handler);
 
-        httpd_uri_t vite_browser_external_js_uri = {.uri = "/assets/__vite-browser-external.js",
-                                                    .method = HTTP_GET,
-                                                    .handler = vite_browser_external_js_handler,
-                                                    .user_ctx = NULL};
-        httpd_register_uri_handler(server, &vite_browser_external_js_uri);
+        register_uri("/assets/__vite-browser-external.js", HTTP_GET,
+                     vite_browser_external_js_handler);
 
-        httpd_uri_t icon_uri = {
-            .uri = "/icon.svg", .method = HTTP_GET, .handler = icon_handler, .user_ctx = NULL};
-        httpd_register_uri_handler(server, &icon_uri);
+        register_uri("/icon.svg", HTTP_GET, icon_handler);
 
-        httpd_uri_t measurement_sample_uri = {.uri = "/measurement_sample.jpg",
-                                              .method = HTTP_GET,
-                                              .handler = measurement_sample_handler,
-                                              .user_ctx = NULL};
-        httpd_register_uri_handler(server, &measurement_sample_uri);
+        register_uri("/measurement_sample.jpg", HTTP_GET, measurement_sample_handler);
 
-        httpd_uri_t rotate_uri = {
-            .uri = "/api/rotate", .method = HTTP_POST, .handler = rotate_handler, .user_ctx = NULL};
-        httpd_register_uri_handler(server, &rotate_uri);
+        register_uri("/api/rotate", HTTP_POST, rotate_handler);
 
-        httpd_uri_t current_image_uri = {.uri = "/api/current_image",
-                                         .method = HTTP_GET,
-                                         .handler = current_image_handler,
-                                         .user_ctx = NULL};
-        httpd_register_uri_handler(server, &current_image_uri);
+        register_uri("/api/current_image", HTTP_GET, current_image_handler);
 
-        httpd_uri_t config_get_uri = {
-            .uri = "/api/config", .method = HTTP_GET, .handler = config_handler, .user_ctx = NULL};
-        httpd_register_uri_handler(server, &config_get_uri);
+        register_uri("/api/config", HTTP_GET, config_handler);
 
-        httpd_uri_t config_post_uri = {
-            .uri = "/api/config", .method = HTTP_POST, .handler = config_handler, .user_ctx = NULL};
-        httpd_register_uri_handler(server, &config_post_uri);
+        register_uri("/api/config", HTTP_POST, config_handler);
 
-        httpd_uri_t config_patch_uri = {.uri = "/api/config",
-                                        .method = HTTP_PATCH,
-                                        .handler = config_handler,
-                                        .user_ctx = NULL};
-        httpd_register_uri_handler(server, &config_patch_uri);
+        register_uri("/api/config", HTTP_PATCH, config_handler);
 
-        httpd_uri_t debug_log_uri = {.uri = "/api/debug/log",
-                                     .method = HTTP_GET,
-                                     .handler = debug_log_download_handler,
-                                     .user_ctx = NULL};
-        httpd_register_uri_handler(server, &debug_log_uri);
+        register_uri("/api/debug/log", HTTP_GET, debug_log_download_handler);
 
-        httpd_uri_t debug_log_clear_uri = {.uri = "/api/debug/log",
-                                           .method = HTTP_DELETE,
-                                           .handler = debug_log_clear_handler,
-                                           .user_ctx = NULL};
-        httpd_register_uri_handler(server, &debug_log_clear_uri);
+        register_uri("/api/debug/log", HTTP_DELETE, debug_log_clear_handler);
 
-        httpd_uri_t battery_uri = {.uri = "/api/battery",
-                                   .method = HTTP_GET,
-                                   .handler = battery_handler,
-                                   .user_ctx = NULL};
-        httpd_register_uri_handler(server, &battery_uri);
+        register_uri("/api/battery", HTTP_GET, battery_handler);
 
-        httpd_uri_t sensor_uri = {
-            .uri = "/api/sensor", .method = HTTP_GET, .handler = sensor_handler, .user_ctx = NULL};
-        httpd_register_uri_handler(server, &sensor_uri);
+        register_uri("/api/sensor", HTTP_GET, sensor_handler);
 
-        httpd_uri_t sleep_uri = {
-            .uri = "/api/sleep", .method = HTTP_POST, .handler = sleep_handler, .user_ctx = NULL};
-        httpd_register_uri_handler(server, &sleep_uri);
+        register_uri("/api/sleep", HTTP_POST, sleep_handler);
 
-        httpd_uri_t system_info_uri = {.uri = "/api/system-info",
-                                       .method = HTTP_GET,
-                                       .handler = system_info_handler,
-                                       .user_ctx = NULL};
-        httpd_register_uri_handler(server, &system_info_uri);
+        register_uri("/api/system-info", HTTP_GET, system_info_handler);
 
-        httpd_uri_t time_uri = {
-            .uri = "/api/time", .method = HTTP_GET, .handler = time_handler, .user_ctx = NULL};
-        httpd_register_uri_handler(server, &time_uri);
+        register_uri("/api/time", HTTP_GET, time_handler);
 
-        httpd_uri_t time_sync_uri = {.uri = "/api/time/sync",
-                                     .method = HTTP_POST,
-                                     .handler = time_sync_handler,
-                                     .user_ctx = NULL};
-        httpd_register_uri_handler(server, &time_sync_uri);
+        register_uri("/api/time/sync", HTTP_POST, time_sync_handler);
 
-        httpd_uri_t ota_status_uri = {.uri = "/api/ota/status",
-                                      .method = HTTP_GET,
-                                      .handler = ota_status_handler,
-                                      .user_ctx = NULL};
-        httpd_register_uri_handler(server, &ota_status_uri);
+        register_uri("/api/ota/status", HTTP_GET, ota_status_handler);
 
-        httpd_uri_t ota_check_uri = {.uri = "/api/ota/check",
-                                     .method = HTTP_POST,
-                                     .handler = ota_check_handler,
-                                     .user_ctx = NULL};
-        httpd_register_uri_handler(server, &ota_check_uri);
+        register_uri("/api/ota/check", HTTP_POST, ota_check_handler);
 
-        httpd_uri_t ota_update_uri = {.uri = "/api/ota/update",
-                                      .method = HTTP_POST,
-                                      .handler = ota_update_handler,
-                                      .user_ctx = NULL};
-        httpd_register_uri_handler(server, &ota_update_uri);
+        register_uri("/api/ota/update", HTTP_POST, ota_update_handler);
 
-        httpd_uri_t keep_alive_uri = {.uri = "/api/keep_alive",
-                                      .method = HTTP_POST,
-                                      .handler = keep_alive_handler,
-                                      .user_ctx = NULL};
-        httpd_register_uri_handler(server, &keep_alive_uri);
+        register_uri("/api/keep_alive", HTTP_POST, keep_alive_handler);
 
-        httpd_uri_t format_storage_uri = {.uri = "/api/format-storage",
-                                          .method = HTTP_POST,
-                                          .handler = format_storage_handler,
-                                          .user_ctx = NULL};
-        httpd_register_uri_handler(server, &format_storage_uri);
+        register_uri("/api/format-storage", HTTP_POST, format_storage_handler);
 
-        httpd_uri_t display_image_direct_uri = {.uri = "/api/display-image",
-                                                .method = HTTP_POST,
-                                                .handler = display_image_direct_handler,
-                                                .user_ctx = NULL};
-        httpd_register_uri_handler(server, &display_image_direct_uri);
+        register_uri("/api/display-image", HTTP_POST, display_image_direct_handler);
 
-        httpd_uri_t albums_get_uri = {
-            .uri = "/api/albums", .method = HTTP_GET, .handler = albums_handler, .user_ctx = NULL};
-        httpd_register_uri_handler(server, &albums_get_uri);
+        register_uri("/api/albums", HTTP_GET, albums_handler);
 
-        httpd_uri_t albums_post_uri = {
-            .uri = "/api/albums", .method = HTTP_POST, .handler = albums_handler, .user_ctx = NULL};
-        httpd_register_uri_handler(server, &albums_post_uri);
+        register_uri("/api/albums", HTTP_POST, albums_handler);
 
-        httpd_uri_t album_delete_uri = {.uri = "/api/albums",
-                                        .method = HTTP_DELETE,
-                                        .handler = album_delete_handler,
-                                        .user_ctx = NULL};
-        httpd_register_uri_handler(server, &album_delete_uri);
+        register_uri("/api/albums", HTTP_DELETE, album_delete_handler);
 
-        httpd_uri_t album_enabled_uri = {.uri = "/api/albums/enabled",
-                                         .method = HTTP_PUT,
-                                         .handler = album_enabled_handler,
-                                         .user_ctx = NULL};
-        httpd_register_uri_handler(server, &album_enabled_uri);
+        register_uri("/api/albums/enabled", HTTP_PUT, album_enabled_handler);
 
-        httpd_uri_t images_uri = {.uri = "/api/images",
-                                  .method = HTTP_GET,
-                                  .handler = album_images_handler,
-                                  .user_ctx = NULL};
-        httpd_register_uri_handler(server, &images_uri);
+        register_uri("/api/images", HTTP_GET, album_images_handler);
 
-        httpd_uri_t upload_uri = {.uri = "/api/upload",
-                                  .method = HTTP_POST,
-                                  .handler = upload_image_handler,
-                                  .user_ctx = NULL};
-        httpd_register_uri_handler(server, &upload_uri);
+        register_uri("/api/upload", HTTP_POST, upload_image_handler);
 
-        httpd_uri_t display_uri = {.uri = "/api/display",
-                                   .method = HTTP_POST,
-                                   .handler = display_image_handler,
-                                   .user_ctx = NULL};
-        httpd_register_uri_handler(server, &display_uri);
+        register_uri("/api/display", HTTP_POST, display_image_handler);
 
-        httpd_uri_t delete_uri = {.uri = "/api/delete",
-                                  .method = HTTP_POST,
-                                  .handler = delete_image_handler,
-                                  .user_ctx = NULL};
-        httpd_register_uri_handler(server, &delete_uri);
+        register_uri("/api/delete", HTTP_POST, delete_image_handler);
 
-        httpd_uri_t serve_image_uri = {.uri = "/api/image",
-                                       .method = HTTP_GET,
-                                       .handler = serve_image_handler,
-                                       .user_ctx = NULL};
-        httpd_register_uri_handler(server, &serve_image_uri);
+        register_uri("/api/image", HTTP_GET, serve_image_handler);
 
-        httpd_uri_t processing_settings_get_uri = {.uri = "/api/settings/processing",
-                                                   .method = HTTP_GET,
-                                                   .handler = processing_settings_handler,
-                                                   .user_ctx = NULL};
-        httpd_register_uri_handler(server, &processing_settings_get_uri);
+        register_uri("/api/settings/processing", HTTP_GET, processing_settings_handler);
 
-        httpd_uri_t processing_settings_post_uri = {.uri = "/api/settings/processing",
-                                                    .method = HTTP_POST,
-                                                    .handler = processing_settings_handler,
-                                                    .user_ctx = NULL};
-        httpd_register_uri_handler(server, &processing_settings_post_uri);
+        register_uri("/api/settings/processing", HTTP_POST, processing_settings_handler);
 
-        httpd_uri_t processing_settings_delete_uri = {.uri = "/api/settings/processing",
-                                                      .method = HTTP_DELETE,
-                                                      .handler = processing_settings_handler,
-                                                      .user_ctx = NULL};
-        httpd_register_uri_handler(server, &processing_settings_delete_uri);
+        register_uri("/api/settings/processing", HTTP_DELETE, processing_settings_handler);
 
-        httpd_uri_t color_palette_get_uri = {.uri = "/api/settings/palette",
-                                             .method = HTTP_GET,
-                                             .handler = color_palette_handler,
-                                             .user_ctx = NULL};
-        httpd_register_uri_handler(server, &color_palette_get_uri);
+        register_uri("/api/settings/palette", HTTP_GET, color_palette_handler);
 
-        httpd_uri_t color_palette_post_uri = {.uri = "/api/settings/palette",
-                                              .method = HTTP_POST,
-                                              .handler = color_palette_handler,
-                                              .user_ctx = NULL};
-        httpd_register_uri_handler(server, &color_palette_post_uri);
+        register_uri("/api/settings/palette", HTTP_POST, color_palette_handler);
 
-        httpd_uri_t color_palette_delete_uri = {.uri = "/api/settings/palette",
-                                                .method = HTTP_DELETE,
-                                                .handler = color_palette_handler,
-                                                .user_ctx = NULL};
-        httpd_register_uri_handler(server, &color_palette_delete_uri);
+        register_uri("/api/settings/palette", HTTP_DELETE, color_palette_handler);
 
-        httpd_uri_t factory_reset_uri = {.uri = "/api/factory-reset",
-                                         .method = HTTP_POST,
-                                         .handler = factory_reset_handler,
-                                         .user_ctx = NULL};
-        httpd_register_uri_handler(server, &factory_reset_uri);
+        register_uri("/api/factory-reset", HTTP_POST, factory_reset_handler);
 
-        httpd_uri_t display_calibration_uri = {.uri = "/api/calibration/display",
-                                               .method = HTTP_POST,
-                                               .handler = display_calibration_handler,
-                                               .user_ctx = NULL};
-        httpd_register_uri_handler(server, &display_calibration_uri);
+        register_uri("/api/calibration/display", HTTP_POST, display_calibration_handler);
 
         ESP_LOGI(TAG, "HTTP server started");
         return ESP_OK;
