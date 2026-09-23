@@ -30,6 +30,9 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 #define TIMEZONE_MAX_LEN 64
 #define NTP_SERVER_MAX_LEN 128
 #define ACCESS_TOKEN_MAX_LEN 512
+// Optional password guarding the device's own HTTP API (#130). Empty disables
+// it, which is the default -- most frames live on a trusted home network.
+#define HTTP_PASSWORD_MAX_LEN 64  // buffer size: at most 63 bytes of password
 #define HTTP_HEADER_KEY_MAX_LEN 64
 #define HTTP_HEADER_VALUE_MAX_LEN 512
 #define CA_CERT_MAX_LEN 4096
@@ -138,6 +141,7 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 #define NVS_IMAGE_URL_KEY "image_url"
 #define NVS_CA_CERT_KEY "ca_cert"
 #define NVS_ACCESS_TOKEN_KEY "access_token"
+#define NVS_HTTP_PASSWORD_KEY "http_password"
 #define NVS_HTTP_HEADER_KEY_KEY "http_hdr_key"
 #define NVS_HTTP_HEADER_VALUE_KEY "http_hdr_val"
 #define NVS_SAVE_DOWNLOADED_KEY "save_dl"

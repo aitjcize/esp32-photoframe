@@ -281,37 +281,29 @@ async function performImport() {
   saving.value = true;
 
   try {
-    const promises = [];
-
-    if (importData.value.config) {
-      promises.push(
-        fetch("/api/config", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(importData.value.config),
-        })
-      );
-    }
+    // One at a time, config last: a config that sets the device password
+    // turns authentication on, and any request still in flight without
+    // credentials would then be refused with a 401.
+    const requests = [];
     if (importData.value.processing) {
-      promises.push(
-        fetch("/api/settings/processing", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(importData.value.processing),
-        })
-      );
+      requests.push(["/api/settings/processing", "POST", importData.value.processing]);
     }
     if (importData.value.palette) {
-      promises.push(
-        fetch("/api/settings/palette", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(importData.value.palette),
-        })
-      );
+      requests.push(["/api/settings/palette", "POST", importData.value.palette]);
     }
-
-    await Promise.all(promises);
+    if (importData.value.config) {
+      requests.push(["/api/config", "PATCH", importData.value.config]);
+    }
+    for (const [url, method, body] of requests) {
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        throw new Error(`${method} ${url} failed with HTTP ${response.status}`);
+      }
+    }
 
     // Reload all settings from device
     await Promise.all([
@@ -320,10 +312,18 @@ async function performImport() {
       settingsStore.loadPalette(),
     ]);
 
+    // The device password is write-only, so an export records only that one
+    // was set. Say so rather than let the frame silently come back open.
+    const passwordNotRestored =
+      importData.value.config?.http_auth_enabled === true &&
+      typeof importData.value.config?.http_password !== "string";
+
     saveSuccess.value = true;
     saveError.value = false;
-    saveMessage.value = "Config imported successfully!";
-    setTimeout(() => (saveSuccess.value = false), 3000);
+    saveMessage.value = passwordNotRestored
+      ? "Config imported. Exports never include the device password: set it again under General to require one."
+      : "Config imported successfully!";
+    setTimeout(() => (saveSuccess.value = false), passwordNotRestored ? 10000 : 3000);
   } catch (error) {
     console.error("Failed to import config:", error);
     saveError.value = true;
@@ -338,11 +338,11 @@ async function performImport() {
 async function saveSettings() {
   saving.value = true;
 
-  // Save both device settings and processing settings
-  const [deviceResult, processingSuccess] = await Promise.all([
-    settingsStore.saveDeviceSettings(),
-    settingsStore.saveSettings(),
-  ]);
+  // Save processing settings first, then device settings. Not in parallel: the
+  // device PATCH may switch on the HTTP password, after which any request
+  // still in flight without credentials is refused with a 401.
+  const processingSuccess = await settingsStore.saveSettings();
+  const deviceResult = await settingsStore.saveDeviceSettings();
 
   saving.value = false;
 
@@ -576,6 +576,46 @@ async function performFactoryReset() {
                 </v-expansion-panel-text>
               </v-expansion-panel>
             </v-expansion-panels>
+
+            <v-switch
+              v-model="settingsStore.deviceSettings.httpAuthEnabled"
+              label="Require a password for this device's web interface"
+              color="primary"
+              class="mt-6"
+              hide-details
+            />
+            <div class="text-caption text-medium-emphasis mb-2">
+              Off by default. Most frames sit on a trusted home network, where this is unnecessary.
+            </div>
+            <v-text-field
+              v-if="settingsStore.deviceSettings.httpAuthEnabled"
+              v-model="settingsStore.deviceSettings.httpPassword"
+              :label="
+                settingsStore.deviceSettings.httpAuthEnabled &&
+                settingsStore.deviceSettings.httpPassword === '' &&
+                settingsStore.deviceSettings.httpAuthWasEnabled
+                  ? 'Password (set \u2014 leave blank to keep)'
+                  : 'Password'
+              "
+              type="password"
+              maxlength="63"
+              variant="outlined"
+              hint="Any username is accepted; the password is the whole credential."
+              persistent-hint
+              class="mt-2"
+            />
+            <v-alert
+              v-if="settingsStore.deviceSettings.httpAuthEnabled"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mt-3"
+            >
+              The photoframe server and the Home Assistant integration cannot send this password
+              yet, so turning it on will stop them syncing with this frame. It is also sent
+              unencrypted over plain HTTP &mdash; it guards against casual access on a shared
+              network, not against someone who can capture your traffic.
+            </v-alert>
           </v-tabs-window-item>
 
           <!-- Auto Rotate Tab -->

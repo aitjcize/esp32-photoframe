@@ -97,6 +97,18 @@ const uint8_t *config_manager_get_ca_cert_der(size_t *out_len);
 void config_manager_set_access_token(const char *token);
 const char *config_manager_get_access_token(void);
 
+/**
+ * @brief Set the password guarding the device's own HTTP API. Empty disables
+ *        authentication, which is the default.
+ * @return ESP_OK once stored; ESP_ERR_INVALID_SIZE if longer than
+ *         HTTP_PASSWORD_MAX_LEN - 1 bytes; an NVS error if it could not be
+ *         persisted, in which case the previous password stays in effect.
+ */
+esp_err_t config_manager_set_http_password(const char *password);
+
+/** @brief Current HTTP API password; empty string when authentication is off. */
+const char *config_manager_get_http_password(void);
+
 void config_manager_set_http_header_key(const char *key);
 const char *config_manager_get_http_header_key(void);
 
