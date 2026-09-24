@@ -821,6 +821,15 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
 
         // Clean up failed download (don't free content_type - it's reused across retries)
         unlink(temp_upload_path);
+
+        // A 4xx is the server's verdict on this request (bad URL, bad token,
+        // 429 telling us to slow down); asking again 3 s later only spends
+        // battery on the same answer (#121, #134). 5xx and transport errors
+        // still get their retries.
+        if (err == ESP_OK && status_code >= 400 && status_code < 500) {
+            ESP_LOGW(TAG, "HTTP %d will not change on retry; giving up", status_code);
+            break;
+        }
     }
     // Check final result after all retries
     if (err != ESP_OK || status_code != 200 || total_downloaded <= 0) {
