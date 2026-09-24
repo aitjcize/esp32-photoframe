@@ -96,6 +96,19 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 // late config push can land. A server-requested post-rotate wait can extend it.
 #define HA_CONFIG_WINDOW_SEC 10
 
+// Image fetch timing (#121). FETCH_IO_TIMEOUT_MS bounds each socket operation
+// (connect, time to first byte, and every wait for more data), so a dead link
+// fails fast while a slow one still finishes. Retries only start while the
+// fetch has used less than FETCH_RETRY_BUDGET_MS in total: quick failures
+// (refused, DNS, HTTP error) get retried, but an attempt that already ran into
+// the I/O timeout is not repeated. A frame on weak WiFi can legitimately need
+// 30-80 s for one image, so this is not a cap on a single transfer; the
+// auto-sleep timer remains the backstop for that.
+#define FETCH_IO_TIMEOUT_MS 30000
+#define FETCH_RETRY_BUDGET_MS 20000
+// Pause between fetch attempts; counted against FETCH_RETRY_BUDGET_MS.
+#define FETCH_RETRY_DELAY_MS 3000
+
 // Default rotation schedule for fresh / factory-reset devices: every 12 hours.
 // Simplified 3-field cron: "minute hour day-of-week".
 #define DEFAULT_ROTATE_CRON "0 */12 *"

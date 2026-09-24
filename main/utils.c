@@ -21,6 +21,7 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "image_processor.h"
@@ -605,12 +606,28 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
         return ESP_FAIL;
     }
 
-    // Retry loop
+    // Retry loop. A retry only starts while the fetch is still inside its time
+    // budget: quick failures (connection refused, a server hiccup) get their
+    // retries, but after a slow attempt on a weak link -- where each try can take
+    // a minute or more -- another one mostly spends battery on the same result
+    // (#121).
+    int64_t fetch_start_us = esp_timer_get_time();
+    int attempts = 0;
     for (int retry = 0; retry < max_retries; retry++) {
         if (retry > 0) {
-            ESP_LOGW(TAG, "Retry attempt %d/%d after 3 second delay...", retry + 1, max_retries);
-            vTaskDelay(pdMS_TO_TICKS(3000));  // 3 second delay between retries
+            // Count the delay below too: the next attempt must start inside
+            // the budget, not merely the wait before it.
+            int elapsed_ms = (int) ((esp_timer_get_time() - fetch_start_us) / 1000);
+            if (elapsed_ms + FETCH_RETRY_DELAY_MS >= FETCH_RETRY_BUDGET_MS) {
+                ESP_LOGW(TAG, "Not retrying: fetch already took %d ms (budget %d ms)", elapsed_ms,
+                         FETCH_RETRY_BUDGET_MS);
+                break;
+            }
+            ESP_LOGW(TAG, "Retry attempt %d/%d after %d ms delay...", retry + 1, max_retries,
+                     FETCH_RETRY_DELAY_MS);
+            vTaskDelay(pdMS_TO_TICKS(FETCH_RETRY_DELAY_MS));
         }
+        attempts++;
 
         FILE *file = fopen(temp_upload_path, "wb");
         if (!file) {
@@ -636,7 +653,10 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
 
         esp_http_client_config_t config = {
             .url = url,
-            .timeout_ms = 120000,
+            // Per socket operation (connect, and each wait for more data), not
+            // for the whole transfer: a slow-but-moving download still
+            // completes, a stalled one is abandoned in FETCH_IO_TIMEOUT_MS.
+            .timeout_ms = FETCH_IO_TIMEOUT_MS,
             .event_handler = http_event_handler,
             .user_data = &ctx,
             .max_redirection_count = 5,
@@ -772,8 +792,9 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
 
         // Check if download was successful
         if (err == ESP_OK && status_code == 200 && total_downloaded > 0) {
-            ESP_LOGI(TAG, "Downloaded %d bytes (content_length: %d), content_type: %s",
-                     total_downloaded, content_length, content_type);
+            ESP_LOGI(TAG, "Downloaded %d bytes (content_length: %d), content_type: %s in %d ms",
+                     total_downloaded, content_length, content_type,
+                     (int) ((esp_timer_get_time() - fetch_start_us) / 1000));
             break;  // Success, exit retry loop
         }
 
@@ -791,7 +812,8 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
     }
     // Check final result after all retries
     if (err != ESP_OK || status_code != 200 || total_downloaded <= 0) {
-        ESP_LOGE(TAG, "Failed to download image after %d attempts", max_retries);
+        ESP_LOGE(TAG, "Failed to download image after %d attempt(s) in %d ms", attempts,
+                 (int) ((esp_timer_get_time() - fetch_start_us) / 1000));
         // Store descriptive error for UI display
         char err_msg[256];
         if (err != ESP_OK) {

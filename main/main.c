@@ -19,6 +19,7 @@
 #include "esp_log.h"
 #include "esp_sntp.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "esp_vfs_dev.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -115,34 +116,115 @@ static esp_err_t sntp_sync_periodic_callback(void)
     return ESP_OK;
 }
 
-// Helper function to connect to WiFi with timeout
-static bool connect_to_wifi_with_timeout(int timeout_seconds)
+// Connect to the saved network. wifi_manager_connect() itself is bounded (it
+// gives up after its retries or WIFI_CONNECT_TIMEOUT_MS), so there is nothing
+// left to wait for once it returns. On ESP_ERR_TIMEOUT the link is still up and
+// trying; callers that won't wait for it must call wifi_manager_stop_connecting().
+static esp_err_t connect_to_wifi(void)
 {
     char wifi_ssid[WIFI_SSID_MAX_LEN] = {0};
     char wifi_password[WIFI_PASS_MAX_LEN] = {0};
 
     ESP_ERROR_CHECK(wifi_manager_load_credentials(wifi_ssid, wifi_password));
     ESP_LOGI(TAG, "Connecting to WiFi SSID: %s", wifi_ssid);
-    wifi_manager_connect(wifi_ssid, wifi_password);
+    int64_t start_us = esp_timer_get_time();
+    esp_err_t err = wifi_manager_connect(wifi_ssid, wifi_password);
+    int elapsed_ms = (int) ((esp_timer_get_time() - start_us) / 1000);
 
-    // Wait for WiFi connection (with timeout)
-    ESP_LOGI(TAG, "Waiting for WiFi connection...");
-    int retry_count = 0;
-    while (!wifi_manager_is_connected() && retry_count < timeout_seconds) {
-        if (retry_count % 10 == 0 && retry_count > 0) {
-            ESP_LOGI(TAG, "WiFi connecting... (%d seconds elapsed)", retry_count);
-        }
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        retry_count++;
-    }
-
-    if (wifi_manager_is_connected()) {
-        ESP_LOGI(TAG, "WiFi connected after %d seconds", retry_count);
-        return true;
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "WiFi connected after %d ms", elapsed_ms);
     } else {
-        ESP_LOGE(TAG, "WiFi connection timeout after %d seconds", timeout_seconds);
-        return false;
+        ESP_LOGE(TAG, "WiFi connection failed after %d ms (%s)", elapsed_ms, esp_err_to_name(err));
     }
+    return err;
+}
+
+// The saved network can't be joined: drop its credentials and restart into
+// captive-portal provisioning. Does not return.
+static void forget_wifi_and_reprovision(void)
+{
+    ESP_LOGW(TAG, "Failed to connect to WiFi - clearing credentials");
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_erase_key(nvs_handle, NVS_WIFI_SSID_KEY);
+        nvs_erase_key(nvs_handle, NVS_WIFI_PASS_KEY);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+    ESP_LOGI(TAG, "Restarting to enter provisioning mode...");
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_restart();
+}
+
+// Network-dependent part of an interactive boot, run once WiFi has an IP:
+// inline from app_main when the connect succeeded on time, or from
+// late_wifi_task when it only came up after the connect timed out. Never runs
+// while offline, so it neither spends the radio on requests that cannot
+// succeed nor sends the HA online notification twice.
+static void startup_online_work(void)
+{
+    char ip_str[16];
+    wifi_manager_get_ip(ip_str, sizeof(ip_str));
+
+    // Get sanitized hostname for mDNS
+    const char *device_name = config_manager_get_device_name();
+    char hostname[64];
+    sanitize_hostname(device_name, hostname, sizeof(hostname));
+
+    ESP_LOGI(TAG, "===========================================");
+    ESP_LOGI(TAG, "Web interface available at: http://%s", ip_str);
+    ESP_LOGI(TAG, "Or use: http://%s.local", hostname);
+    ESP_LOGI(TAG, "===========================================");
+
+    // Show setup-complete screen if just provisioned
+    nvs_handle_t nvs_handle;
+    uint8_t setup_complete = 0;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        if (nvs_get_u8(nvs_handle, NVS_SETUP_COMPLETE_KEY, &setup_complete) == ESP_OK &&
+            setup_complete == 1) {
+            nvs_erase_key(nvs_handle, NVS_SETUP_COMPLETE_KEY);
+            nvs_commit(nvs_handle);
+            ESP_LOGI(TAG, "First boot after provisioning — showing setup complete screen");
+            splash_screen_display_setup_complete(hostname);
+        }
+        nvs_close(nvs_handle);
+    }
+
+    // Notify HA that device is online (HA will poll for all data via REST API).
+    // This is the always-on / cold-boot path, so the rotation-gate response
+    // isn't used here.
+    ESP_LOGI(TAG, "Sending online notification to Home Assistant");
+    ha_notify_online(NULL);
+
+    // Delay OTA check to avoid competing with boot-time network activity
+    vTaskDelay(pdMS_TO_TICKS(10000));
+    ota_check_for_update(NULL, 0);
+}
+
+// Interactive boot whose connect timed out (see app_main): wait for the
+// network, then run the startup work the on-time path runs inline.
+static void late_wifi_task(void *arg)
+{
+    // The disconnect handler clears WIFI_CONNECTED_BIT, but a link that
+    // dropped again before this task got to run can still have woken it, so
+    // confirm the link is up and otherwise wait for the next IP.
+    do {
+        EventBits_t bits =
+            xEventGroupWaitBits(wifi_manager_get_event_group(), WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                pdFALSE, pdFALSE, portMAX_DELAY);
+        if ((bits & WIFI_FAIL_BIT) && !wifi_manager_is_connected()) {
+            // The background retries only give up when the AP keeps refusing
+            // the password -- the same verdict app_main acts on at boot.
+            forget_wifi_and_reprovision();
+        }
+        if (!wifi_manager_is_connected()) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    } while (!wifi_manager_is_connected());
+    ESP_LOGI(TAG, "WiFi came up late - running startup network tasks");
+    periodic_tasks_check_and_run();
+    startup_online_work();
+    vTaskDelete(NULL);
 }
 
 static void button_task(void *arg)
@@ -291,11 +373,14 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
                  rotation_mode == ROTATION_MODE_URL ? "URL rotation" : "HA battery post");
         ESP_ERROR_CHECK(wifi_manager_init());
 
-        if (connect_to_wifi_with_timeout(60)) {
+        if (connect_to_wifi() == ESP_OK) {
             wifi_connected = true;
             ESP_LOGI(TAG, "WiFi connected");
         } else {
-            ESP_LOGW(TAG, "WiFi connection timeout");
+            // This wake only needs the network up front; don't leave the radio
+            // retrying through the rotation and until sleep (#121).
+            wifi_manager_stop_connecting();
+            ESP_LOGW(TAG, "WiFi unavailable");
         }
     }
 
@@ -670,7 +755,8 @@ void app_main(void)
         }
     }
 
-    if (connect_to_wifi_with_timeout(30)) {
+    esp_err_t wifi_err = connect_to_wifi();
+    if (wifi_err == ESP_OK) {
         // Check and run periodic tasks (OTA check, SNTP sync if due)
         // Note: If RTC was invalid at boot, sntp_sync was already forced via
         // periodic_tasks_force_run()
@@ -679,18 +765,23 @@ void app_main(void)
 
         // Start mDNS service
         ESP_ERROR_CHECK(mdns_service_init());
-    } else {
-        ESP_LOGW(TAG, "Failed to connect to WiFi - clearing credentials");
-        nvs_handle_t nvs_handle;
-        if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-            nvs_erase_key(nvs_handle, NVS_WIFI_SSID_KEY);
-            nvs_erase_key(nvs_handle, NVS_WIFI_PASS_KEY);
-            nvs_commit(nvs_handle);
-            nvs_close(nvs_handle);
+    } else if (wifi_err == ESP_ERR_TIMEOUT) {
+        // Slow rather than failed: e.g. associated but DHCP hasn't answered,
+        // or the AP is still booting after a power cut. That says nothing
+        // about the saved credentials being wrong, so keep them and keep
+        // trying in the background: a battery frame's auto-sleep timer still
+        // ends this wake, while a USB-powered or always-on frame, which never
+        // auto-sleeps, comes online when the network does instead of staying
+        // offline until someone power-cycles it. mDNS is started now so it
+        // announces as soon as an address arrives; the rest of the online
+        // work runs from late_wifi_task.
+        ESP_LOGW(TAG, "WiFi connect timed out - keeping credentials, still trying");
+        wifi_manager_keep_reconnecting();
+        if (mdns_service_init() != ESP_OK) {
+            ESP_LOGW(TAG, "mDNS not started; the frame is reachable by IP only");
         }
-        ESP_LOGI(TAG, "Restarting to enter provisioning mode...");
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        esp_restart();
+    } else {
+        forget_wifi_and_reprovision();
     }
 
     xTaskCreate(button_task, "button_task", 8192, NULL, 5, NULL);
@@ -698,44 +789,12 @@ void app_main(void)
     ESP_ERROR_CHECK(http_server_init());
     http_server_set_ready();
 
-    if (wifi_manager_is_connected()) {
-        char ip_str[16];
-        wifi_manager_get_ip(ip_str, sizeof(ip_str));
-
-        // Get sanitized hostname for mDNS
-        const char *device_name = config_manager_get_device_name();
-        char hostname[64];
-        sanitize_hostname(device_name, hostname, sizeof(hostname));
-
-        ESP_LOGI(TAG, "===========================================");
-        ESP_LOGI(TAG, "Web interface available at: http://%s", ip_str);
-        ESP_LOGI(TAG, "Or use: http://%s.local", hostname);
-        ESP_LOGI(TAG, "===========================================");
-
-        // Show setup-complete screen if just provisioned
-        nvs_handle_t nvs_handle;
-        uint8_t setup_complete = 0;
-        if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
-            if (nvs_get_u8(nvs_handle, NVS_SETUP_COMPLETE_KEY, &setup_complete) == ESP_OK &&
-                setup_complete == 1) {
-                nvs_erase_key(nvs_handle, NVS_SETUP_COMPLETE_KEY);
-                nvs_commit(nvs_handle);
-                ESP_LOGI(TAG, "First boot after provisioning — showing setup complete screen");
-                splash_screen_display_setup_complete(hostname);
-            }
-            nvs_close(nvs_handle);
-        }
-    }
-
-    // Notify HA that device is online (HA will poll for all data via REST API).
-    // This is the always-on / cold-boot path, so the rotation-gate response
-    // isn't used here.
-    ESP_LOGI(TAG, "Sending online notification to Home Assistant");
-    ha_notify_online(NULL);
-
     ESP_LOGI(TAG, "PhotoFrame started successfully");
 
-    // Delay OTA check to avoid competing with boot-time network activity
-    vTaskDelay(pdMS_TO_TICKS(10000));
-    ota_check_for_update(NULL, 0);
+    if (wifi_err == ESP_OK) {
+        startup_online_work();
+    } else {
+        // ESP_ERR_TIMEOUT: late_wifi_task takes over once the network is up.
+        xTaskCreate(late_wifi_task, "late_wifi", 8192, NULL, 5, NULL);
+    }
 }

@@ -345,6 +345,11 @@ void power_manager_enter_sleep(void)
     ESP_LOGI(TAG, "Stack headroom at sleep: task '%s' had %u bytes free (min)", pcTaskGetName(NULL),
              (unsigned) (uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)));
 
+    // How long this wake kept the chip up: the number that battery life
+    // actually depends on, and the first thing to compare between a frame
+    // that drains fast and one that doesn't (#121).
+    ESP_LOGI(TAG, "Awake for %lld ms this wake", (long long) (esp_timer_get_time() / 1000));
+
     ESP_LOGI(TAG, "Preparing to enter deep sleep mode");
 
     // Only notify HA offline when the network is actually up. The early-wake

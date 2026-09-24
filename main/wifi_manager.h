@@ -22,7 +22,22 @@ esp_err_t wifi_manager_set_performance_mode(bool enable);
 // Called automatically by wifi_manager_connect; exposed for the provisioning
 // connection test, which drives esp_wifi directly (#43).
 esp_err_t wifi_manager_apply_ip_config(void);
+// Connect and wait for an IP, bounded by a time limit. ESP_OK once connected;
+// ESP_FAIL when every retry failed, or when the time limit ran out while the
+// AP was rejecting the credentials; ESP_ERR_TIMEOUT when the time limit ran
+// out for any other reason (DHCP not answering, AP absent or slow). On a
+// timeout the attempt is still running: follow up with
+// wifi_manager_stop_connecting() or wifi_manager_keep_reconnecting().
 esp_err_t wifi_manager_connect(const char *ssid, const char *password);
+// Give up on the current connection attempt: no more automatic reconnects,
+// and WiFi is stopped. For callers that will not use the network this wake.
+void wifi_manager_stop_connecting(void);
+// Keep reconnecting with no retry limit until connected (or until sleep stops
+// WiFi). For callers that stay awake and want the network whenever it appears.
+// The one exception is an AP that keeps rejecting the credentials: after as
+// many rejections as a normal connect allows, WIFI_FAIL_BIT is set and the
+// retries stop.
+void wifi_manager_keep_reconnecting(void);
 esp_err_t wifi_manager_disconnect(void);
 bool wifi_manager_is_connected(void);
 esp_err_t wifi_manager_get_ip(char *ip_str, size_t len);
