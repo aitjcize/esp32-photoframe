@@ -502,14 +502,19 @@ const char *config_manager_get_device_name(void)
     return device_name;
 }
 
-void config_manager_set_timezone(const char *tz)
+esp_err_t config_manager_set_timezone(const char *tz)
 {
     if (tz == NULL) {
-        return;
+        return ESP_ERR_INVALID_ARG;
+    }
+    // Refuse an over-long rule rather than store a truncated prefix: a POSIX
+    // rule keeps its DST transitions at the end, so the prefix is a
+    // different zone that nothing would flag.
+    if (strlen(tz) >= TIMEZONE_MAX_LEN) {
+        return ESP_ERR_INVALID_SIZE;
     }
 
-    strncpy(tz_string, tz, TIMEZONE_MAX_LEN - 1);
-    tz_string[TIMEZONE_MAX_LEN - 1] = '\0';
+    strcpy(tz_string, tz);  // length checked above
 
     nvs_handle_t nvs_handle;
     if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
@@ -519,6 +524,7 @@ void config_manager_set_timezone(const char *tz)
     }
 
     ESP_LOGI(TAG, "Timezone set to: %s", tz_string);
+    return ESP_OK;
 }
 const char *config_manager_get_timezone(void)
 {

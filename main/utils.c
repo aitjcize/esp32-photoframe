@@ -165,10 +165,35 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
         }
     }
 
+    // Only the shape of the rule is checked. newlib's tzset() reports nothing
+    // when it can't parse one (it quietly falls back to UTC), and a POSIX
+    // parser here would only disagree with it in the corners. What is
+    // rejected is wrong under any grammar: an empty rule, control or
+    // non-ASCII bytes, and a rule the device would have to truncate.
     item = cJSON_GetObjectItem(root, "timezone");
     if (item && cJSON_IsString(item)) {
         const char *tz = cJSON_GetStringValue(item);
-        config_manager_set_timezone(tz);
+        if (tz[0] == '\0') {
+            utils_set_config_error("Time zone must not be empty");
+            return ESP_FAIL;
+        }
+        for (const unsigned char *p = (const unsigned char *) tz; *p != '\0'; p++) {
+            if (*p < 0x20 || *p > 0x7e) {
+                utils_set_config_error("Time zone must be printable ASCII");
+                return ESP_FAIL;
+            }
+        }
+        esp_err_t tz_err = config_manager_set_timezone(tz);
+        if (tz_err == ESP_ERR_INVALID_SIZE) {
+            char msg[64];
+            snprintf(msg, sizeof(msg), "Time zone is too long (max %d characters)",
+                     TIMEZONE_MAX_LEN - 1);
+            utils_set_config_error(msg);
+            return ESP_FAIL;
+        } else if (tz_err != ESP_OK) {
+            utils_set_config_error("Failed to save the time zone");
+            return ESP_FAIL;
+        }
         setenv("TZ", tz, 1);
         tzset();
     }

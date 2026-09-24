@@ -109,7 +109,7 @@ Get current device configuration.
 {
   "device_name": "PhotoFrame",
   "device_id": "aabbccddeeff",
-  "timezone": "UTC-8",
+  "timezone": "PST8PDT,M3.2.0,M11.1.0",
   "ntp_server": "pool.ntp.org",
   "wifi_ssid": "MyNetwork",
   "display_orientation": "landscape",
@@ -134,14 +134,22 @@ Get current device configuration.
 
 **Fields:**
 - `device_name`: Device name (used for mDNS hostname)
-- `timezone`: POSIX timezone string (e.g., `UTC-8` for PST)
+- `timezone`: POSIX TZ string, applied with `tzset()`. A fixed offset is
+  `UTC±H[:MM]` with the POSIX sign, which is inverted from everyday notation:
+  `UTC-8` is eight hours *ahead* of UTC (Taipei), `UTC+5` five hours behind.
+  A zone that observes DST needs the full POSIX rule so hours-based schedules
+  follow the changeover, e.g. `PST8PDT,M3.2.0,M11.1.0` for US Pacific or
+  `CET-1CEST,M3.5.0,M10.5.0/3` for Central Europe. The web UI's time zone
+  picker fills this in from an IANA zone name. Must be 1–63 printable ASCII
+  characters; the rule itself is not parsed, and one `tzset()` cannot read
+  silently behaves as UTC.
 - `ntp_server`: NTP server address
 - `display_orientation`: `"landscape"` or `"portrait"`
 - `display_rotation_deg`: Display rotation in degrees (0, 90, 180, 270)
 - `auto_rotate`: Enable automatic image rotation
 - `rotate_cron`: Array of 1 to 7 simplified 3-field cron expressions
-  (`minute hour day-of-week`). The next rotation is the earliest time matching
-  any rule. Supports `*`, `a`, `a-b`, `*/n`, `a-b/n` and comma lists; day-of-week
+  (`minute hour day-of-week`), evaluated in the device's `timezone`. The next
+  rotation is the earliest time matching any rule. Supports `*`, `a`, `a-b`, `*/n`, `a-b/n` and comma lists; day-of-week
   `0`/`7` = Sunday (7 is also valid in ranges, e.g. `5-7` = Fri–Sun). (Day-of-month
   and month are intentionally omitted.) Invalid expressions and empty arrays are
   rejected with `400` — turn `auto_rotate` off to stop rotating. For backward

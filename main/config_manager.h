@@ -18,7 +18,7 @@ esp_err_t config_manager_init(void);
 void config_manager_set_device_name(const char *name);
 const char *config_manager_get_device_name(void);
 
-void config_manager_set_timezone(const char *tz);
+esp_err_t config_manager_set_timezone(const char *tz);
 const char *config_manager_get_timezone(void);
 
 void config_manager_set_ntp_server(const char *server);
