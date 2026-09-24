@@ -57,9 +57,10 @@ static const char *TAG = "it8951";
 #define IT8951_PRE_WR_DATA 0x0000
 #define IT8951_PRE_RD_DATA 0x1000
 
-// ---- Image load: 4bpp, little-endian, no rotation ----
+// ---- Image load: 4bpp, no rotation. Endianness is per-board (s_big_endian). ----
 #define IT8951_BPP_4 2  // pixel-format field: 0=2bpp,1=3bpp,2=4bpp,3=8bpp
-#define IT8951_LD_ENDIAN 0
+#define IT8951_LD_ENDIAN_LITTLE 0
+#define IT8951_LD_ENDIAN_BIG 1
 #define IT8951_LD_ROTATE 0
 
 // ---- Display update modes (ED103TC2 / 10.3") ----
@@ -104,8 +105,13 @@ static int s_pin_busy = -1;    // HRDY: high = ready, low = busy
 static int s_pin_enable = -1;  // EPD bias (TPS65185) enable
 static uint32_t s_img_addr = 0;
 static int8_t s_temp_c = IT8951_DEFAULT_TEMP_C;  // panel temperature for waveform select
-// Default to the ED103TC2 geometry until GetSystemInfo reports the real values.
+// Default to the ED103TC2 geometry until GetSystemInfo reports the real values;
+// a board can seed its own panel size via epaper_config_t.panel_w/panel_h.
 static it8951_dev_info_t s_dev = {.panel_w = 1872, .panel_h = 1404};
+// Image-load byte order and row scan direction, both panel-specific (see
+// epaper_config_t). Defaults match the Seeed ED103TC2 wiring.
+static bool s_big_endian = false;
+static bool s_mirror_x = false;
 
 #ifdef CONFIG_PM_ENABLE
 // Block automatic light sleep during a display update: light sleep isolates the
@@ -267,6 +273,11 @@ static uint16_t it8951_read_reg(uint16_t reg)
 
 static void it8951_reset(void)
 {
+    // Boards without a reset line (e.g. the M5Paper) reset the controller by
+    // cycling its supply rail before we get here; nothing to pulse.
+    if (s_pin_rst < 0) {
+        return;
+    }
     gpio_set_level(s_pin_rst, 0);
     vTaskDelay(pdMS_TO_TICKS(10));
     gpio_set_level(s_pin_rst, 1);
@@ -354,6 +365,12 @@ void epaper_init(const epaper_config_t *cfg)
     s_pin_rst = cfg->pin_rst;
     s_pin_busy = cfg->pin_busy;      // HRDY
     s_pin_enable = cfg->pin_enable;  // EPD bias enable (optional)
+    s_big_endian = cfg->big_endian;
+    s_mirror_x = cfg->mirror_x;
+    if (cfg->panel_w > 0 && cfg->panel_h > 0) {
+        s_dev.panel_w = (uint16_t) cfg->panel_w;
+        s_dev.panel_h = (uint16_t) cfg->panel_h;
+    }
 
     // Release the pad hold latched by the previous deep-sleep cycle (see
     // epaper_enter_deepsleep) so gpio_config + gpio_set_level below can
@@ -366,8 +383,11 @@ void epaper_init(const epaper_config_t *cfg)
     // GPIOs: CS/RST/EN as outputs, HRDY as input.
     gpio_config_t out_cfg = {
         .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = (1ULL << s_pin_cs) | (1ULL << s_pin_rst),
+        .pin_bit_mask = (1ULL << s_pin_cs),
     };
+    if (s_pin_rst >= 0) {
+        out_cfg.pin_bit_mask |= (1ULL << s_pin_rst);
+    }
     if (s_pin_enable >= 0) {
         out_cfg.pin_bit_mask |= (1ULL << s_pin_enable);
     }
@@ -379,7 +399,9 @@ void epaper_init(const epaper_config_t *cfg)
     gpio_config(&in_cfg);
 
     cs_high();
-    gpio_set_level(s_pin_rst, 1);
+    if (s_pin_rst >= 0) {
+        gpio_set_level(s_pin_rst, 1);
+    }
     if (s_pin_enable >= 0) {
         gpio_set_level(s_pin_enable, 1);  // enable EPD bias (TPS65185)
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -424,7 +446,14 @@ void epaper_init(const epaper_config_t *cfg)
     }
 
     int16_t vcom = it8951_get_vcom();
-    if (vcom <= 0 || vcom > 5000) {
+    if (cfg->vcom_mv > 0) {
+        // The board knows the value printed on its panel's FPC; trust it over
+        // whatever is stored in the controller's waveform flash.
+        if (vcom != cfg->vcom_mv) {
+            ESP_LOGI(TAG, "VCOM %d mV -> board value -%d mV", vcom, cfg->vcom_mv);
+            it8951_set_vcom((uint16_t) cfg->vcom_mv);
+        }
+    } else if (vcom <= 0 || vcom > 5000) {
         ESP_LOGW(TAG, "VCOM invalid; applying -%d mV default", IT8951_DEFAULT_VCOM_MV);
         it8951_set_vcom(IT8951_DEFAULT_VCOM_MV);
     }
@@ -464,7 +493,8 @@ void epaper_display(uint8_t *image)
 
     // Load full-frame image area (4bpp).
     it8951_write_cmd(IT8951_TCON_LD_IMG_AREA);
-    it8951_write_data((IT8951_LD_ENDIAN << 8) | (IT8951_BPP_4 << 4) | IT8951_LD_ROTATE);
+    const uint16_t ld_endian = s_big_endian ? IT8951_LD_ENDIAN_BIG : IT8951_LD_ENDIAN_LITTLE;
+    it8951_write_data((ld_endian << 8) | (IT8951_BPP_4 << 4) | IT8951_LD_ROTATE);
     it8951_write_data(0);  // x
     it8951_write_data(0);  // y
     it8951_write_data(w);
@@ -472,13 +502,13 @@ void epaper_display(uint8_t *image)
 
     // Stream the image in ONE CS-low session (single 0x0000 write preamble, all
     // data back-to-back; toggling CS mid-load resets the IT8951 write pointer).
-    // The ED103TC2 scans each row right-to-left, so mirror it -- but at 16-bit
-    // *word* granularity (the unit the IT8951 reconstructs from the SPI byte
-    // stream): emit the row's words in reverse order while keeping each word's
-    // two bytes intact, exactly as Seeed's driver does. Reversing at byte
-    // granularity would swap the two bytes inside each word and scramble pixels
-    // locally. The bounce buffer also keeps SPI DMA off the PSRAM frame buffer
-    // (which it can't transmit from directly).
+    // Panels that scan each row right-to-left (the ED103TC2 does; s_mirror_x)
+    // need it mirrored -- but at 16-bit *word* granularity (the unit the IT8951
+    // reconstructs from the SPI byte stream): emit the row's words in reverse
+    // order while keeping each word's two bytes intact, exactly as Seeed's
+    // driver does. Reversing at byte granularity would swap the two bytes inside
+    // each word and scramble pixels locally. The bounce buffer also keeps SPI
+    // DMA off the PSRAM frame buffer (which it can't transmit from directly).
     const size_t row_words = row_bytes / 2;
     wait_ready();
     // Hold the SPI bus exclusively for the whole CS-low image stream. CS stays
@@ -493,10 +523,14 @@ void epaper_display(uint8_t *image)
     spi_write16(IT8951_PRE_WR_DATA);
     for (uint16_t y = 0; y < h; y++) {
         const uint8_t *src = image + (size_t) y * row_bytes;
-        for (size_t wi = 0; wi < row_words; wi++) {
-            const uint8_t *sw = src + (row_words - 1 - wi) * 2;
-            s_dma_buf[wi * 2] = sw[0];
-            s_dma_buf[wi * 2 + 1] = sw[1];
+        if (s_mirror_x) {
+            for (size_t wi = 0; wi < row_words; wi++) {
+                const uint8_t *sw = src + (row_words - 1 - wi) * 2;
+                s_dma_buf[wi * 2] = sw[0];
+                s_dma_buf[wi * 2 + 1] = sw[1];
+            }
+        } else {
+            memcpy(s_dma_buf, src, row_bytes);
         }
         spi_tx(s_dma_buf, row_bytes);
         // The polling transmits busy-spin the CPU for the whole multi-second

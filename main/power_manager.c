@@ -38,6 +38,52 @@ static time_t wake_target_boundary = 0;
 
 static const char *TAG = "power_manager";
 
+// --- Button wake-up routing ---------------------------------------------
+//
+// On the ESP32-S3 every button is an EXT1 source: its EXT1 unit matches "any of
+// these pins low", which is exactly what a set of active-low buttons needs.
+//
+// The original ESP32's EXT1 unit can only match "all pins low" or "any pin
+// high", neither of which works for any-of-N active-low buttons. Boards on that
+// chip (the M5Paper) therefore set BOARD_HAL_WAKEUP_KEY_USE_EXT0 to route the
+// wake key to EXT0 (one pin, level-triggered low) and BOARD_HAL_EXT1_KEYS_ARE_ALL_LOW
+// so EXT1 carries just the rotate key as a single-pin ALL_LOW mask. That leaves
+// the clear key working only while the device is awake — there is no third wake
+// unit to give it.
+#ifdef BOARD_HAL_WAKEUP_KEY_USE_EXT0
+#define WAKEUP_KEY_ON_EXT0 1
+#else
+#define WAKEUP_KEY_ON_EXT0 0
+#endif
+
+#ifdef BOARD_HAL_EXT1_KEYS_ARE_ALL_LOW
+// Single-pin mask, so "all low" and "any low" mean the same thing.
+#define EXT1_WAKEUP_MODE ESP_EXT1_WAKEUP_ALL_LOW
+#define CLEAR_KEY_CAN_WAKE 0
+#else
+#define EXT1_WAKEUP_MODE ESP_EXT1_WAKEUP_ANY_LOW
+#define CLEAR_KEY_CAN_WAKE 1
+#endif
+
+// Build the EXT1 pin mask. Keys handled by another wake unit, or that this chip
+// can't distinguish, are left out.
+static uint64_t ext1_button_mask(void)
+{
+    uint64_t mask = 0;
+    if (!WAKEUP_KEY_ON_EXT0 && BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC) {
+        mask |= (1ULL << BOARD_HAL_WAKEUP_KEY);
+    }
+    if (BOARD_HAL_ROTATE_KEY != GPIO_NUM_NC) {
+        mask |= (1ULL << BOARD_HAL_ROTATE_KEY);
+    }
+    if (CLEAR_KEY_CAN_WAKE && BOARD_HAL_CLEAR_KEY != GPIO_NUM_NC) {
+        // The ternary keeps the shift well-defined when the board defines no
+        // clear key (GPIO_NUM_NC is -1); the runtime guard above skips it.
+        mask |= (1ULL << (BOARD_HAL_CLEAR_KEY < 0 ? 0 : BOARD_HAL_CLEAR_KEY));
+    }
+    return mask;
+}
+
 static TaskHandle_t sleep_timer_task_handle = NULL;
 static TaskHandle_t rotation_timer_task_handle = NULL;
 static int64_t next_sleep_time = 0;  // Use absolute time for sleep timer
@@ -250,8 +296,14 @@ esp_err_t power_manager_init(void)
             }
             expected_wakeup_time = 0;  // Reset after checking
         }
+    } else if (wakeup_causes & (1 << ESP_SLEEP_WAKEUP_EXT0)) {
+        // Only boards that route the wake key to EXT0 (see the routing notes at
+        // the top of this file) can report this cause, and EXT0 is a single pin,
+        // so there is nothing to disambiguate.
+        wakeup_source = WAKEUP_SOURCE_BOOT_BUTTON;
+        ESP_LOGI(TAG, "Wakeup caused by wake button (EXT0, GPIO %d)", BOARD_HAL_WAKEUP_KEY);
     } else if (wakeup_causes & (1 << ESP_SLEEP_WAKEUP_EXT1)) {
-        // ESP32-S3 only supports EXT1, check which GPIO triggered it
+        // Check which GPIO in the EXT1 mask triggered the wake
         ext1_wakeup_pin_mask = esp_sleep_get_ext1_wakeup_status();
 
         if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC &&
@@ -288,6 +340,18 @@ esp_err_t power_manager_init(void)
     }
 
     if (pin_mask != 0) {
+#ifdef BOARD_HAL_BUTTONS_NO_INTERNAL_PULL
+        // These pads (ESP32 GPIO34-39) are input-only: no internal pull
+        // resistors and no output latch, so neither the pull-up below nor
+        // gpio_hold_en() applies. The board provides external pull-ups, which
+        // also keeps the lines from floating during deep sleep.
+        gpio_config_t io_conf = {.intr_type = GPIO_INTR_DISABLE,
+                                 .mode = GPIO_MODE_INPUT,
+                                 .pin_bit_mask = pin_mask,
+                                 .pull_down_en = GPIO_PULLDOWN_DISABLE,
+                                 .pull_up_en = GPIO_PULLUP_DISABLE};
+        gpio_config(&io_conf);
+#else
         gpio_config_t io_conf = {.intr_type = GPIO_INTR_DISABLE,
                                  .mode = GPIO_MODE_INPUT,
                                  .pin_bit_mask = pin_mask,
@@ -307,6 +371,7 @@ esp_err_t power_manager_init(void)
             gpio_hold_en(BOARD_HAL_CLEAR_KEY);
         }
         gpio_deep_sleep_hold_en();
+#endif
     }
 
     // LEDs are initialized by board_hal_init(), just set initial state
@@ -381,20 +446,17 @@ void power_manager_enter_sleep(void)
         expected_wakeup_time = now + wake_seconds;
     }
 
-    // Enable boot button and key button wake-up (ESP32-S3 only supports EXT1)
-    uint64_t wakeup_mask = 0;
+    // Enable button wake-up. See the routing notes at the top of this file for
+    // why some boards split the keys across EXT0 and EXT1.
+#if WAKEUP_KEY_ON_EXT0
     if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC) {
-        wakeup_mask |= (1ULL << BOARD_HAL_WAKEUP_KEY);
+        esp_sleep_enable_ext0_wakeup(BOARD_HAL_WAKEUP_KEY, 0);
     }
-    if (BOARD_HAL_ROTATE_KEY != GPIO_NUM_NC) {
-        wakeup_mask |= (1ULL << BOARD_HAL_ROTATE_KEY);
-    }
-    if (BOARD_HAL_CLEAR_KEY != GPIO_NUM_NC) {
-        wakeup_mask |= (1ULL << (BOARD_HAL_CLEAR_KEY < 0 ? 0 : BOARD_HAL_CLEAR_KEY));
-    }
+#endif
 
+    uint64_t wakeup_mask = ext1_button_mask();
     if (wakeup_mask != 0) {
-        esp_sleep_enable_ext1_wakeup(wakeup_mask, ESP_EXT1_WAKEUP_ANY_LOW);
+        esp_sleep_enable_ext1_wakeup(wakeup_mask, EXT1_WAKEUP_MODE);
     }
 
     // Stop WiFi cleanly before deep sleep so the MAC/PHY drains pending

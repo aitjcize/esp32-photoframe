@@ -56,5 +56,15 @@
     "resolution": [1200, 1600],
     "storage": "SD (SPI) + Internal flash",
     "url": "https://www.seeedstudio.com/reTerminal-E1004-p-6692.html"
+  },
+  {
+    "id": "m5stack_m5paper_v11",
+    "label": "M5Stack M5Paper v1.1",
+    "display": "4.7\" 16-level grayscale",
+    "resolution": [960, 540],
+    "display_type": "gc16",
+    "target": "esp32",
+    "storage": "SD card (SPI)",
+    "url": "https://docs.m5stack.com/en/core/m5paper_v1.1"
   }
 ]

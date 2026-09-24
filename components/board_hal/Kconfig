@@ -88,6 +88,21 @@ menu "Board Configuration"
                 The panel rail is gated by a software-controlled load switch.
                 SD card: SPI interface.
 
+        config BOARD_DRIVER_M5STACK_M5PAPER_V11
+            bool "M5Stack M5Paper v1.1 (4.7\" Grayscale GC16)"
+            select SDCARD_DRIVER_SPI
+            select SENSOR_DRIVER_SHT3X
+            select RTC_DRIVER_PCF8563
+            select EP_DRIVER_IT8951
+            help
+                Driver for the M5Stack M5Paper v1.1: an ESP32-D0WDQ6-V3 (not an
+                S3) with 8MB PSRAM driving a 4.7" grayscale panel (960x540,
+                16-level / GC16) via an IT8951 T-CON over SPI. Includes an SHT30
+                sensor for waveform temperature compensation, a BM8563 RTC
+                (PCF8563-compatible), battery monitoring via ADC, and a microSD
+                slot on the same SPI bus as the IT8951.
+                v1.0 is electrically identical and works with this driver too.
+
     endchoice
 
     config USE_INTERNAL_FLASH_STORAGE

@@ -74,6 +74,8 @@ esp_err_t board_hal_init(void)
         .pin_busy = BOARD_HAL_EPD_BUSY_PIN,  // HRDY
         .pin_cs1 = BOARD_HAL_EPD_CS1_PIN,    // unused (single panel)
         .pin_enable = BOARD_HAL_PWR_EN_PIN,  // PWR_EN: master peripheral power
+        // The ED103TC2 scans each row right-to-left.
+        .mirror_x = true,
     };
     epaper_init(&ep_cfg);
 

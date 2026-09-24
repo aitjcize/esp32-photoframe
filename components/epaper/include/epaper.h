@@ -1,6 +1,7 @@
 #ifndef EPAPER_H
 #define EPAPER_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 // Resolution APIs
@@ -26,10 +27,25 @@ typedef struct {
     int spi_host;
     int pin_cs;
     int pin_dc;
-    int pin_rst;
+    int pin_rst;  // -1 if the controller has no reset line
     int pin_busy;
     int pin_cs1;     // For 13.3" Dual CS
     int pin_enable;  // Optional power enable
+
+    // --- IT8951-only panel options; ignored by the other drivers ---
+    // Panel geometry to fall back on if GetSystemInfo can't be read (0 = use the
+    // driver's built-in default).
+    int panel_w;
+    int panel_h;
+    // VCOM magnitude in mV to program explicitly, e.g. 2300 for -2.30 V (0 =
+    // keep whatever is stored in the controller's waveform flash).
+    int vcom_mv;
+    // Load image data big-endian rather than little-endian. Which one is right
+    // is a property of the panel wiring, and getting it wrong swaps pixel pairs.
+    bool big_endian;
+    // Emit each row's 16-bit words in reverse order, for panels that scan
+    // right-to-left (the Seeed ED103TC2 does; the M5Paper ED047TC2 does not).
+    bool mirror_x;
 } epaper_config_t;
 
 /**

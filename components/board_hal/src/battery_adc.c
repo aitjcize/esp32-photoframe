@@ -17,6 +17,50 @@ struct battery_adc {
     adc_cali_handle_t cali;  // NULL if eFuse calibration is unavailable
 };
 
+// Reference voltage used when an ESP32 has no Two-Point eFuse burned and the
+// line-fitting scheme falls back to a default Vref. 1100 mV is the ESP32's
+// nominal ADC reference and what esp_adc_cal used before the new API.
+#define BATTERY_ADC_DEFAULT_VREF_MV 1100
+
+// Create the calibration scheme the target actually supports: curve fitting on
+// the ESP32-S3 (and friends), line fitting on the original ESP32. Returns
+// ESP_ERR_NOT_SUPPORTED if neither is compiled in.
+static esp_err_t battery_adc_cali_create(const battery_adc_config_t *cfg, adc_cali_handle_t *out)
+{
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+    adc_cali_curve_fitting_config_t cali_config = {
+        .unit_id = cfg->unit,
+        .chan = cfg->channel,
+        .atten = cfg->atten,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    return adc_cali_create_scheme_curve_fitting(&cali_config, out);
+#elif ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    adc_cali_line_fitting_config_t cali_config = {
+        .unit_id = cfg->unit,
+        .atten = cfg->atten,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+        .default_vref = BATTERY_ADC_DEFAULT_VREF_MV,
+    };
+    return adc_cali_create_scheme_line_fitting(&cali_config, out);
+#else
+    (void) cfg;
+    (void) out;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+static void battery_adc_cali_destroy(adc_cali_handle_t cali)
+{
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+    adc_cali_delete_scheme_curve_fitting(cali);
+#elif ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    adc_cali_delete_scheme_line_fitting(cali);
+#else
+    (void) cali;
+#endif
+}
+
 esp_err_t battery_adc_create(const battery_adc_config_t *cfg, battery_adc_t **out)
 {
     if (!cfg || !out)
@@ -53,13 +97,7 @@ esp_err_t battery_adc_create(const battery_adc_config_t *cfg, battery_adc_t **ou
     // eFuse-based calibration converts raw counts to accurate millivolts; the
     // ESP32-S3 ADC is nonlinear, so the raw*3300/4095 estimate drifts. If it is
     // unavailable, battery_adc_read_mv() falls back to that linear estimate.
-    adc_cali_curve_fitting_config_t cali_config = {
-        .unit_id = cfg->unit,
-        .chan = cfg->channel,
-        .atten = cfg->atten,
-        .bitwidth = ADC_BITWIDTH_DEFAULT,
-    };
-    if (adc_cali_create_scheme_curve_fitting(&cali_config, &ctx->cali) != ESP_OK) {
+    if (battery_adc_cali_create(cfg, &ctx->cali) != ESP_OK) {
         ESP_LOGW(TAG, "ADC calibration unavailable; using linear estimate");
         ctx->cali = NULL;
     }
@@ -113,7 +151,7 @@ void battery_adc_destroy(battery_adc_t *ctx)
     if (!ctx)
         return;
     if (ctx->cali)
-        adc_cali_delete_scheme_curve_fitting(ctx->cali);
+        battery_adc_cali_destroy(ctx->cali);
     if (ctx->adc)
         adc_oneshot_del_unit(ctx->adc);
     free(ctx);

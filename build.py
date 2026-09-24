@@ -7,7 +7,7 @@ import sys
 
 # Add scripts to sys.path to import boards
 sys.path.append(os.path.join(os.path.dirname(__file__), "scripts"))
-from boards import SUPPORTED_BOARDS
+from boards import BOARD_TARGET, SUPPORTED_BOARDS
 
 BOARDS = list(SUPPORTED_BOARDS.keys())
 
@@ -91,7 +91,14 @@ def build_firmware(board, extra_args, debug=False):
         # for release or demo builds.
         sdkconfig_defaults += ";sdkconfig.defaults.debug"
 
+    # Boards differ in target chip (the M5Paper is a plain ESP32, everything
+    # else is an ESP32-S3). Pass it explicitly: idf.py resolves the target
+    # before it merges the defaults files, so CONFIG_IDF_TARGET in the board's
+    # sdkconfig.defaults alone is not enough on a clean tree.
+    target = BOARD_TARGET[board]
+
     idf_base = idf_py_command() + [
+        f"-DIDF_TARGET={target}",
         f"-DSDKCONFIG_DEFAULTS={sdkconfig_defaults}",
     ]
 

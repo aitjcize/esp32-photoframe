@@ -49,6 +49,9 @@ cd ..
 # Build for Seeed Studio reTerminal E1004 (13.3" 6-color e-paper)
 ./build.py --board seeedstudio_reterminal_e1004
 
+# M5Stack M5Paper v1.0/v1.1 (4.7" 16-level grayscale, ESP32 — not S3)
+./build.py --board m5stack_m5paper_v11
+
 # Clean build (optional)
 ./build.py --board waveshare_photopainter_73 --fullclean
 ```
@@ -56,7 +59,9 @@ cd ..
 The script automatically:
 1. Builds the frontend webapp (`webapp/`)
 2. Sets the correct `sdkconfig.defaults` for the selected board
-3. Runs `idf.py build` OR `idf.py build` with correct options
+3. Passes the board's target chip via `-DIDF_TARGET` (`esp32s3` for every board
+   except the M5Paper, which is a plain `esp32`)
+4. Runs `idf.py build` OR `idf.py build` with correct options
 
 ### 3. Flash and Monitor
 

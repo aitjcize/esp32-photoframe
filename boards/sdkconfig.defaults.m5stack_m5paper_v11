@@ -1,0 +1,43 @@
+# M5Stack M5Paper v1.1 (4.7" 960x540 16-level grayscale, IT8951)
+CONFIG_BOARD_DRIVER_M5STACK_M5PAPER_V11=y
+
+# Target chip. Unlike every other supported board this one is a plain ESP32
+# (ESP32-D0WDQ6-V3), not an ESP32-S3, so it overrides the global default.
+# build.py also passes -DIDF_TARGET=esp32 so idf.py picks the target up before
+# it reads the defaults files.
+CONFIG_IDF_TARGET="esp32"
+
+# Flash Configuration (16MB). DIO rather than the global QIO: DIO works on every
+# ESP32 flash wiring, and the flash shares its bus with the external PSRAM here,
+# so there is nothing to gain from risking QIO on a board we can't re-flash
+# remotely if it fails to boot.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# PSRAM. The ESP32 only does quad SPI PSRAM (SPIRAM_MODE_QUAD is forced on for
+# this target, so it isn't set here) on the default D0WD pins (CS=GPIO16,
+# CLK=GPIO17), auto-detected as an 8MB ESP-PSRAM64. The ESP32 can only map 4MB of
+# it into the data address space, which is ample: the 960x540 4bpp framebuffer is
+# ~253 KB, and the image pipeline streams rows rather than materializing
+# panel-size intermediates. 40MHz with 80MHz flash is the conservative supported
+# pairing.
+#
+# Note: the global sdkconfig.defaults sets CONFIG_SPIRAM_MODE_OCT (an
+# ESP32-S3-only symbol), so an M5Paper build logs a couple of "unknown kconfig
+# symbol" warnings from kconfgen. They are harmless — the symbol simply doesn't
+# exist on this target, and the choice below is what takes effect.
+CONFIG_SPIRAM_SPEED_40M=y
+
+# No internal flash storage: the 16MB flash is fully allocated to OTA slots and
+# the board has a microSD slot.
+CONFIG_USE_INTERNAL_FLASH_STORAGE=n
+
+# Match power_manager's PM ceiling (160MHz) explicitly. This is already the
+# ESP32 default; pinning it keeps the two from drifting apart.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
+
+# The console is a UART (USB-serial bridge on the board) — this chip has no
+# USB-Serial-JTAG peripheral.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y

@@ -1,0 +1,6 @@
+config SENSOR_DRIVER_SHT3X
+    bool
+    default n
+    help
+        SHT30/SHT31/SHT35 temperature and humidity sensor support.
+        Selected by board drivers that use an SHT3x sensor.

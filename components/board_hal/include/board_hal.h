@@ -24,6 +24,7 @@ typedef enum {
     BOARD_TYPE_SEEEDSTUDIO_RETERMINAL_E1002,
     BOARD_TYPE_SEEEDSTUDIO_RETERMINAL_E1003,
     BOARD_TYPE_SEEEDSTUDIO_RETERMINAL_E1004,
+    BOARD_TYPE_M5STACK_M5PAPER_V11,
     BOARD_TYPE_UNKNOWN
 } board_type_t;
 
@@ -41,6 +42,8 @@ typedef enum {
 #include "board_seeedstudio_reterminal_e1003.h"
 #elif defined(CONFIG_BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1004)
 #include "board_seeedstudio_reterminal_e1004.h"
+#elif defined(CONFIG_BOARD_DRIVER_M5STACK_M5PAPER_V11)
+#include "board_m5stack_m5paper_v11.h"
 #else
 // Default definitions if no board selected (fallback)
 #error "No board selected! Please define CONFIG_BOARD_DRIVER_..."

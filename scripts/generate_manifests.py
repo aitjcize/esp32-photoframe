@@ -18,7 +18,7 @@ from pathlib import Path
 # Import version detection functions from get_version module
 import get_version as version_module
 
-from boards import SUPPORTED_BOARDS
+from boards import SUPPORTED_BOARDS, board_chip_family, board_flash_args
 
 
 def check_firmware_exists(firmware_path):
@@ -47,12 +47,16 @@ def copy_firmware_to_demo(build_dir, demo_dir, board):
     # Create merged firmware using esptool
     merged_bin = os.path.join(demo_dir, f"photoframe-firmware-{board}-merged.bin")
 
+    # The target chip decides both the esptool chip name and where the
+    # 2nd-stage bootloader lives (0x1000 on the ESP32, 0x0 on the S3).
+    chip, bootloader_offset = board_flash_args(board)
+
     try:
         subprocess.run(
             [
                 "esptool",
                 "--chip",
-                "esp32s3",
+                chip,
                 "merge-bin",
                 "-o",
                 merged_bin,
@@ -62,7 +66,7 @@ def copy_firmware_to_demo(build_dir, demo_dir, board):
                 "80m",
                 "--flash-size",
                 "16MB",
-                "0x0",
+                bootloader_offset,
                 bootloader,
                 "0x8000",
                 partition_table,
@@ -91,7 +95,10 @@ def generate_manifest(output_path, version, firmware_file, board, is_dev=False):
         "new_install_prompt_erase": True,
         "new_install_improv_wait_time": 15,
         "builds": [
-            {"chipFamily": "ESP32-S3", "parts": [{"path": firmware_file, "offset": 0}]}
+            {
+                "chipFamily": board_chip_family(board),
+                "parts": [{"path": firmware_file, "offset": 0}],
+            }
         ],
     }
 
