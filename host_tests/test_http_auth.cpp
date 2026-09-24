@@ -188,17 +188,26 @@ TEST_F(HttpAuthLimiter, ClientsAreTrackedSeparately)
     EXPECT_TRUE(http_auth_limiter_allowed(owner.data(), 0, nullptr));
 }
 
-// A full table forgets the least recently seen client, never crashes or
-// refuses unknown clients.
+// A full table forgets the client seen least recently -- not the one that
+// arrived first -- and never refuses unknown clients. `refreshed` is the
+// oldest entry but guesses again after every newcomer, so it is never the
+// least recently seen; `older` is quiet after its lockout and goes first.
+// Written without knowing the table size: newcomers keep arriving until it
+// has overflowed many times over.
 TEST_F(HttpAuthLimiter, FullTableEvictsLeastRecentlySeen)
 {
-    auto first = ip(1);
-    fail(first, HTTP_AUTH_FREE_FAILURES + 1, 0);
-    for (uint8_t i = 2; i < 40; i++) {
-        auto other = ip(i);
-        http_auth_limiter_record(other.data(), false, 100 + i);
+    auto refreshed = ip(1), older = ip(2);
+    fail(refreshed, HTTP_AUTH_FREE_FAILURES + 1, 0);
+    fail(older, HTTP_AUTH_FREE_FAILURES + 1, 10);
+    for (uint8_t i = 3; i < 40; i++) {
+        auto newcomer = ip(i);
+        http_auth_limiter_record(newcomer.data(), false, 100 + i);
+        http_auth_limiter_record(refreshed.data(), false, 100 + i);
     }
-    EXPECT_TRUE(http_auth_limiter_allowed(first.data(), 0, nullptr));
+    // Evicted: its lockout would otherwise still be running
+    EXPECT_TRUE(http_auth_limiter_allowed(older.data(), 200, nullptr));
+    // Kept, and still locked out
+    EXPECT_FALSE(http_auth_limiter_allowed(refreshed.data(), 200, nullptr));
     auto fresh = ip(200);
-    EXPECT_TRUE(http_auth_limiter_allowed(fresh.data(), 0, nullptr));
+    EXPECT_TRUE(http_auth_limiter_allowed(fresh.data(), 200, nullptr));
 }
