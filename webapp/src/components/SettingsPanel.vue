@@ -312,18 +312,25 @@ async function performImport() {
       settingsStore.loadPalette(),
     ]);
 
-    // The device password is write-only, so an export records only that one
-    // was set. Say so rather than let the frame silently come back open.
-    const passwordNotRestored =
-      importData.value.config?.http_auth_enabled === true &&
-      typeof importData.value.config?.http_password !== "string";
+    // The device password is write-only: an export records only whether one
+    // was set, and http_auth_enabled is informational to the firmware. So an
+    // import can neither restore a password nor, deliberately, drop one --
+    // silently opening a protected frame is the worse surprise. Compare what
+    // the file says against what the device reports now and say so if they
+    // differ, rather than claim the import reproduced the exported state.
+    const importedAuth = importData.value.config?.http_auth_enabled;
+    const deviceAuth = settingsStore.deviceSettings.httpAuthEnabled;
+    let authNote = "";
+    if (typeof importedAuth === "boolean" && importedAuth !== deviceAuth) {
+      authNote = importedAuth
+        ? " Exports never include the device password: set it again under General to require one."
+        : " The device password was left in place: turn it off under General if you want the frame open.";
+    }
 
     saveSuccess.value = true;
     saveError.value = false;
-    saveMessage.value = passwordNotRestored
-      ? "Config imported. Exports never include the device password: set it again under General to require one."
-      : "Config imported successfully!";
-    setTimeout(() => (saveSuccess.value = false), passwordNotRestored ? 10000 : 3000);
+    saveMessage.value = authNote ? `Config imported.${authNote}` : "Config imported successfully!";
+    setTimeout(() => (saveSuccess.value = false), authNote ? 10000 : 3000);
   } catch (error) {
     console.error("Failed to import config:", error);
     saveError.value = true;
