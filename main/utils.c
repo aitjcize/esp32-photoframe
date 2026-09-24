@@ -576,9 +576,11 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 // *not_modified and returns ESP_OK with nothing downloaded. On success,
 // detects the image format (falling back to the Content-Type header) and
 // hands out the optional thumbnail URL and remote-config payload the server
-// sent along (heap strings, caller frees; NULL/empty when absent).
+// sent along, and the response ETag (heap strings, caller frees; NULL/empty
+// when absent).
 static esp_err_t fetch_perform_download(const char *url, bool *not_modified, image_format_t *format,
-                                        char **thumbnail_url_out, char **config_payload_out)
+                                        char **thumbnail_url_out, char **config_payload_out,
+                                        char **etag_out)
 {
     // Reset per-fetch; the HTTP event handler sets it if the server sends the
     // X-Post-Rotate-Wait-Sec header (on either a 200 or a 304 response).
@@ -599,6 +601,7 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
 
     *thumbnail_url_out = NULL;
     *config_payload_out = NULL;
+    *etag_out = NULL;
 
     // Allocate buffers once before retry loop
     thumbnail_url_buffer = calloc(512, 1);
@@ -846,10 +849,12 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
         return ESP_FAIL;
     }
 
-    // Persist the ETag from this successful 200 response (or clear if the server
-    // dropped it) so the next request can send If-None-Match.
-    config_manager_set_image_etag(etag_buffer);
-    free(etag_buffer);
+    // The ETag from this 200 (empty if the server sent none) goes back to the
+    // caller, which persists it only once the image is on the panel. Storing
+    // it here meant a failed decode or display was followed by a 304 on the
+    // next wake -- "unchanged", so no refresh -- and the frame stayed stuck
+    // on the previous picture until the server's image changed (#134).
+    *etag_out = etag_buffer;
 
     // Detect format regardless of Content-Type (which might be unreliable),
     // falling back to the header only when the magic-byte check fails
@@ -1224,12 +1229,18 @@ esp_err_t fetch_and_display_image_from_url(const char *url, bool *not_modified)
         *not_modified = false;
     }
 
+    // The URL this ETag will belong to. `url` is normally the configured
+    // one, which the server's config push below may replace in place.
+    char fetched_url[IMAGE_URL_MAX_LEN];
+    snprintf(fetched_url, sizeof(fetched_url), "%s", url);
+
     image_format_t image_format = IMAGE_FORMAT_UNKNOWN;
     char *thumbnail_url = NULL;
     char *config_payload = NULL;
+    char *etag = NULL;
     bool was_not_modified = false;
     esp_err_t err = fetch_perform_download(url, &was_not_modified, &image_format, &thumbnail_url,
-                                           &config_payload);
+                                           &config_payload, &etag);
     if (err != ESP_OK) {
         return err;
     }
@@ -1237,6 +1248,7 @@ esp_err_t fetch_and_display_image_from_url(const char *url, bool *not_modified)
         if (not_modified) {
             *not_modified = true;
         }
+        free(etag);
         return ESP_OK;
     }
 
@@ -1251,18 +1263,36 @@ esp_err_t fetch_and_display_image_from_url(const char *url, bool *not_modified)
     }
     free(config_payload);
 
+    esp_err_t shown;
     switch (image_format) {
     case IMAGE_FORMAT_PNG:
     case IMAGE_FORMAT_JPG:
-        return fetch_stream_display(image_format, thumbnail_downloaded);
+        shown = fetch_stream_display(image_format, thumbnail_downloaded);
+        break;
     case IMAGE_FORMAT_EPD_GZ:
     case IMAGE_FORMAT_BMP:
-        return fetch_display_file(image_format, thumbnail_downloaded);
+        shown = fetch_display_file(image_format, thumbnail_downloaded);
+        break;
     default:
         ESP_LOGE(TAG, "Unsupported image format: %d", image_format);
         unlink(CURRENT_UPLOAD_PATH);
-        return ESP_FAIL;
+        shown = ESP_FAIL;
+        break;
     }
+
+    // Only a picture that reached the panel may claim the ETag (or clear it
+    // when the server sent none). After a failure the stored one still names
+    // the picture on the panel, so the next wake asks for this one again.
+    // And only for the URL it came from: a config push in this very response
+    // may have pointed the frame elsewhere, in which case set_image_url has
+    // cleared the ETag and this one must not undo that -- offered to the new
+    // URL it could match a tag of its own and turn the first fetch there into
+    // a 304.
+    if (shown == ESP_OK && strcmp(config_manager_get_image_url(), fetched_url) == 0) {
+        config_manager_set_image_etag(etag ? etag : "");
+    }
+    free(etag);
+    return shown;
 }
 
 esp_err_t trigger_image_rotation(void)
