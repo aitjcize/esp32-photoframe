@@ -407,6 +407,20 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
     // Whether this wake should actually rotate. Home Assistant can veto a
     // scheduled rotation (e.g. nobody home / night) via the notify response.
     bool should_rotate = true;
+    bool ha_unreachable = false;
+
+    // URL mode without a network has nothing to do: the fetch would only
+    // fail three times in a row, and the panel keeps its picture either way.
+    // A scheduled wake counts it against the backoff so a frame out of WiFi
+    // range stops paying for a connect attempt on every slot (#121); a
+    // ROTATE press just goes back to sleep, its outcome not counted.
+    if (!wifi_connected && rotation_mode == ROTATION_MODE_URL) {
+        ESP_LOGW(TAG, "No network for URL rotation; keeping the current picture");
+        utils_set_last_fetch_error("WiFi unavailable");
+        power_manager_record_network_wake(false);
+        power_manager_enter_sleep();
+        // Won't reach here after sleep
+    }
 
     // Bring the config server up before rotating so HA can reach us and the
     // notify response can carry the rotation decision.
@@ -424,19 +438,29 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
             ESP_LOGW(TAG, "Could not reach Home Assistant to check rotation; skipping");
             utils_set_last_fetch_error("Could not reach Home Assistant to check rotation");
             should_rotate = false;
+            ha_unreachable = true;
         }
     }
 
     // Honor an HA veto (timer wakes only — a ROTATE button press always rotates).
+    // A veto is a valid answer from HA and clears the backoff; not reaching HA
+    // at all is a network failure and arms it.
     if (!is_button_wake && !should_rotate) {
         ESP_LOGI(TAG, "Rotation skipped by Home Assistant, going back to sleep");
+        power_manager_record_network_wake(!ha_unreachable);
         power_manager_enter_sleep();
         // Won't reach here after sleep
     }
 
-    // Trigger rotation
+    // Trigger rotation. In URL mode the result says whether the fetch
+    // succeeded (a 304 counts). Local rotation always succeeds, and that is
+    // deliberate even when this storage-mode wake needed WiFi for HA and
+    // didn't get it: the backoff skips whole wakes, and skipping these would
+    // skip pictures the frame can show from its own storage to save one
+    // bounded connect attempt. The backoff only takes note on a timer wake,
+    // never on a ROTATE button press.
     power_manager_reset_sleep_timer();
-    trigger_image_rotation();
+    power_manager_record_network_wake(trigger_image_rotation() == ESP_OK);
 
     // Notify HA that data has been updated (after both OTA check and rotation)
     if (wifi_connected && ha_configured) {

@@ -1362,6 +1362,13 @@ static esp_err_t rotate_handler(httpd_req_t *req)
 
     // Synchronous rotation as requested by maintainer
     esp_err_t rotated = trigger_image_rotation();
+    if (rotated == ESP_OK) {
+        // The server answered. A timer wake whose own fetch just failed keeps
+        // this server up for the HA/config window, and the backoff that
+        // failure armed is stale now. A failure here adds nothing the wake
+        // hasn't recorded already; on any other wake there is no backoff.
+        power_manager_record_network_wake(true);
+    }
     ha_notify_update();
 
     cJSON *response = cJSON_CreateObject();

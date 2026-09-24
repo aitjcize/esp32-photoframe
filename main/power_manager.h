@@ -37,6 +37,15 @@ void power_manager_reset_rotate_timer(void);
  * arrived yet. Returns 0 for non-timer wakes or once the boundary is reached.
  */
 int power_manager_get_seconds_until_wake_target(void);
+
+// Outcome of a scheduled wake's network work (#121). A failure arms the
+// backoff (see network_backoff.h) that decides how many scheduled slots the
+// next timer wake skips; a success -- a displayed image, a 304, a valid Home
+// Assistant answer, a manual /api/rotate that reached the server -- clears
+// it. Any wake that isn't a timer wake clears it too (power_manager_init:
+// the owner is around, the hold is stale), and its own outcome is ignored
+// here, so a button press can't arm a hold.
+void power_manager_record_network_wake(bool succeeded);
 wakeup_source_t power_manager_get_wakeup_source(void);
 void power_manager_set_deep_sleep_enabled(bool enabled);
 

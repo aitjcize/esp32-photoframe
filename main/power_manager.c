@@ -22,6 +22,7 @@
 #include "config_manager.h"
 #include "debug_log.h"
 #include "ha_integration.h"
+#include "network_backoff.h"
 #include "periodic_tasks.h"
 #include "storage.h"
 #include "utils.h"
@@ -29,6 +30,14 @@
 
 // RTC memory to store expected wakeup time (persists across deep sleep)
 RTC_DATA_ATTR static time_t expected_wakeup_time = 0;
+
+// Consecutive unattended wakes whose network work failed, and the earliest
+// time the next attempt may run (#121). RTC memory: survives deep sleep,
+// starts clean on a power cycle. The hold is anchored at the failure, not
+// recomputed at each sleep entry, so an early-wake re-sleep can't push the
+// schedule out again.
+RTC_DATA_ATTR static uint32_t network_failures = 0;
+RTC_DATA_ATTR static time_t network_retry_after = 0;
 
 // Boundary the current timer wake was targeting (from expected_wakeup_time).
 // Used to detect a wake that fired early due to RTC drift: if a clock
@@ -327,6 +336,18 @@ esp_err_t power_manager_init(void)
         ESP_LOGI(TAG, "Not a deep sleep wakeup");
     }
 
+    // The backoff is for unattended wakes. Any other wake -- a button, a
+    // reset, a power-on -- means the owner is around and may have fixed the
+    // network; a hold left over from earlier failed timer wakes would
+    // otherwise still skip slots after they walk away. If the server is
+    // still down the next timer wake fails once and re-arms it from 5 min.
+    if (wakeup_source != WAKEUP_SOURCE_TIMER && network_failures > 0) {
+        ESP_LOGI(TAG, "Interactive wake; clearing network backoff (%lu failed wakes)",
+                 (unsigned long) network_failures);
+        network_failures = 0;
+        network_retry_after = 0;
+    }
+
     // Configure button GPIOs as input with pull-ups
     uint64_t pin_mask = 0;
     if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC) {
@@ -435,14 +456,43 @@ void power_manager_enter_sleep(void)
     if (config_manager_get_auto_rotate()) {
         // Use timer-based sleep for auto-rotate
         int wake_seconds = get_seconds_until_next_wakeup();
+        time_t now;
+        time(&now);
+
+        // The hold was anchored with the clock as it read at the failure. If
+        // the clock has since been set back -- an NTP correction, or an
+        // external RTC that was ahead -- the anchor is off by that amount, so
+        // never hold longer than the delay this failure count earns, measured
+        // from now. (A clock set forward just ends the hold early: one attempt
+        // at the next slot, and the count carries on from there.)
+        time_t hold_limit = now + network_backoff_delay_sec(network_failures);
+        if (network_retry_after > hold_limit) {
+            ESP_LOGW(TAG, "Network backoff hold %lld s ahead of the clock; capping at %d s",
+                     (long long) (network_retry_after - now),
+                     network_backoff_delay_sec(network_failures));
+            network_retry_after = hold_limit;
+        }
+
+        // Under network backoff, skip slots until the hold has passed. The
+        // hold only ever lengthens the wait; the schedule is never brought
+        // forward.
+        if (network_retry_after > now) {
+            cron_rule_t rules[MAX_CRON_RULES];
+            int n = config_manager_get_compiled_cron_rules(rules, MAX_CRON_RULES);
+            int held = network_backoff_seconds_until_slot(now, network_retry_after, rules, n,
+                                                          CRON_FALLBACK_SEC);
+            if (held > wake_seconds) {
+                ESP_LOGW(TAG, "Network backoff (%lu failed wakes): next attempt in %d s, not %d s",
+                         (unsigned long) network_failures, held, wake_seconds);
+                wake_seconds = held;
+            }
+        }
 
         ESP_LOGI(TAG, "Auto-rotate enabled, setting timer wake-up for %d seconds (%s)",
                  wake_seconds, "cron");
         esp_sleep_enable_timer_wakeup(wake_seconds * 1000000ULL);
 
         // Store expected wakeup time in RTC memory for drift detection
-        time_t now;
-        time(&now);
         expected_wakeup_time = now + wake_seconds;
     }
 
@@ -516,6 +566,35 @@ void power_manager_reset_rotate_timer(void)
     next_rotation_time = esp_timer_get_time() + (seconds_until_next * 1000000LL);
     ESP_LOGI(TAG, "Rotation timer reset, next rotation in %d seconds (%s)", seconds_until_next,
              "cron");
+}
+
+void power_manager_record_network_wake(bool succeeded)
+{
+    // Only scheduled wakes feed the backoff. A ROTATE-button wake is the
+    // owner's doing: power_manager_init already dropped the hold for it, and
+    // its outcome must not arm one -- the hold decides which scheduled slots
+    // to skip, and a press two minutes before a slot must not skip that slot.
+    if (wakeup_source != WAKEUP_SOURCE_TIMER) {
+        return;
+    }
+
+    if (succeeded) {
+        if (network_failures > 0) {
+            ESP_LOGI(TAG, "Network back after %lu failed wake(s); backoff cleared",
+                     (unsigned long) network_failures);
+        }
+        network_failures = 0;
+        network_retry_after = 0;
+        return;
+    }
+
+    network_failures++;
+    int delay = network_backoff_delay_sec(network_failures);
+    time_t now;
+    time(&now);
+    network_retry_after = now + delay;
+    ESP_LOGW(TAG, "Network failed on %lu consecutive wake(s); holding off for at least %d s",
+             (unsigned long) network_failures, delay);
 }
 
 int power_manager_get_seconds_until_wake_target(void)

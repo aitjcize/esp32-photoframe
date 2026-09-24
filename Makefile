@@ -86,6 +86,9 @@ test:
 	@echo "Running HTTP auth tests..."
 	@./host_tests/build/http_auth_test
 	@echo ""
+	@echo "Running network backoff tests..."
+	@./host_tests/build/network_backoff_test
+	@echo ""
 	@echo "Running image pipeline tests..."
 	@./host_tests/build/image_pipeline_test
 	@echo ""
