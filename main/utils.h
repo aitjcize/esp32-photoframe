@@ -12,7 +12,10 @@
 // Returns ESP_FAIL if WiFi connection fails (other fields still applied up to that point).
 // Does NOT call config_manager_touch_config() - caller is responsible.
 // Does NOT take ownership of root - caller must free with cJSON_Delete().
-esp_err_t apply_config_from_json(cJSON *root);
+// from_remote marks config pushed by the image server rather than sent by a
+// client of the device's own API; such config may not touch the device
+// password.
+esp_err_t apply_config_from_json(cJSON *root, bool from_remote);
 
 // Get/set the last image fetch error (transient, for UI display)
 void utils_set_last_fetch_error(const char *error);

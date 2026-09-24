@@ -149,7 +149,7 @@ const char *utils_consume_config_error(void)
     return out;
 }
 
-esp_err_t apply_config_from_json(cJSON *root)
+esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
 {
     cJSON *item;
 
@@ -435,8 +435,14 @@ esp_err_t apply_config_from_json(cJSON *root)
     // disable it again. Never echoed back by GET /api/config.
     // Refuse an over-long one rather than store a truncated prefix: the owner
     // would then be locked out by the very password they typed.
+    // Only a client that already passed the password gate may change it. The
+    // image server's config push arrives on the frame's own outbound request,
+    // with no such check, so a compromised or misconfigured server must not
+    // be able to lock the owner out or quietly open the device.
     item = cJSON_GetObjectItem(root, "http_password");
-    if (item && cJSON_IsString(item)) {
+    if (item && from_remote) {
+        ESP_LOGW(TAG, "Ignoring http_password in server-pushed config");
+    } else if (item && cJSON_IsString(item)) {
         esp_err_t pw_err = config_manager_set_http_password(cJSON_GetStringValue(item));
         if (pw_err == ESP_ERR_INVALID_SIZE) {
             utils_set_config_error("Device password is too long (max 63 bytes)");
@@ -946,7 +952,7 @@ static void fetch_apply_remote_config(const char *config_payload)
 
     cJSON *config_obj = cJSON_GetObjectItem(payload, "config");
     if (config_obj && cJSON_IsObject(config_obj)) {
-        apply_config_from_json(config_obj);
+        apply_config_from_json(config_obj, true);
         applied = true;
     }
 

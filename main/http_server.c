@@ -1628,7 +1628,7 @@ static esp_err_t config_handler(httpd_req_t *req)
             return ESP_FAIL;
         }
 
-        esp_err_t apply_result = apply_config_from_json(root);
+        esp_err_t apply_result = apply_config_from_json(root, false);
         cJSON_Delete(root);
 
         if (apply_result != ESP_OK) {
