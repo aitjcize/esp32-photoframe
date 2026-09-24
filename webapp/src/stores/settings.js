@@ -6,6 +6,7 @@ import {
   SPECTRA6,
   getDefaultParams,
 } from "@aitjcize/epaper-image-convert";
+import { validateTimezone } from "../utils/timezone";
 
 export const useSettingsStore = defineStore("settings", () => {
   const API_BASE = "";
@@ -20,7 +21,10 @@ export const useSettingsStore = defineStore("settings", () => {
   const deviceSettings = ref({
     // General
     deviceName: "PhotoFrame",
-    timezoneOffset: 0,
+    // The POSIX TZ rule exactly as the device applies it (tzset). Kept
+    // verbatim: a DST rule such as CET-1CEST,M3.5.0,M10.5.0/3 has no
+    // numeric form, and reducing it to an offset would clobber it on save.
+    timezone: "UTC0",
     ntpServer: "pool.ntp.org",
     // Network: static IP / DNS override (#43)
     ipMode: "dhcp",
@@ -68,6 +72,10 @@ export const useSettingsStore = defineStore("settings", () => {
 
   // Original config from server (for change detection)
   let originalConfig = {};
+
+  // The time zone rule as the device last reported or accepted it, so the UI
+  // can tell a rule the user edited from one it merely loaded.
+  const savedTimezone = ref("UTC0");
 
   // Orientation as currently saved/applied on the device. The image preview uses
   // this (not the live dropdown) so it only re-lays-out when the user saves.
@@ -226,17 +234,8 @@ export const useSettingsStore = defineStore("settings", () => {
       deviceSettings.value.aiCredentials.openaiApiKey = data.openai_api_key || "";
       deviceSettings.value.aiCredentials.googleApiKey = data.google_api_key || "";
 
-      // Parse timezone from POSIX format (e.g., "UTC-8" -> 8)
-      const timezone = data.timezone || "UTC0";
-      let offset = 0;
-      const match = timezone.match(/UTC([+-]?)(\d+)(?::(\d+))?/);
-      if (match) {
-        const sign = match[1] === "-" ? 1 : -1; // POSIX format is inverted
-        const hours = parseInt(match[2]) || 0;
-        const minutes = parseInt(match[3]) || 0;
-        offset = sign * (hours + minutes / 60);
-      }
-      deviceSettings.value.timezoneOffset = offset;
+      deviceSettings.value.timezone = data.timezone || "UTC0";
+      savedTimezone.value = deviceSettings.value.timezone;
     } catch (_error) {
       console.log("Device settings API not available (standalone mode)");
     }
@@ -268,22 +267,6 @@ export const useSettingsStore = defineStore("settings", () => {
   }
 
   async function saveDeviceSettings() {
-    // Convert UTC offset to POSIX timezone format
-    const offsetValue = deviceSettings.value.timezoneOffset || 0;
-    let timezone = "UTC0";
-    if (offsetValue !== 0) {
-      const absOffset = Math.abs(offsetValue);
-      const hours = Math.floor(absOffset);
-      const minutes = Math.round((absOffset - hours) * 60);
-      const sign = offsetValue > 0 ? "-" : "+"; // Inverted for POSIX
-
-      if (minutes === 0) {
-        timezone = `UTC${sign}${hours}`;
-      } else {
-        timezone = `UTC${sign}${hours}:${String(minutes).padStart(2, "0")}`;
-      }
-    }
-
     const currentConfig = {
       auto_rotate: deviceSettings.value.autoRotate,
       rotate_cron: deviceSettings.value.rotateCron,
@@ -303,7 +286,7 @@ export const useSettingsStore = defineStore("settings", () => {
       static_netmask: deviceSettings.value.staticNetmask,
       static_gateway: deviceSettings.value.staticGateway,
       dns_server: deviceSettings.value.dnsServer,
-      timezone: timezone,
+      timezone: deviceSettings.value.timezone,
       access_token: deviceSettings.value.accessToken,
       http_header_key: deviceSettings.value.httpHeaderKey,
       http_header_value: deviceSettings.value.httpHeaderValue,
@@ -329,6 +312,15 @@ export const useSettingsStore = defineStore("settings", () => {
           : cur !== orig;
       if (differs) {
         changedFields[key] = cur;
+      }
+    }
+
+    // Only a rule that is about to be sent is checked, so an odd value that
+    // an older firmware let through can't block unrelated saves.
+    if (changedFields.timezone !== undefined) {
+      const tzError = validateTimezone(changedFields.timezone);
+      if (tzError) {
+        return { success: false, message: tzError };
       }
     }
 
@@ -441,6 +433,9 @@ export const useSettingsStore = defineStore("settings", () => {
         // is not part of it; record only whether one is now set.
         const { http_password: savedPassword, ...savedFields } = changedFields;
         Object.assign(originalConfig, savedFields);
+        if (savedFields.timezone !== undefined) {
+          savedTimezone.value = savedFields.timezone;
+        }
         if (savedPassword !== undefined) {
           deviceSettings.value.httpAuthWasEnabled = savedPassword !== "";
           deviceSettings.value.httpPassword = "";
@@ -545,6 +540,7 @@ export const useSettingsStore = defineStore("settings", () => {
     activeSettingsTab,
     params,
     deviceSettings,
+    savedTimezone,
     appliedOrientation,
     palette,
     preset,

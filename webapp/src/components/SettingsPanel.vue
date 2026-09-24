@@ -1,11 +1,23 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { useSettingsStore, useAppStore } from "../stores";
 import PaletteCalibration from "./PaletteCalibration.vue";
 import GrayscaleCalibration from "./GrayscaleCalibration.vue";
 import ProcessingControls from "./ProcessingControls.vue";
 import RotationSchedule from "./RotationSchedule.vue";
 import { isValidCron } from "../utils/cron";
+import { TIMEZONES } from "../data/timezones";
+import {
+  APPROXIMATE_ZONES,
+  CUSTOM_ZONE,
+  FIXED_OFFSET_ZONE,
+  TIMEZONE_MAX_BYTES,
+  browserTimeZone,
+  fixedOffsetLabel,
+  ruleForZone,
+  validateTimezone,
+  zoneForRule,
+} from "../utils/timezone";
 import { wideEdit } from "../utils/uiPrefs";
 
 const settingsStore = useSettingsStore();
@@ -18,59 +30,95 @@ const scheduleValid = computed(() => {
   return rules.length >= 1 && rules.length <= 7 && rules.every((r) => isValidCron(r));
 });
 
-// Device time state
+// Time zone picker. The store holds only the POSIX rule the device applies;
+// the IANA name shown here is derived from it and never leaves the browser.
+const browserZone = browserTimeZone();
+const browserZoneKnown = ruleForZone(browserZone) !== null;
+const showAdvancedTz = ref(false);
+
+const timezoneRule = computed(() => settingsStore.deviceSettings.timezone);
+// Only an edited rule is checked: a value an older firmware let through must
+// not block saving unrelated settings (the store sends changed fields only).
+const timezoneError = computed(() =>
+  timezoneRule.value === settingsStore.savedTimezone ? "" : validateTimezone(timezoneRule.value)
+);
+const approximateNote = computed(() => APPROXIMATE_ZONES[selectedZone.value] ?? "");
+
+const selectedZone = computed({
+  get: () => zoneForRule(timezoneRule.value, browserZone),
+  set: (name) => {
+    // The two sentinel entries stand for the rule already stored, and
+    // clearing the field (null) is not a choice either.
+    const rule = ruleForZone(name);
+    if (rule !== null) settingsStore.deviceSettings.timezone = rule;
+  },
+});
+
+const timezoneItems = computed(() => {
+  const items = Object.keys(TIMEZONES).map((name) => ({ title: name, value: name }));
+  if (selectedZone.value === FIXED_OFFSET_ZONE) {
+    const label = `Fixed offset ${fixedOffsetLabel(timezoneRule.value)} (no DST)`;
+    items.unshift({ title: label, value: FIXED_OFFSET_ZONE });
+  } else if (selectedZone.value === CUSTOM_ZONE) {
+    items.unshift({ title: "Custom rule", value: CUSTOM_ZONE });
+  }
+  return items;
+});
+
+// A rule no zone in the table produces can only be edited as text, so open
+// the field for it. It stays open (even if typing passes through a rule that
+// maps to a zone) until the user collapses it.
+watch(
+  selectedZone,
+  (zone) => {
+    if (zone === CUSTOM_ZONE) showAdvancedTz.value = true;
+  },
+  { immediate: true }
+);
+
+const saveBlocker = computed(() => {
+  if (!scheduleValid.value) return "Fix the rotation schedule first (invalid or too many rules)";
+  if (timezoneError.value) return "Fix the time zone rule first";
+  return "";
+});
+
+// Device time. The device reports its local wall-clock time as text; tick it
+// forward from there instead of re-deriving local time from the TZ rule,
+// which would need a POSIX DST evaluator in the browser.
 const deviceTime = ref("");
 const syncingTime = ref(false);
-let deviceTimestamp = null; // Unix timestamp from device
-let localTimeOffset = 0; // Offset between device time and local time
+let deviceLocalMs = null; // device wall-clock time, parsed as if it were UTC
+let receivedAt = 0; // Date.now() when it was reported
+let lastTickHour = null; // hour of the last tick, null right after a report
 let tickInterval = null;
 
 function updateDisplayTime() {
-  if (deviceTimestamp === null) return;
-  // Calculate current device time based on elapsed local time
-  const elapsed = Math.floor((Date.now() - localTimeOffset) / 1000);
-  const currentTimestamp = deviceTimestamp + elapsed;
-
-  // Apply timezone offset for display
-  // We shift the timestamp by the offset so that toISOString() (which is UTC)
-  // displays the correct local time numbers.
-  const offsetHours = settingsStore.deviceSettings.timezoneOffset || 0;
-  const adjustedTimestamp = currentTimestamp + offsetHours * 3600;
-
-  const date = new Date(adjustedTimestamp * 1000);
-  // Format as YYYY-MM-DD HH:MM:SS
-  deviceTime.value = date.toISOString().slice(0, 19).replace("T", " ");
+  if (deviceLocalMs === null) return;
+  const now = new Date(deviceLocalMs + (Date.now() - receivedAt));
+  // toISOString() prints in UTC, i.e. the wall-clock numbers we stored
+  deviceTime.value = now.toISOString().slice(0, 19).replace("T", " ");
+  // A DST rule moves the device's clock on an hour boundary, which ticking
+  // forward can't reproduce, so ask the device again whenever the hour rolls
+  // over. That also corrects any drift.
+  const hour = now.getUTCHours();
+  if (lastTickHour !== null && hour !== lastTickHour) fetchDeviceTime();
+  lastTickHour = hour;
 }
 
-async function parseTimezone(timezoneStr) {
-  if (!timezoneStr) return;
-
-  // Posix format: UTC[+/-]H[:MM] (e.g., UTC-8 or UTC+5:30)
-  // Note: POSIX sign is inverted relative to ISO8601
-  let offset = 0;
-  const match = timezoneStr.match(/UTC([+-]?)(\d+)(?::(\d+))?/);
-  if (match) {
-    const sign = match[1] === "-" ? 1 : -1; // POSIX Inverted
-    const hours = parseInt(match[2]) || 0;
-    const minutes = parseInt(match[3]) || 0;
-    offset = sign * (hours + minutes / 60);
-
-    // Update store if different, to keep UI in sync
-    if (settingsStore.deviceSettings.timezoneOffset !== offset) {
-      settingsStore.deviceSettings.timezoneOffset = offset;
-    }
-  }
+function setDeviceTime(data) {
+  // "YYYY-MM-DD HH:MM:SS" in the device's zone
+  const wallClock = Date.parse(`${String(data.time ?? "").replace(" ", "T")}Z`);
+  deviceLocalMs = Number.isFinite(wallClock) ? wallClock : Number(data.timestamp) * 1000;
+  receivedAt = Date.now();
+  lastTickHour = null; // a report is authoritative, not a rollover
+  updateDisplayTime();
 }
 
 async function fetchDeviceTime() {
   try {
     const response = await fetch("/api/time");
     if (response.ok) {
-      const data = await response.json();
-      deviceTimestamp = data.timestamp;
-      localTimeOffset = Date.now();
-      await parseTimezone(data.timezone);
-      updateDisplayTime();
+      setDeviceTime(await response.json());
     }
   } catch (error) {
     console.error("Failed to fetch device time:", error);
@@ -84,10 +132,7 @@ async function syncTime() {
     if (response.ok) {
       const data = await response.json();
       if (data.status === "success") {
-        deviceTimestamp = data.timestamp;
-        localTimeOffset = Date.now();
-        await parseTimezone(data.timezone);
-        updateDisplayTime();
+        setDeviceTime(data);
       }
     }
   } catch (error) {
@@ -498,17 +543,55 @@ async function performFactoryReset() {
                 </v-text-field>
               </v-col>
               <v-col cols="12" md="6">
-                <v-text-field
-                  v-model.number="settingsStore.deviceSettings.timezoneOffset"
-                  label="Timezone (UTC offset)"
-                  type="number"
-                  :min="-12"
-                  :max="14"
-                  :step="0.5"
+                <v-autocomplete
+                  v-model="selectedZone"
+                  :items="timezoneItems"
+                  label="Time zone"
                   variant="outlined"
-                  hint="e.g., -8 for PST, +1 for CET, +8 for CST"
+                  auto-select-first
+                  hint="The rotation schedule (Auto Rotate) runs in this time zone"
                   persistent-hint
                 />
+                <div class="text-caption text-medium-emphasis mt-1">
+                  POSIX TZ rule: <code>{{ timezoneRule }}</code>
+                </div>
+                <div v-if="approximateNote" class="text-caption text-warning mt-1">
+                  {{ approximateNote }}
+                </div>
+                <div class="d-flex flex-wrap ga-2 mt-1">
+                  <v-btn
+                    v-if="browserZoneKnown"
+                    size="small"
+                    variant="text"
+                    prepend-icon="mdi-web"
+                    :disabled="selectedZone === browserZone"
+                    @click="selectedZone = browserZone"
+                  >
+                    Use this browser's time zone ({{ browserZone }})
+                  </v-btn>
+                  <v-btn
+                    size="small"
+                    variant="text"
+                    :prepend-icon="showAdvancedTz ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+                    @click="showAdvancedTz = !showAdvancedTz"
+                  >
+                    Advanced: POSIX TZ rule
+                  </v-btn>
+                </div>
+                <v-expand-transition>
+                  <v-text-field
+                    v-if="showAdvancedTz"
+                    v-model="settingsStore.deviceSettings.timezone"
+                    label="POSIX TZ rule"
+                    variant="outlined"
+                    density="compact"
+                    class="mt-2"
+                    :maxlength="TIMEZONE_MAX_BYTES"
+                    :error-messages="timezoneError ? [timezoneError] : []"
+                    hint="Any rule tzset() accepts, e.g. EST5EDT,M3.2.0,M11.1.0. A fixed offset is UTC-8 for eight hours ahead of UTC (POSIX inverts the sign)."
+                    persistent-hint
+                  />
+                </v-expand-transition>
               </v-col>
             </v-row>
             <!-- Advanced network settings (#43, #130): collapsed by default — NTP,
@@ -957,17 +1040,13 @@ async function performFactoryReset() {
             {{ saveMessage || "Failed to save settings" }}
           </v-chip>
         </v-fade-transition>
-        <v-tooltip
-          text="Fix the rotation schedule first (invalid or too many rules)"
-          location="top"
-          :disabled="scheduleValid"
-        >
+        <v-tooltip :text="saveBlocker" location="top" :disabled="!saveBlocker">
           <template #activator="{ props: tooltipProps }">
             <span v-bind="tooltipProps">
               <v-btn
                 color="primary"
                 :loading="saving"
-                :disabled="!scheduleValid"
+                :disabled="!!saveBlocker"
                 @click="saveSettings"
               >
                 <v-icon icon="mdi-content-save" start />

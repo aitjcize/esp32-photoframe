@@ -84,6 +84,8 @@ The measured palette accounts for the fact that e-paper displays show darker, mo
 
 **Auto-Rotation**: SD card (default) or URL-based (fetch from web)
 
+**Time zone**: pick your zone in **Settings > General** (DST is handled); the rotation schedule runs in that zone.
+
 Configure via web interface **Settings** section.
 
 ## AI Image Generation 🤖
