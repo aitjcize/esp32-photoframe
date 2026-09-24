@@ -4,6 +4,7 @@ extern "C" {
 #include "http_auth.h"
 }
 
+#include <array>
 #include <string>
 
 // base64("user:secret") etc. -- spelled out so the tests read as wire data.
@@ -103,4 +104,101 @@ TEST(HttpAuth, RejectsOverlongCredential)
 {
     EXPECT_FALSE(
         http_auth_header_matches(basic(std::string(400, 'u'), "hunter2").c_str(), "hunter2"));
+}
+
+// ---------------------------------------------------------------------------
+// Brute-force limiter
+
+class HttpAuthLimiter : public ::testing::Test
+{
+   protected:
+    void SetUp() override
+    {
+        http_auth_limiter_reset();
+    }
+
+    static std::array<uint8_t, HTTP_AUTH_ADDR_LEN> ip(uint8_t last)
+    {
+        std::array<uint8_t, HTTP_AUTH_ADDR_LEN> a{};
+        a[10] = 0xff;
+        a[11] = 0xff;
+        a[12] = 192;
+        a[13] = 168;
+        a[15] = last;
+        return a;
+    }
+
+    static void fail(const std::array<uint8_t, HTTP_AUTH_ADDR_LEN> &a, int n, int64_t now)
+    {
+        for (int i = 0; i < n; i++) {
+            http_auth_limiter_record(a.data(), false, now);
+        }
+    }
+};
+
+// A typo or two must never lock the owner out.
+TEST_F(HttpAuthLimiter, FreeFailuresDoNotLockOut)
+{
+    auto a = ip(10);
+    fail(a, HTTP_AUTH_FREE_FAILURES, 1000);
+    EXPECT_TRUE(http_auth_limiter_allowed(a.data(), 1000, nullptr));
+}
+
+TEST_F(HttpAuthLimiter, LocksOutAfterFreeFailuresThenExpires)
+{
+    auto a = ip(10);
+    fail(a, HTTP_AUTH_FREE_FAILURES + 1, 1000);
+
+    int64_t retry = 0;
+    EXPECT_FALSE(http_auth_limiter_allowed(a.data(), 1000, &retry));
+    EXPECT_EQ(retry, HTTP_AUTH_LOCKOUT_BASE_MS);
+    EXPECT_FALSE(
+        http_auth_limiter_allowed(a.data(), 1000 + HTTP_AUTH_LOCKOUT_BASE_MS - 1, nullptr));
+    EXPECT_TRUE(http_auth_limiter_allowed(a.data(), 1000 + HTTP_AUTH_LOCKOUT_BASE_MS, nullptr));
+}
+
+TEST_F(HttpAuthLimiter, LockoutDoublesAndIsCapped)
+{
+    auto a = ip(10);
+    fail(a, HTTP_AUTH_FREE_FAILURES + 2, 0);  // second failure past the free ones
+    int64_t retry = 0;
+    EXPECT_FALSE(http_auth_limiter_allowed(a.data(), 0, &retry));
+    EXPECT_EQ(retry, 2 * HTTP_AUTH_LOCKOUT_BASE_MS);
+
+    fail(a, 100, 0);
+    EXPECT_FALSE(http_auth_limiter_allowed(a.data(), 0, &retry));
+    EXPECT_EQ(retry, HTTP_AUTH_LOCKOUT_MAX_MS);
+}
+
+TEST_F(HttpAuthLimiter, SuccessClearsTheRecord)
+{
+    auto a = ip(10);
+    fail(a, HTTP_AUTH_FREE_FAILURES, 0);
+    http_auth_limiter_record(a.data(), true, 0);
+    fail(a, HTTP_AUTH_FREE_FAILURES, 0);  // a fresh set of free failures
+    EXPECT_TRUE(http_auth_limiter_allowed(a.data(), 0, nullptr));
+}
+
+// One client guessing must not lock out another.
+TEST_F(HttpAuthLimiter, ClientsAreTrackedSeparately)
+{
+    auto attacker = ip(66), owner = ip(10);
+    fail(attacker, HTTP_AUTH_FREE_FAILURES + 1, 0);
+    EXPECT_FALSE(http_auth_limiter_allowed(attacker.data(), 0, nullptr));
+    EXPECT_TRUE(http_auth_limiter_allowed(owner.data(), 0, nullptr));
+}
+
+// A full table forgets the least recently seen client, never crashes or
+// refuses unknown clients.
+TEST_F(HttpAuthLimiter, FullTableEvictsLeastRecentlySeen)
+{
+    auto first = ip(1);
+    fail(first, HTTP_AUTH_FREE_FAILURES + 1, 0);
+    for (uint8_t i = 2; i < 40; i++) {
+        auto other = ip(i);
+        http_auth_limiter_record(other.data(), false, 100 + i);
+    }
+    EXPECT_TRUE(http_auth_limiter_allowed(first.data(), 0, nullptr));
+    auto fresh = ip(200);
+    EXPECT_TRUE(http_auth_limiter_allowed(fresh.data(), 0, nullptr));
 }

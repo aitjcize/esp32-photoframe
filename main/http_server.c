@@ -24,12 +24,14 @@
 #include "esp_http_server.h"
 #include "esp_littlefs.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_vfs.h"
 #include "esp_vfs_fat.h"
 #include "freertos/task.h"
 #include "ha_integration.h"
 #include "http_auth.h"
 #include "image_processor.h"
+#include "lwip/sockets.h"
 #include "nvs_flash.h"
 #include "ota_manager.h"
 #include "periodic_tasks.h"
@@ -112,28 +114,79 @@ extern const uint8_t measurement_sample_jpg_end[] asm("_binary_measurement_sampl
 
 typedef esp_err_t (*http_handler_fn)(httpd_req_t *);
 
-static bool http_auth_ok(httpd_req_t *req)
+// Client address for the brute-force limiter, as 16 bytes (IPv4 is stored
+// v4-mapped). Falls back to all-zero, i.e. one shared bucket, if the peer
+// can't be read.
+static void client_addr(httpd_req_t *req, uint8_t out[HTTP_AUTH_ADDR_LEN])
+{
+    memset(out, 0, HTTP_AUTH_ADDR_LEN);
+    struct sockaddr_storage peer;
+    socklen_t len = sizeof(peer);
+    if (getpeername(httpd_req_to_sockfd(req), (struct sockaddr *) &peer, &len) != 0) {
+        return;
+    }
+    if (peer.ss_family == AF_INET6) {
+        memcpy(out, &((struct sockaddr_in6 *) &peer)->sin6_addr, HTTP_AUTH_ADDR_LEN);
+    } else if (peer.ss_family == AF_INET) {
+        out[10] = 0xff;
+        out[11] = 0xff;
+        memcpy(out + 12, &((struct sockaddr_in *) &peer)->sin_addr, 4);
+    }
+}
+
+typedef enum { AUTH_OK, AUTH_DENIED, AUTH_LOCKED_OUT } auth_result_t;
+
+static auth_result_t http_auth_check(httpd_req_t *req, int64_t *retry_after_ms)
 {
     const char *expected = config_manager_get_http_password();
     if (expected == NULL || expected[0] == '\0') {
-        return true;  // authentication disabled
+        return AUTH_OK;  // authentication disabled
     }
 
     size_t len = httpd_req_get_hdr_value_len(req, "Authorization");
-    if (len == 0 || len > 256) {
-        return false;
+    if (len == 0) {
+        // No credential offered: the browser's first request before it shows
+        // its password prompt. Not a guess, so it doesn't count.
+        return AUTH_DENIED;
     }
+
+    uint8_t addr[HTTP_AUTH_ADDR_LEN];
+    client_addr(req, addr);
+    int64_t now_ms = esp_timer_get_time() / 1000;
+    if (!http_auth_limiter_allowed(addr, now_ms, retry_after_ms)) {
+        return AUTH_LOCKED_OUT;
+    }
+
+    bool ok = false;
     char header[257];
-    if (httpd_req_get_hdr_value_str(req, "Authorization", header, sizeof(header)) != ESP_OK) {
-        return false;
+    if (len <= 256 &&
+        httpd_req_get_hdr_value_str(req, "Authorization", header, sizeof(header)) == ESP_OK) {
+        ok = http_auth_header_matches(header, expected);
     }
-    return http_auth_header_matches(header, expected);
+    http_auth_limiter_record(addr, ok, now_ms);
+    if (!ok) {
+        ESP_LOGW(TAG, "Wrong device password from a client");
+    }
+    return ok ? AUTH_OK : AUTH_DENIED;
 }
 
 // Dispatch trampoline: the real handler travels in user_ctx (no route used it).
 static esp_err_t auth_gate(httpd_req_t *req)
 {
-    if (!http_auth_ok(req)) {
+    int64_t retry_after_ms = 0;
+    auth_result_t result = http_auth_check(req, &retry_after_ms);
+    if (result == AUTH_LOCKED_OUT) {
+        // Lockouts are capped at HTTP_AUTH_LOCKOUT_MAX_MS, so this fits.
+        char retry_after[12];
+        snprintf(retry_after, sizeof(retry_after), "%u",
+                 (unsigned) ((retry_after_ms + 999) / 1000));
+        httpd_resp_set_status(req, "429 Too Many Requests");
+        httpd_resp_set_hdr(req, "Retry-After", retry_after);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"error\":\"too many wrong passwords, try again later\"}");
+        return ESP_OK;
+    }
+    if (result == AUTH_DENIED) {
         httpd_resp_set_status(req, "401 Unauthorized");
         httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"ESP32 PhotoFrame\"");
         httpd_resp_set_type(req, "application/json");

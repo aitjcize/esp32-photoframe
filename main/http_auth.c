@@ -98,3 +98,88 @@ bool http_auth_header_matches(const char *auth_header, const char *expected)
     }
     return constant_time_equal(sep + 1, expected);
 }
+
+// ---------------------------------------------------------------------------
+// Brute-force limiter
+
+#define LIMITER_SLOTS 8
+
+typedef struct {
+    bool used;
+    uint8_t addr[HTTP_AUTH_ADDR_LEN];
+    uint32_t failures;
+    int64_t locked_until_ms;
+    int64_t last_seen_ms;
+} limiter_slot_t;
+
+static limiter_slot_t s_slots[LIMITER_SLOTS];
+
+static limiter_slot_t *limiter_find(const uint8_t *addr)
+{
+    for (int i = 0; i < LIMITER_SLOTS; i++) {
+        if (s_slots[i].used && memcmp(s_slots[i].addr, addr, HTTP_AUTH_ADDR_LEN) == 0) {
+            return &s_slots[i];
+        }
+    }
+    return NULL;
+}
+
+bool http_auth_limiter_allowed(const uint8_t *addr, int64_t now_ms, int64_t *retry_after_ms)
+{
+    limiter_slot_t *slot = limiter_find(addr);
+    if (slot == NULL || now_ms >= slot->locked_until_ms) {
+        return true;
+    }
+    if (retry_after_ms) {
+        *retry_after_ms = slot->locked_until_ms - now_ms;
+    }
+    return false;
+}
+
+void http_auth_limiter_record(const uint8_t *addr, bool success, int64_t now_ms)
+{
+    limiter_slot_t *slot = limiter_find(addr);
+    if (success) {
+        if (slot) {
+            slot->used = false;
+        }
+        return;
+    }
+
+    if (slot == NULL) {
+        // Take a free slot, else evict the client seen least recently.
+        slot = &s_slots[0];
+        for (int i = 0; i < LIMITER_SLOTS; i++) {
+            if (!s_slots[i].used) {
+                slot = &s_slots[i];
+                break;
+            }
+            if (s_slots[i].last_seen_ms < slot->last_seen_ms) {
+                slot = &s_slots[i];
+            }
+        }
+        memset(slot, 0, sizeof(*slot));
+        slot->used = true;
+        memcpy(slot->addr, addr, HTTP_AUTH_ADDR_LEN);
+    }
+
+    slot->failures++;
+    slot->last_seen_ms = now_ms;
+    if (slot->failures > HTTP_AUTH_FREE_FAILURES) {
+        // 30 s after the first failure past the free ones, doubling from there.
+        uint32_t extra = slot->failures - HTTP_AUTH_FREE_FAILURES - 1;
+        int64_t lockout = HTTP_AUTH_LOCKOUT_BASE_MS;
+        while (extra-- > 0 && lockout < HTTP_AUTH_LOCKOUT_MAX_MS) {
+            lockout *= 2;
+        }
+        if (lockout > HTTP_AUTH_LOCKOUT_MAX_MS) {
+            lockout = HTTP_AUTH_LOCKOUT_MAX_MS;
+        }
+        slot->locked_until_ms = now_ms + lockout;
+    }
+}
+
+void http_auth_limiter_reset(void)
+{
+    memset(s_slots, 0, sizeof(s_slots));
+}
