@@ -1,5 +1,6 @@
 #include "ota_manager.h"
 
+#include <stdatomic.h>
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
@@ -37,6 +38,8 @@ static ota_status_t ota_status = {.state = OTA_STATE_IDLE,
 
 static SemaphoreHandle_t ota_status_mutex = NULL;
 static bool update_available = false;
+// Set before task creation; clear after HTTP cleanup and status persistence.
+static atomic_bool s_check_active = false;
 static char firmware_url[256] = "";
 
 // Forward declarations
@@ -290,6 +293,7 @@ static void ota_check_task(void *pvParameter)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to fetch release info");
         set_ota_state(OTA_STATE_ERROR, "Failed to check for updates");
+        s_check_active = false;
         vTaskDelete(NULL);
         return;
     }
@@ -327,7 +331,34 @@ static void ota_check_task(void *pvParameter)
         ha_notify_update();
     }
 
+    s_check_active = false;
     vTaskDelete(NULL);
+}
+
+static esp_err_t start_ota_check(void)
+{
+    bool expected = false;
+    if (!atomic_compare_exchange_strong(&s_check_active, &expected, true)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    update_available = false;
+    if (xTaskCreate(&ota_check_task, "ota_check_task", 12288, NULL, 5, NULL) != pdPASS) {
+        s_check_active = false;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+bool ota_wait_for_check(int timeout_ms)
+{
+    int64_t deadline = esp_timer_get_time() + (int64_t) timeout_ms * 1000;
+    while (s_check_active) {
+        if (esp_timer_get_time() >= deadline) {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    return true;
 }
 
 static void ota_update_task(void *pvParameter)
@@ -479,13 +510,12 @@ esp_err_t ota_check_for_update(bool *update_available_out, int timeout)
         return ESP_ERR_INVALID_STATE;
     }
 
-    update_available = false;
-    xTaskCreate(&ota_check_task, "ota_check_task", 12288, NULL, 5, NULL);
-
-    // Wait for check to complete (with timeout)
-    while (timeout > 0 && ota_status.state == OTA_STATE_CHECKING) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        timeout--;
+    esp_err_t err = start_ota_check();
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (timeout > 0 && !ota_wait_for_check(timeout * 1000)) {
+        return ESP_ERR_TIMEOUT;
     }
 
     if (update_available_out) {
@@ -542,9 +572,7 @@ static esp_err_t ota_check_periodic_callback(void)
     ESP_LOGI(TAG, "Periodic OTA check triggered");
 
     // Check for updates without notifying HA (HA will poll for status)
-    xTaskCreate(&ota_check_task, "ota_check_task", 12288, NULL, 5, NULL);
-
-    return ESP_OK;
+    return start_ota_check();
 }
 
 static void ota_save_status_to_nvs(void)

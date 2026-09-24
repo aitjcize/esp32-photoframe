@@ -17,6 +17,7 @@ set(SOURCES
     "png_decoder.c"
     "power_manager.c"
     "processing_settings.c"
+    "rotation_network.c"
     "splash_screen.c"
     "storage.c"
     "cron.c"

@@ -46,6 +46,10 @@ esp_err_t fetch_and_display_image_from_url(const char *url, bool *not_modified);
 // Handles both URL and SD card rotation modes
 // Returns ESP_OK on success, error code on failure
 esp_err_t trigger_image_rotation(void);
+// Scheduled-wake variant: callback runs once after network work, before any
+// decode/display (also on 304/fetch failure, before a possible local fallback).
+// Interactive callers use trigger_image_rotation() to keep their connection.
+esp_err_t trigger_image_rotation_with_network_done(void (*network_done)(void));
 
 // Create battery status JSON object with all battery fields
 // Returns cJSON object (caller must delete with cJSON_Delete)

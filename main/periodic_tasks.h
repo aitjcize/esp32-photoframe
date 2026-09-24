@@ -23,6 +23,8 @@ typedef esp_err_t (*periodic_task_callback_t)(void);
  * @return ESP_OK on success, error code on failure
  */
 esp_err_t periodic_tasks_init(void);
+// Scheduled wakes run tasks explicitly once; disable the hourly background timer.
+esp_err_t periodic_tasks_stop_timer(void);
 
 /**
  * @brief Register a periodic task

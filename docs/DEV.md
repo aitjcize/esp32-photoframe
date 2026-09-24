@@ -167,3 +167,36 @@ In `idf.py menuconfig`:
 **Device not responding:**
 - Press and hold BOOT button while connecting USB
 - Try erasing flash: `idf.py erase-flash`
+
+## Verify Wi-Fi shutdown before scheduled refresh
+
+Timer and ROTATE-button wakes can stop Wi-Fi after downloading the image,
+thumbnail, and remote settings. The log `WiFi off before image processing and
+refresh` marks successful driver shutdown. HA-configured wakes and responses
+with `X-Post-Rotate-Wait-Sec` keep the connection for notifications/config sync.
+An OTA check gets up to 30 seconds to finish its network and storage cleanup;
+if it is still active, Wi-Fi stays on for that rotation. Interactive rotations
+keep Wi-Fi on. The hourly task timer and background rotation timer are disabled for the
+scheduled wake path.
+
+Before release, build for EE02 and an SD-card board and check on battery power:
+
+- With HA disabled and no post-rotate window, serve JPEG/PNG and BMP/EPDGZ,
+  including a thumbnail and remote settings. Verify download/settings logs
+  precede radio shutdown, followed by decode/refresh and normal deep sleep.
+- Repeat with HTTP 304, a failed fetch/local fallback, and local-only rotation.
+  Check the existing image/fallback behavior and absence of reconnect attempts
+  after intentional stop. Local-only wakes must work without Wi-Fi initialization.
+- Enable HA, request a post-rotate window, and enable HA through remote settings.
+  Verify the connection is retained and existing notifications/config access work.
+- Force the periodic OTA check due, both with a normal response and a stalled
+  release endpoint. Check worker completion before shutdown, or the keep-Wi-Fi-on
+  log after the 30-second wait. Inject task-allocation failure to verify there is
+  no phantom active worker. Do not interrupt the check's HTTP/NVS cleanup.
+- Verify provisioning and interactive BOOT/web rotations, then explicitly connect
+  again after `wifi_manager_stop()` in a test build and verify normal reconnects.
+
+Compare battery-connector current with the same upstream build/configuration.
+Confirm the radio is off during decode and panel BUSY; integrate charge per wake
+before claiming a battery-life improvement. Host tests cover Wi-Fi events and
+shutdown policy; they do not establish hardware timing or energy savings.

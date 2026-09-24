@@ -56,6 +56,11 @@ esp_err_t periodic_tasks_init(void)
     return ESP_OK;
 }
 
+esp_err_t periodic_tasks_stop_timer(void)
+{
+    return esp_timer_stop(periodic_check_timer);
+}
+
 esp_err_t periodic_tasks_register(const char *task_name, periodic_task_callback_t callback,
                                   uint32_t interval_seconds)
 {

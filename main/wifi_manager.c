@@ -1,5 +1,6 @@
 #include "wifi_manager.h"
 
+#include <stdatomic.h>
 #include <string.h>
 
 #include "config.h"
@@ -11,6 +12,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
@@ -26,7 +28,11 @@ static const char *TAG = "wifi_manager";
 
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
-static bool s_is_connected = false;
+static atomic_bool s_is_connected = false;
+// Serialize driver commands with event-driven retries. After stop returns,
+// no handler can reconnect based on an earlier state.
+static SemaphoreHandle_t s_lifecycle_mutex;
+static bool s_connect_allowed = true;  // Provisioning starts STA directly.
 static esp_netif_t *s_sta_netif = NULL;
 
 static void apply_dns_override(void);
@@ -34,6 +40,11 @@ static void apply_dns_override(void);
 static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id,
                           void *event_data)
 {
+    xSemaphoreTake(s_lifecycle_mutex, portMAX_DELAY);
+    if (!s_connect_allowed) {
+        xSemaphoreGive(s_lifecycle_mutex);
+        return;
+    }
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
@@ -43,6 +54,8 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
         // before falling back to the A record.
         esp_netif_create_ip6_linklocal(s_sta_netif);
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        s_is_connected = false;
+        xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
         if (s_retry_num < 5) {
             esp_wifi_connect();
             s_retry_num++;
@@ -65,6 +78,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
         ip_event_got_ip6_t *event = (ip_event_got_ip6_t *) event_data;
         ESP_LOGI(TAG, "got ip6:" IPV6STR, IPV62STR(event->ip6_info.ip));
     }
+    xSemaphoreGive(s_lifecycle_mutex);
 }
 
 esp_err_t wifi_manager_set_performance_mode(bool enable)
@@ -113,6 +127,11 @@ esp_err_t wifi_manager_update_hostname(void)
 esp_err_t wifi_manager_init(void)
 {
     s_wifi_event_group = xEventGroupCreate();
+    s_lifecycle_mutex = xSemaphoreCreateMutex();
+    if (!s_wifi_event_group || !s_lifecycle_mutex) {
+        return ESP_ERR_NO_MEM;
+    }
+    s_connect_allowed = true;
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -205,6 +224,9 @@ esp_err_t wifi_manager_connect(const char *ssid, const char *password)
         return ESP_ERR_INVALID_ARG;
     }
 
+    if (!s_lifecycle_mutex) {
+        return ESP_ERR_INVALID_STATE;
+    }
     wifi_manager_apply_ip_config();
 
     wifi_config_t wifi_config = {0};
@@ -216,15 +238,30 @@ esp_err_t wifi_manager_connect(const char *ssid, const char *password)
     wifi_config.sta.pmf_cfg.capable = true;
     wifi_config.sta.pmf_cfg.required = false;
 
-    // Stop WiFi if it's running, then set config
-    esp_wifi_stop();
-
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));  // Enable power save at boot/connect
-
+    // Disable retries during teardown. Clear stale results before start can
+    // emit a new connection result.
+    esp_err_t err = wifi_manager_stop();
+    if (err != ESP_OK) {
+        return err;
+    }
+    xSemaphoreTake(s_lifecycle_mutex, portMAX_DELAY);
     s_retry_num = 0;
     xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+    s_connect_allowed = true;
+    err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (err == ESP_OK) {
+        err = esp_wifi_start();
+    }
+    if (err == ESP_OK) {
+        err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    }
+    if (err != ESP_OK) {
+        s_connect_allowed = false;
+    }
+    xSemaphoreGive(s_lifecycle_mutex);
+    if (err != ESP_OK) {
+        return err;
+    }
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
                                            pdFALSE, pdFALSE, portMAX_DELAY);
 
@@ -240,10 +277,33 @@ esp_err_t wifi_manager_connect(const char *ssid, const char *password)
     }
 }
 
+static esp_err_t stop_connection(bool stop_radio)
+{
+    if (!s_lifecycle_mutex) {
+        return ESP_OK;  // Local/early wakes may never initialize Wi-Fi.
+    }
+    xSemaphoreTake(s_lifecycle_mutex, portMAX_DELAY);
+    s_connect_allowed = false;
+    s_is_connected = false;
+    xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+    xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+    esp_err_t err = stop_radio ? esp_wifi_stop() : esp_wifi_disconnect();
+    xSemaphoreGive(s_lifecycle_mutex);
+    if (err == ESP_ERR_WIFI_NOT_INIT || err == ESP_ERR_WIFI_NOT_STARTED ||
+        err == ESP_ERR_WIFI_NOT_CONNECT) {
+        return ESP_OK;
+    }
+    return err;
+}
+
 esp_err_t wifi_manager_disconnect(void)
 {
-    s_is_connected = false;
-    return esp_wifi_disconnect();
+    return stop_connection(false);
+}
+
+esp_err_t wifi_manager_stop(void)
+{
+    return stop_connection(true);
 }
 
 bool wifi_manager_is_connected(void)

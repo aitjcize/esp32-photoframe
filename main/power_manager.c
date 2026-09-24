@@ -314,14 +314,16 @@ esp_err_t power_manager_init(void)
     board_hal_led_set(BOARD_HAL_LED_POWER, deep_sleep_enabled);
     board_hal_led_set(BOARD_HAL_LED_ACTIVITY, false);
 
-    // Skip auto-sleep timer if woken by ROTATE button or timer (image generation can take >120s)
+    // These wakes rotate/clear and sleep explicitly. Background timers could
+    // interrupt a long refresh or start another download after Wi-Fi is stopped.
     if (wakeup_source == WAKEUP_SOURCE_ROTATE_BUTTON ||
         wakeup_source == WAKEUP_SOURCE_CLEAR_BUTTON || wakeup_source == WAKEUP_SOURCE_TIMER) {
-        ESP_LOGI(TAG, "Woken by ROTATE button, KEY button or timer, disabling auto-sleep timer");
+        ESP_LOGI(TAG, "Scheduled/clear wake: disabling background sleep and rotation timers");
     } else {
         xTaskCreate(sleep_timer_task, "sleep_timer", 4096, NULL, 5, &sleep_timer_task_handle);
+        xTaskCreate(rotation_timer_task, "rotation_timer", 16384, NULL, 5,
+                    &rotation_timer_task_handle);
     }
-    xTaskCreate(rotation_timer_task, "rotation_timer", 16384, NULL, 5, &rotation_timer_task_handle);
 
     power_manager_enable_auto_light_sleep();
 
@@ -396,7 +398,7 @@ void power_manager_enter_sleep(void)
     // state and the modem domain transitions through a normal teardown
     // rather than being yanked by the deep-sleep entry. Ignored if WiFi
     // was never started.
-    esp_wifi_stop();
+    wifi_manager_stop();
 
     // Flush buffered debug log lines and close the file BEFORE the board
     // teardown below, which on SD-backed boards calls sdcard_deinit() and cuts

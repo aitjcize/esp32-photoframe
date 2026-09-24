@@ -38,6 +38,7 @@
 #include "periodic_tasks.h"
 #include "power_manager.h"
 #include "processing_settings.h"
+#include "rotation_network.h"
 #include "splash_screen.h"
 #include "storage.h"
 #include "utils.h"
@@ -264,6 +265,9 @@ static void log_wall_clock(const char *label)
 
 void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 {
+    // Run periodic work explicitly once; prevent background workers from
+    // starting after the network-work boundary.
+    ESP_ERROR_CHECK(periodic_tasks_stop_timer());
     bool is_button_wake = (wakeup_src == WAKEUP_SOURCE_ROTATE_BUTTON);
     // Check rotation mode and HA configuration
     rotation_mode_t rotation_mode = config_manager_get_rotation_mode();
@@ -349,9 +353,10 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
         // Won't reach here after sleep
     }
 
-    // Trigger rotation
+    // Preserve HA's post-refresh notifications even if remote settings remove
+    // HA during this rotation. The callback also checks newly enabled HA.
     power_manager_reset_sleep_timer();
-    trigger_image_rotation();
+    trigger_image_rotation_with_network_done(ha_configured ? NULL : rotation_network_done);
 
     // Notify HA that data has been updated (after both OTA check and rotation)
     if (wifi_connected && ha_configured) {

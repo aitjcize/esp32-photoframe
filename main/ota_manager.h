@@ -25,6 +25,8 @@ typedef struct {
 
 esp_err_t ota_manager_init(void);
 esp_err_t ota_check_for_update(bool *update_available, int timeout);
+// False on timeout: the check still owns resources and must not be cut off.
+bool ota_wait_for_check(int timeout_ms);
 esp_err_t ota_start_update(void);
 void ota_get_status(ota_status_t *status);
 const char *ota_get_current_version(void);

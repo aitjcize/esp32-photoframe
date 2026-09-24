@@ -148,3 +148,15 @@ target_link_libraries(
 )
 
 gtest_discover_tests(display_flow_test)
+
+# Real Wi-Fi event handling and scheduled radio-off policy against driver fakes.
+add_executable(wifi_lifecycle_test test_wifi_lifecycle.cpp
+  ../main/wifi_manager.c ../main/rotation_network.c)
+target_include_directories(wifi_lifecycle_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/network_stubs
+  ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main)
+target_compile_options(wifi_lifecycle_test PRIVATE -ffunction-sections -fdata-sections)
+target_link_options(wifi_lifecycle_test PRIVATE -Wl,--gc-sections)
+target_link_libraries(wifi_lifecycle_test GTest::gtest_main)
+gtest_discover_tests(wifi_lifecycle_test)
