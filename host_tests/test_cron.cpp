@@ -236,4 +236,41 @@ TEST_F(CronDst, FallBackFiresAtWallClock)
     EXPECT_EQ(got.min, 30);
 }
 
+// 2026-11-01 hh:mm UTC as a time_t
+time_t utc(int hh, int mm)
+{
+    struct tm t = {};
+    t.tm_year = 2026 - 1900;
+    t.tm_mon = 10;
+    t.tm_mday = 1;
+    t.tm_hour = hh;
+    t.tm_min = mm;
+    return timegm(&t);
+}
+
+// The hour after the fall-back happens twice, and the scan must start from
+// the instant the caller's tm names. localtime_r() sets tm_isdst for that
+// instant; resolving the wall-clock afresh (tm_isdst = -1) picks whichever
+// occurrence the libc prefers, an hour off. From the first 01:35 (PDT) the
+// next "30 1 *" is the second 01:30, 55 minutes on; from the second 01:35
+// (PST) it is the next day's, 23 h 55 min on -- not the 01:30 that just
+// passed, and not a phantom 02:30.
+TEST_F(CronDst, FallBackRepeatedHourScansFromTheCallersInstant)
+{
+    auto rules = compile({"30 1 *"});
+
+    time_t first = utc(8, 35);  // 01:35 PDT
+    struct tm lt;
+    localtime_r(&first, &lt);
+    ASSERT_EQ(lt.tm_hour, 1);
+    ASSERT_EQ(lt.tm_isdst, 1);
+    EXPECT_EQ(cron_seconds_until_next(&lt, rules.data(), 1), 55 * 60);
+
+    time_t second = utc(9, 35);  // 01:35 PST
+    localtime_r(&second, &lt);
+    ASSERT_EQ(lt.tm_hour, 1);
+    ASSERT_EQ(lt.tm_isdst, 0);
+    EXPECT_EQ(cron_seconds_until_next(&lt, rules.data(), 1), 24 * 3600 - 5 * 60);
+}
+
 }  // namespace

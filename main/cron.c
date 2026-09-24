@@ -173,8 +173,13 @@ int cron_seconds_until_next(const struct tm *now, const cron_rule_t *rules, int 
         return CRON_FALLBACK_SEC;
     }
 
+    // Keep the caller's DST flag. The hour after a fall-back transition
+    // happens twice, and a tm from localtime_r() says which occurrence it is;
+    // resolving it with tm_isdst = -1 instead picks whichever the libc
+    // prefers (newlib the second, glibc and macOS the first), an hour off
+    // the real instant -- enough to skip the real next slot or to wake on a
+    // non-slot. A caller that doesn't know passes -1 and lets mktime decide.
     struct tm base = *now;
-    base.tm_isdst = -1;  // let mktime resolve DST for the starting instant
     time_t t0 = mktime(&base);
     if (t0 == (time_t) -1) {
         return CRON_FALLBACK_SEC;
