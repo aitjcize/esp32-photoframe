@@ -85,12 +85,14 @@ static void board_hal_battery_adc_init(void)
 // never happen.
 static void main_power_hold(void)
 {
-    // Release last cycle's latch first; the RTC output register kept its value
-    // through sleep, so the pad stays high across the handover.
-    rtc_gpio_hold_dis(BOARD_HAL_MAIN_PWR_PIN);
+    // Configure and drive the pad high while last cycle's hold still freezes
+    // it, and release the hold last. The RTC output register does keep its
+    // value through sleep, but on a pin that powers the whole board off if it
+    // ever reads low, don't hand over with the output unconfigured.
     rtc_gpio_init(BOARD_HAL_MAIN_PWR_PIN);
     rtc_gpio_set_direction(BOARD_HAL_MAIN_PWR_PIN, RTC_GPIO_MODE_OUTPUT_ONLY);
     rtc_gpio_set_level(BOARD_HAL_MAIN_PWR_PIN, 1);
+    rtc_gpio_hold_dis(BOARD_HAL_MAIN_PWR_PIN);
 }
 
 esp_err_t board_hal_init(void)
@@ -340,6 +342,10 @@ bool board_hal_is_usb_connected(void)
 
 void board_hal_shutdown(void)
 {
+    // TODO: a real shutdown on this board is dropping the GPIO2 latch, which
+    // cuts the board's own power (the side button brings it back). Nothing in
+    // main/ calls this yet, and it hasn't been tried on hardware, so for now
+    // it sleeps with the latch held, like the other boards.
     ESP_LOGI(TAG, "Shutdown requested, entering deep sleep");
     board_hal_prepare_for_sleep();
     esp_deep_sleep_start();

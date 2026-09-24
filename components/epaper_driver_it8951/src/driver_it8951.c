@@ -10,9 +10,9 @@
 //
 // HARDWARE-VALIDATION NOTES (untested without the board):
 //   - 4bpp pixel/endian order: the server packs 2 px/byte (high nibble = first
-//     pixel). If the panel shows pixel pairs swapped, flip IT8951_LD_ENDIAN
-//     (or swap nibbles in the server's createEPDGZ). This is the #1 IT8951
-//     bring-up gotcha.
+//     pixel). If the panel shows pixel pairs swapped, set
+//     epaper_config_t.big_endian in the board driver (or swap nibbles in the
+//     server's createEPDGZ). This is the #1 IT8951 bring-up gotcha.
 //   - VCOM: we read (and log) the value stored in the IT8951 waveform flash
 //     rather than override it. If contrast is off, set it explicitly to the
 //     value printed on the panel FPC.
@@ -109,7 +109,9 @@ static int8_t s_temp_c = IT8951_DEFAULT_TEMP_C;  // panel temperature for wavefo
 // a board can seed its own panel size via epaper_config_t.panel_w/panel_h.
 static it8951_dev_info_t s_dev = {.panel_w = 1872, .panel_h = 1404};
 // Image-load byte order and row scan direction, both panel-specific (see
-// epaper_config_t). Defaults match the Seeed ED103TC2 wiring.
+// epaper_config_t). Defaults are little-endian and unmirrored, which is the
+// M5Paper; the Seeed ED103TC2 boards (E1003, EE03) set mirror_x. A new IT8951
+// board that renders mirrored has forgotten it.
 static bool s_big_endian = false;
 static bool s_mirror_x = false;
 
