@@ -323,8 +323,8 @@ async function performImport() {
     let authNote = "";
     if (typeof importedAuth === "boolean" && importedAuth !== deviceAuth) {
       authNote = importedAuth
-        ? " Exports never include the device password: set it again under General to require one."
-        : " The device password was left in place: turn it off under General if you want the frame open.";
+        ? " Exports never include the device password: set it again under General → Advanced network settings to require one."
+        : " The device password was left in place: turn it off under General → Advanced network settings if you want the frame open.";
     }
 
     saveSuccess.value = true;
@@ -511,7 +511,7 @@ async function performFactoryReset() {
                 />
               </v-col>
             </v-row>
-            <!-- Advanced network settings (#43): collapsed by default — NTP,
+            <!-- Advanced network settings (#43, #130): collapsed by default — NTP,
                  static IP and DNS override are tinkerer territory. -->
             <v-expansion-panels class="mt-2" variant="accordion">
               <v-expansion-panel title="Advanced network settings" elevation="0">
@@ -580,50 +580,50 @@ async function performFactoryReset() {
                       />
                     </v-col>
                   </v-row>
+                  <v-switch
+                    v-model="settingsStore.deviceSettings.httpAuthEnabled"
+                    label="Require a password for this device's web interface"
+                    color="primary"
+                    class="mt-6"
+                    hide-details
+                  />
+                  <div class="text-caption text-medium-emphasis mb-2">
+                    Off by default. Most frames sit on a trusted home network, where this is
+                    unnecessary.
+                  </div>
+                  <v-text-field
+                    v-if="settingsStore.deviceSettings.httpAuthEnabled"
+                    v-model="settingsStore.deviceSettings.httpPassword"
+                    :label="
+                      settingsStore.deviceSettings.httpAuthEnabled &&
+                      settingsStore.deviceSettings.httpPassword === '' &&
+                      settingsStore.deviceSettings.httpAuthWasEnabled
+                        ? 'Password (set \u2014 leave blank to keep)'
+                        : 'Password'
+                    "
+                    type="password"
+                    maxlength="63"
+                    variant="outlined"
+                    hint="Any username is accepted; the password is the whole credential."
+                    persistent-hint
+                    class="mt-2"
+                  />
+                  <v-alert
+                    v-if="settingsStore.deviceSettings.httpAuthEnabled"
+                    type="warning"
+                    variant="tonal"
+                    density="compact"
+                    class="mt-3"
+                  >
+                    Enter the same password in the photoframe server, the Home Assistant integration
+                    and the mobile app, or they will stop syncing with this frame; older versions of
+                    them cannot send it at all. It is also sent unencrypted over plain HTTP &mdash;
+                    it guards against casual access on a shared network, not against someone who can
+                    capture your traffic.
+                  </v-alert>
                 </v-expansion-panel-text>
               </v-expansion-panel>
             </v-expansion-panels>
-
-            <v-switch
-              v-model="settingsStore.deviceSettings.httpAuthEnabled"
-              label="Require a password for this device's web interface"
-              color="primary"
-              class="mt-6"
-              hide-details
-            />
-            <div class="text-caption text-medium-emphasis mb-2">
-              Off by default. Most frames sit on a trusted home network, where this is unnecessary.
-            </div>
-            <v-text-field
-              v-if="settingsStore.deviceSettings.httpAuthEnabled"
-              v-model="settingsStore.deviceSettings.httpPassword"
-              :label="
-                settingsStore.deviceSettings.httpAuthEnabled &&
-                settingsStore.deviceSettings.httpPassword === '' &&
-                settingsStore.deviceSettings.httpAuthWasEnabled
-                  ? 'Password (set \u2014 leave blank to keep)'
-                  : 'Password'
-              "
-              type="password"
-              maxlength="63"
-              variant="outlined"
-              hint="Any username is accepted; the password is the whole credential."
-              persistent-hint
-              class="mt-2"
-            />
-            <v-alert
-              v-if="settingsStore.deviceSettings.httpAuthEnabled"
-              type="warning"
-              variant="tonal"
-              density="compact"
-              class="mt-3"
-            >
-              Enter the same password in the photoframe server, the Home Assistant integration and
-              the mobile app, or they will stop syncing with this frame; older versions of them
-              cannot send it at all. It is also sent unencrypted over plain HTTP &mdash; it guards
-              against casual access on a shared network, not against someone who can capture your
-              traffic.
-            </v-alert>
           </v-tabs-window-item>
 
           <!-- Auto Rotate Tab -->
