@@ -229,7 +229,18 @@ curl -X POST \
 
 ### `POST /api/rotate`
 
-Trigger image rotation (respects rotation mode).
+Trigger image rotation (respects rotation mode). Synchronous: the response is
+sent once the panel has been updated.
+
+**Response:**
+```json
+{ "status": "success", "message": "Image rotation triggered" }
+```
+
+In URL mode a fetch that fails leaves the current picture on the panel (there
+is no fallback to a local rotation) and answers `502 Bad Gateway` with
+`{ "status": "error", "message": "<reason>" }`; the same reason is reported as
+`last_fetch_error` by `GET /api/config`.
 
 ### `GET /api/current_image`
 

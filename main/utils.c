@@ -611,6 +611,9 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
 
     if (!content_type || !thumbnail_url_buffer || !config_payload_buffer || !etag_buffer) {
         ESP_LOGE(TAG, "Failed to allocate memory for download context");
+        // Every failure leaves its own reason, so /api/rotate and the UI
+        // never report an older one.
+        utils_set_last_fetch_error("Out of memory");
         free(content_type);
         free(thumbnail_url_buffer);
         free(config_payload_buffer);
@@ -883,13 +886,17 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
     return ESP_OK;
 }
 
-// Fetch the server-provided thumbnail into the .current.jpg slot; returns
-// whether it now holds a thumbnail for the image being displayed
+// Fetch the server-provided thumbnail into its staging file; returns whether
+// it now holds a thumbnail for the image being displayed. It takes the
+// .current.jpg slot only once the panel shows that image (see
+// fetch_promote_thumbnail): until then the slot still previews the picture
+// the panel keeps if the decode or display fails, and /api/current_image must
+// go on serving that one, not the thumbnail of a picture that never showed.
 static bool fetch_download_thumbnail(const char *thumbnail_url)
 {
     ESP_LOGI(TAG, "Downloading thumbnail from: %s", thumbnail_url);
 
-    const char *temp_jpg_path = CURRENT_JPG_PATH;
+    const char *temp_jpg_path = CURRENT_THUMB_UPLOAD_PATH;
     FILE *thumb_file = fopen(temp_jpg_path, "wb");
     if (!thumb_file) {
         return false;
@@ -949,6 +956,19 @@ static bool fetch_download_thumbnail(const char *thumbnail_url)
     ESP_LOGW(TAG, "Failed to download thumbnail (status: %d)", thumb_status);
     unlink(temp_jpg_path);
     return false;
+}
+
+// Move the staged thumbnail into the .current.jpg slot. Call only once the
+// panel shows its image. Returns whether the slot now holds it.
+static bool fetch_promote_thumbnail(void)
+{
+    unlink(CURRENT_JPG_PATH);
+    if (rename(CURRENT_THUMB_UPLOAD_PATH, CURRENT_JPG_PATH) != 0) {
+        ESP_LOGW(TAG, "Failed to save downloaded thumbnail");
+        unlink(CURRENT_THUMB_UPLOAD_PATH);
+        return false;
+    }
+    return true;
 }
 
 // Apply a remote config payload received from the server. Expected
@@ -1047,6 +1067,8 @@ static esp_err_t fetch_stream_display(image_format_t image_format, bool thumbnai
         esp_err_t read_err = display_flow_read_file(temp_upload_path, &file_buffer, &file_size);
         if (read_err != ESP_OK) {
             unlink(temp_upload_path);
+            unlink(CURRENT_THUMB_UPLOAD_PATH);
+            utils_set_last_fetch_error("Failed to read downloaded image");
             return read_err;
         }
         if (!persistent) {
@@ -1059,11 +1081,17 @@ static esp_err_t fetch_stream_display(image_format_t image_format, bool thumbnai
     // Stage the album preview BEFORE display: end_rgb_stream publishes the
     // album link under the display mutex, and the link's .jpg sibling must
     // already exist at that moment or /api/current_image can 404
-    // (transiently, or permanently if the move fails)
+    // (transiently, or permanently if the move fails).
+    //
+    // Everything else waits: a downloaded thumbnail sits in its staging file
+    // and the .current.jpg slot keeps previewing the picture on the panel,
+    // which is what /api/current_image must serve if the display fails.
+    bool thumb_staged = thumbnail_downloaded;
     bool preview_staged = false;
     if (save_to_album && album_has_preview) {
         if (thumbnail_downloaded) {
-            preview_staged = rename(temp_jpg_path, album_thumb_path) == 0;
+            preview_staged = rename(CURRENT_THUMB_UPLOAD_PATH, album_thumb_path) == 0;
+            thumb_staged = !preview_staged;
         } else {
             preview_staged = rename(temp_upload_path, album_thumb_path) == 0;
         }
@@ -1102,12 +1130,18 @@ static esp_err_t fetch_stream_display(image_format_t image_format, bool thumbnai
         ESP_LOGW(TAG, "Album snapshot failed; keeping download as current image only");
         if (preview_staged) {
             // Bring the staged album preview back as the current thumbnail
-            // so the fallback link resolves
+            // so the fallback link resolves. The panel shows the new image,
+            // so the previous picture's preview goes; left in place it would
+            // make the rename fail on FAT and keep being served.
+            unlink(temp_jpg_path);
             if (rename(album_thumb_path, temp_jpg_path) == 0) {
                 thumbnail_downloaded = true;
             } else {
+                // No thumbnail claims the slot, so the keep-original
+                // disposal below keeps a JPG original as the preview
                 ESP_LOGW(TAG, "Failed to restore staged album thumbnail");
                 unlink(album_thumb_path);
+                thumbnail_downloaded = false;
             }
             preview_staged = false;
         }
@@ -1117,9 +1151,13 @@ static esp_err_t fetch_stream_display(image_format_t image_format, bool thumbnai
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to process and display image: %s", esp_err_to_name(err));
         unlink(temp_upload_path);
+        unlink(CURRENT_THUMB_UPLOAD_PATH);
         if (preview_staged) {
             unlink(album_thumb_path);
         }
+        char err_msg[96];
+        snprintf(err_msg, sizeof(err_msg), "Failed to process image (%s)", esp_err_to_name(err));
+        utils_set_last_fetch_error(err_msg);
         return err;
     }
 
@@ -1138,8 +1176,18 @@ static esp_err_t fetch_stream_display(image_format_t image_format, bool thumbnai
         }
         ESP_LOGI(TAG, "Saved to Downloads album: %s", album_image_path);
     } else {
-        // Keep-original policy, matching the direct display endpoint
+        // Keep-original policy, matching the direct display endpoint. The
+        // downloaded thumbnail takes the .current.jpg slot now, or the
+        // original stays as the preview if that fails.
+        if (thumb_staged) {
+            thumbnail_downloaded = fetch_promote_thumbnail();
+            thumb_staged = false;
+        }
         display_flow_retire_source(temp_upload_path, image_format, thumbnail_downloaded);
+    }
+    if (thumb_staged) {
+        // Its album staging failed above; the original serves as the preview
+        unlink(CURRENT_THUMB_UPLOAD_PATH);
     }
 
     ESP_LOGI(TAG, "Image displayed via stream");
@@ -1151,10 +1199,16 @@ static esp_err_t fetch_stream_display(image_format_t image_format, bool thumbnai
 // display-ready), optionally moving it into the Downloads album first
 static esp_err_t fetch_display_file(image_format_t image_format, bool thumbnail_fresh)
 {
+    // Staging replaces the previous .current.{epdgz,bmp} original, but its
+    // .jpg preview is untouched until the panel shows the new image, so on a
+    // failure /api/current_image still previews the picture the panel keeps.
     const char *staged = display_flow_stage_file(CURRENT_UPLOAD_PATH, image_format);
     if (!staged) {
+        unlink(CURRENT_THUMB_UPLOAD_PATH);
+        utils_set_last_fetch_error("Failed to stage downloaded image");
         return ESP_FAIL;
     }
+    bool thumb_staged = thumbnail_fresh;
 
     char display_path[512];
     snprintf(display_path, sizeof(display_path), "%s", staged);
@@ -1183,15 +1237,15 @@ static esp_err_t fetch_display_file(image_format_t image_format, bool thumbnail_
             } else {
                 snprintf(display_path, sizeof(display_path), "%s", final_image_path);
 
-                // Move the thumbnail to the album if we moved the main image
+                // Move the downloaded thumbnail to the album alongside it
                 bool thumbnail_saved_to_album = false;
-                struct stat thumb_st;
-                if (stat(CURRENT_JPG_PATH, &thumb_st) == 0) {
+                if (thumb_staged) {
                     char final_thumb_path[512];
                     snprintf(final_thumb_path, sizeof(final_thumb_path), "%s/%s.jpg",
                              downloads_path, filename_base);
-                    if (rename(CURRENT_JPG_PATH, final_thumb_path) == 0) {
+                    if (rename(CURRENT_THUMB_UPLOAD_PATH, final_thumb_path) == 0) {
                         thumbnail_saved_to_album = true;
+                        thumb_staged = false;
                     } else {
                         ESP_LOGW(TAG, "Failed to move thumbnail to Downloads album");
                     }
@@ -1215,16 +1269,17 @@ static esp_err_t fetch_display_file(image_format_t image_format, bool thumbnail_
         if (strcmp(display_path, staged) == 0) {
             unlink(display_path);
         }
+        unlink(CURRENT_THUMB_UPLOAD_PATH);
         utils_set_last_fetch_error("Failed to display fetched image");
         return ESP_FAIL;
     }
 
     // Keep the displayed .current file so /api/current_image can serve the
     // original (matching the direct-display policy); drop the stale
-    // siblings. Album saves already moved theirs. Cleanup runs only after a
-    // successful display, so a failure keeps the previous image's files
-    // (and thumbnail) intact.
-    display_flow_drop_stale_current(display_path, thumbnail_fresh);
+    // siblings. Album saves already moved theirs; a thumbnail still staged
+    // takes the .current.jpg slot only now that the panel shows its image.
+    bool keep_thumbnail = thumb_staged && fetch_promote_thumbnail();
+    display_flow_drop_stale_current(display_path, keep_thumbnail);
 
     utils_set_last_fetch_error(NULL);  // Clear error on success
     return ESP_OK;
@@ -1285,6 +1340,8 @@ esp_err_t fetch_and_display_image_from_url(const char *url, bool *not_modified)
     default:
         ESP_LOGE(TAG, "Unsupported image format: %d", image_format);
         unlink(CURRENT_UPLOAD_PATH);
+        unlink(CURRENT_THUMB_UPLOAD_PATH);
+        utils_set_last_fetch_error("Unsupported image format");
         shown = ESP_FAIL;
         break;
     }
@@ -1323,9 +1380,11 @@ esp_err_t trigger_image_rotation(void)
                 ESP_LOGI(TAG, "Image unchanged on server, skipping display refresh");
             }
         } else {
-            ESP_LOGE(TAG,
-                     "Failed to fetch and display image from URL, falling back to local rotation");
-            display_manager_rotate_from_storage();
+            // Keep whatever is on the panel. Repainting a local fallback cost
+            // a full e-paper refresh (~30 s at high current) on every failed
+            // wake, and swapped the owner's picture for a random one with no
+            // hint why (#121). The error is reported via last_fetch_error.
+            ESP_LOGE(TAG, "Failed to fetch image from URL; keeping the current picture");
             result = ESP_FAIL;
         }
     } else {

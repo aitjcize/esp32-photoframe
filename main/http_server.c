@@ -1361,12 +1361,24 @@ static esp_err_t rotate_handler(httpd_req_t *req)
     power_manager_reset_sleep_timer();
 
     // Synchronous rotation as requested by maintainer
-    trigger_image_rotation();
+    esp_err_t rotated = trigger_image_rotation();
     ha_notify_update();
 
     cJSON *response = cJSON_CreateObject();
-    cJSON_AddStringToObject(response, "status", "success");
-    cJSON_AddStringToObject(response, "message", "Image rotation triggered");
+    if (rotated == ESP_OK) {
+        cJSON_AddStringToObject(response, "status", "success");
+        cJSON_AddStringToObject(response, "message", "Image rotation triggered");
+    } else {
+        // A failed URL fetch keeps the current picture (nothing falls back to
+        // a local rotation any more), so the caller must hear that nothing
+        // changed rather than "success". The reason is what the fetch left in
+        // last_fetch_error.
+        const char *why = utils_get_last_fetch_error();
+        httpd_resp_set_status(req, "502 Bad Gateway");
+        cJSON_AddStringToObject(response, "status", "error");
+        cJSON_AddStringToObject(response, "message",
+                                why && why[0] ? why : "Failed to fetch image from URL");
+    }
 
     char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
@@ -1375,6 +1387,8 @@ static esp_err_t rotate_handler(httpd_req_t *req)
     free(json_str);
     cJSON_Delete(response);
 
+    // The response above is complete either way. A handler error here would
+    // only make esp_http_server close the session under a keep-alive client.
     return ESP_OK;
 }
 
