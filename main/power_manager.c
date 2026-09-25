@@ -142,7 +142,7 @@ static void rotation_timer_task(void *arg)
                 // Schedule next rotation
                 int seconds_until_next = get_seconds_until_next_wakeup();
 
-                next_rotation_time = now + (seconds_until_next * 1000000LL);
+                next_rotation_time = esp_timer_get_time() + (seconds_until_next * 1000000LL);
                 ESP_LOGI(TAG, "Next rotation scheduled in %d seconds (%s)", seconds_until_next,
                          "cron");
             }
