@@ -169,3 +169,15 @@ target_link_libraries(
 )
 
 gtest_discover_tests(display_flow_test)
+
+# Boot battery sampling uses the production ADC helper against hardware stubs.
+add_executable(battery_adc_test
+  test_battery_adc.cpp
+  ../components/board_hal/src/battery_adc.c
+)
+target_include_directories(battery_adc_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+  ${CMAKE_CURRENT_SOURCE_DIR}/../components/board_hal/include
+)
+target_link_libraries(battery_adc_test GTest::gtest_main)
+gtest_discover_tests(battery_adc_test)

@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 
+#include "board_hal.h"
 #include "driver/gpio.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
@@ -10,9 +11,18 @@
 #include "freertos/task.h"
 
 static const char *TAG = "battery_adc";
+static bool use_boot_sample;
+
+void board_hal_use_boot_battery_sample(bool enabled)
+{
+    use_boot_sample = enabled;
+}
+
+static int battery_adc_sample_mv(battery_adc_t *ctx);
 
 struct battery_adc {
     battery_adc_config_t cfg;
+    int boot_mv;
     adc_oneshot_unit_handle_t adc;
     adc_cali_handle_t cali;  // NULL if eFuse calibration is unavailable
 };
@@ -102,11 +112,25 @@ esp_err_t battery_adc_create(const battery_adc_config_t *cfg, battery_adc_t **ou
         ctx->cali = NULL;
     }
 
+    if (cfg->sample_at_create) {
+        ctx->boot_mv = battery_adc_sample_mv(ctx);
+        ESP_LOGI(TAG, "Pre-display battery sample: %d mV", ctx->boot_mv);
+    }
+
     *out = ctx;
     return ESP_OK;
 }
 
 int battery_adc_read_mv(battery_adc_t *ctx)
+{
+    if (!ctx)
+        return -1;
+    if (use_boot_sample && ctx->cfg.sample_at_create)
+        return ctx->boot_mv;
+    return battery_adc_sample_mv(ctx);
+}
+
+static int battery_adc_sample_mv(battery_adc_t *ctx)
 {
     if (!ctx || !ctx->adc)
         return -1;
