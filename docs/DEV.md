@@ -172,3 +172,32 @@ In `idf.py menuconfig`:
 **Device not responding:**
 - Press and hold BOOT button while connecting USB
 - Try erasing flash: `idf.py erase-flash`
+
+## Battery sampling validation (XIAO EE02/EE04)
+
+These two boards take a battery ADC sample before display initialization. Timer
+and ROTATE-button wakes reuse that sample for battery percentage, voltage, and
+presence throughout the wake, including HTTP/HA reporting. An unsuccessful sample
+stays unknown (-1); the image request continues to omit an unknown percentage.
+Cold boot, BOOT-button sessions, and scheduled wakes with a detected USB host use
+fresh readings. USB detection on these boards does not detect power-only wall
+adapters. Other boards retain their existing sampling behavior.
+
+The serial boot log prints `Pre-display battery sample: ... mV` (before persistent
+logging starts). To qualify this change on both boards:
+
+1. With USB power disconnected, compare repeated timer/ROTATE wakes against the
+   previous firmware at comparable battery state. Capture early and previous
+   loaded readings; confirm the request header and HA/API values agree with the
+   early sample and existing linear percentage calculation.
+2. Check the divider enable GPIO6 returns LOW after sampling, including ADC read
+   failures, and remains LOW/held during deep sleep. Check a failed ADC setup or
+   sample still reports unknown and does not emit a percentage header.
+3. Keep a BOOT-button or cold-boot session awake while battery voltage changes;
+   verify telemetry updates. Repeat with a USB host attached and while charging.
+4. Verify normal refresh, HA veto, 304, config windows, and sleep entry still work.
+
+Host tests cover the production ADC helper's cache, fresh reads, failure handling,
+calibration fallback, and divider shutdown. Target builds and device measurements
+are still required. This is a reduced-load sample with the MCU awake, not an
+open-circuit measurement or evidence of improved battery life/fuel-gauge accuracy.

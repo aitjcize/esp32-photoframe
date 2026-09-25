@@ -1,6 +1,8 @@
 #ifndef BOARD_HAL_BATTERY_ADC_H
 #define BOARD_HAL_BATTERY_ADC_H
 
+#include <stdbool.h>
+
 #include "esp_adc/adc_oneshot.h"
 #include "esp_err.h"
 
@@ -21,6 +23,7 @@ typedef struct {
     int samples;            // ADC samples averaged per read (>=1)
     float divider;          // voltage-divider ratio, e.g. 2.0
     float cal_scale;        // per-unit multimeter correction (1.0 = none)
+    bool sample_at_create;  // capture a boot sample before the caller powers the display
 } battery_adc_config_t;
 
 typedef struct battery_adc battery_adc_t;
@@ -29,7 +32,8 @@ typedef struct battery_adc battery_adc_t;
  * @brief Create an ADC oneshot unit/channel with eFuse calibration.
  *
  * The enable pin (if any) must already be configured as an output by the caller;
- * this helper only toggles its level during a read.
+ * this helper only toggles its level during a read. With sample_at_create,
+ * creation also takes one reading (including a possible -1 result).
  *
  * @param cfg Configuration (copied internally).
  * @param out Receives the created handle on success.
@@ -40,7 +44,9 @@ esp_err_t battery_adc_create(const battery_adc_config_t *cfg, battery_adc_t **ou
 /**
  * @brief Read battery voltage in millivolts (divider and cal_scale applied).
  *
- * Enables the load switch, waits settle_ms, averages samples, converts via the
+ * Returns the boot sample when enabled via board_hal_use_boot_battery_sample()
+ * and sample_at_create was requested. Otherwise takes a fresh reading:
+ * enables the load switch, waits settle_ms, averages samples, converts via the
  * eFuse calibration (or a linear estimate if calibration was unavailable), then
  * disables the load switch.
  *

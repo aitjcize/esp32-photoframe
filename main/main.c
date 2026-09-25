@@ -346,6 +346,9 @@ static void log_wall_clock(const char *label)
 
 void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 {
+    // EE02/EE04 captured this before display initialization. Reuse it across
+    // image headers and HA/API telemetry during this wake; USB sessions stay live.
+    board_hal_use_boot_battery_sample(!board_hal_is_usb_connected());
     bool is_button_wake = (wakeup_src == WAKEUP_SOURCE_ROTATE_BUTTON);
     // Check rotation mode and HA configuration
     rotation_mode_t rotation_mode = config_manager_get_rotation_mode();

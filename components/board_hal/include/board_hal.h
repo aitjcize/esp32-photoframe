@@ -80,6 +80,16 @@ esp_err_t board_hal_prepare_for_sleep(void);
 bool board_hal_is_battery_connected(void);
 
 /**
+ * @brief Use the pre-display battery sample for scheduled-wake telemetry.
+ *
+ * Opt-in ADC boards (currently XIAO EE02/EE04) reuse their boot reading,
+ * including unknown (-1). Other boards keep their existing behavior.
+ * Disabled by default so interactive/charging sessions take fresh readings.
+ * Select this before starting network tasks; it applies until changed or reset.
+ */
+void board_hal_use_boot_battery_sample(bool enabled);
+
+/**
  * @brief Get battery percentage
  *
  * @return int Battery percentage (0-100), or -1 if unknown
