@@ -1,7 +1,19 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { processImage, SPECTRA6, makeGrayscale16 } from "@aitjcize/epaper-image-convert";
 import ToneCurve from "./ToneCurve.vue";
+import CropEditor from "./CropEditor.vue";
 import { useAppStore, useSettingsStore } from "../stores";
+import {
+  logicalFrame,
+  orientCanvas,
+  downscaleCanvas,
+  denormalizeRect,
+  rectToZoomPan,
+  rectHasBars,
+  loadImageFile,
+  toCanvas,
+} from "../utils/framing";
 
 const props = defineProps({
   imageFile: {
@@ -28,17 +40,28 @@ const emit = defineEmits(["processed"]);
 const appStore = useAppStore();
 const settingsStore = useSettingsStore();
 
+// The preview never needs more pixels than it shows: the photo is kept at a
+// bounded working size and the dithered preview is rendered at screen size.
+// The upload (ImageUpload.vue) reprocesses the full-resolution photo.
+const SOURCE_MAX_SIDE = 2400;
+const PREVIEW_MAX_SIDE = 800;
+const HISTOGRAM_MAX_SIDE = 320;
+
 // Canvas refs
 const originalCanvasRef = ref(null);
 const processedCanvasRef = ref(null);
 
 // State
 const processing = ref(false);
-const sliderPosition = ref(0);
+const sliderPosition = ref(50);
 const isDragging = ref(false);
+const isReady = ref(false);
 
-// Scale mode state
+// Layout: how the photo lands on the frame. `scaleMode` is cover / fit /
+// custom; `framing` carries the per-image adjustments made in the editor.
 const scaleMode = ref("cover");
+const framing = ref({ rotation: 0, flipH: false, rect: null, background: "white" });
+const editorOpen = ref(false);
 
 // Follow edits to the configured defaults live (e.g. the settings controls
 // on the same page); a per-image override is simply replaced by the newer
@@ -47,57 +70,72 @@ watch(
   () => [props.params?.scaleMode, props.params?.backgroundColor],
   ([mode, bg]) => {
     if (mode) scaleMode.value = mode;
-    if (bg) bgColorMode.value = bg;
+    if (bg) framing.value.background = bg;
   }
 );
 
-// Background color for uncovered areas (fit/custom modes)
-// Uses perceived palette colors so dithering maps them cleanly.
-const bgColorMode = ref("white"); // "black" | "white"
-
-function getBgFillColor() {
-  const p = effectivePalette.value;
-  if (!p) return bgColorMode.value === "white" ? "#FFFFFF" : "#000000";
-  const c = p[bgColorMode.value];
-  return "#" + [c.r, c.g, c.b].map((v) => v.toString(16).padStart(2, "0")).join("");
-}
-
-// Custom mode state
-const customZoom = ref(1);
-const customPanX = ref(0);
-const customPanY = ref(0);
-const isPanning = ref(false);
-let panStartX = 0;
-let panStartY = 0;
-let panStartImgX = 0;
-let panStartImgY = 0;
-
-// Source canvas for reprocessing
+// Source photo: bounded working copy + the real pixel size
 let sourceCanvas = null;
-let imageProcessor = null;
-let isReady = ref(false);
+const sourceSize = ref(null);
+let orientedCache = { key: null, canvas: null };
 
+// Histogram data for ToneCurve (256 bins for luminance values 0-255)
+const histogram = ref(null);
+let processDebounceTimer = null;
+
+// ---------------------------------------------------------------------------
+// Palette
+// ---------------------------------------------------------------------------
 // GC16 grayscale palette built from the device's measured luminance endpoints
 // (Y of black/white from /api/settings/palette), so the preview matches the
 // panel. Falls back to the package defaults when the device hasn't reported.
 function grayscalePalette() {
-  return imageProcessor.makeGrayscale16({
+  return makeGrayscale16({
     blackY: settingsStore.palette?.black_y ?? 0.009,
     whiteY: settingsStore.palette?.white_y ?? 0.65,
     gamma: settingsStore.palette?.gamma ?? 1.42,
   });
 }
 
-// Debounce timer for processing during pan/zoom
-let processDebounceTimer = null;
+// Palette pair { theoretical, perceived } for the current panel. A new object
+// each time: the library's SPECTRA6 constant is never mutated.
+const palettePair = computed(() => {
+  if (appStore.isGrayscale) return grayscalePalette();
+  const perceived =
+    props.palette && Object.keys(props.palette).length > 0 ? props.palette : SPECTRA6.perceived;
+  return { ...SPECTRA6, perceived };
+});
 
-// Reactive palette for ToneCurve (will be set after imageProcessor loads)
-const effectivePalette = ref(null);
+// Reactive perceived palette for ToneCurve
+const effectivePalette = computed(() => palettePair.value.perceived);
 
-// Histogram data for ToneCurve (256 bins for luminance values 0-255)
-const histogram = ref(null);
+// ---------------------------------------------------------------------------
+// Frame geometry
+// ---------------------------------------------------------------------------
+// The panel as the user sees it. Uses the saved/applied orientation, not the
+// live dropdown, so the preview only re-lays-out when the user saves.
+const frame = computed(() =>
+  logicalFrame(
+    appStore.systemInfo.width || 800,
+    appStore.systemInfo.height || 480,
+    settingsStore.appliedOrientation
+  )
+);
 
-// Calculate luminance histogram from source canvas
+const showBackgroundToggle = computed(() => {
+  if (scaleMode.value === "fit") return true;
+  if (scaleMode.value !== "custom" || !framing.value.rect) return false;
+  return rectHasBars(framing.value.rect, 1, 1, 0.002);
+});
+
+const rotationLabel = computed(() => {
+  const r = framing.value.rotation;
+  return r ? `Rotated ${r}°` : "";
+});
+
+// ---------------------------------------------------------------------------
+// Histogram
+// ---------------------------------------------------------------------------
 function calculateHistogram(canvas) {
   if (!canvas) return null;
 
@@ -126,91 +164,26 @@ function calculateHistogram(canvas) {
   return bins;
 }
 
-// Get frame dimensions based on device orientation config.
-// The preview shows what the user sees on the physical device.
-function getFrameDimensions() {
-  let frameWidth = appStore.systemInfo.width || 800;
-  let frameHeight = appStore.systemInfo.height || 480;
-  // Use the saved/applied orientation, not the live dropdown, so the preview
-  // only re-lays-out when the user saves the settings.
-  const orientation = settingsStore.appliedOrientation;
-
-  if (orientation === "portrait" && frameWidth > frameHeight) {
-    [frameWidth, frameHeight] = [frameHeight, frameWidth];
-  } else if (orientation === "landscape" && frameWidth < frameHeight) {
-    [frameWidth, frameHeight] = [frameHeight, frameWidth];
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+onMounted(async () => {
+  isReady.value = true;
+  if (props.imageFile) {
+    await loadAndProcessImage(props.imageFile);
   }
+});
 
-  return { frameWidth, frameHeight };
-}
+onUnmounted(() => {
+  if (processDebounceTimer) clearTimeout(processDebounceTimer);
+});
 
-// Initialize custom mode pan/zoom to match cover position
-function initCustomMode() {
-  if (!sourceCanvas) return;
-
-  const { frameWidth, frameHeight } = getFrameDimensions();
-  const srcW = sourceCanvas.width;
-  const srcH = sourceCanvas.height;
-  const fitScale = Math.min(frameWidth / srcW, frameHeight / srcH);
-
-  customZoom.value = fitScale;
-  customPanX.value = (frameWidth - srcW * fitScale) / 2;
-  customPanY.value = (frameHeight - srcH * fitScale) / 2;
-}
-
-// Get the visual-to-canvas coordinate scale from DOM
-function getPreviewScale() {
-  if (!originalCanvasRef.value) return 1;
-  const rect = originalCanvasRef.value.getBoundingClientRect();
-  if (rect.width === 0) return 1;
-  return rect.width / originalCanvasRef.value.width;
-}
-
-// Quick canvas redraw during pan/zoom (no processing, immediate feedback)
-function quickFrameUpdate() {
-  if (!sourceCanvas || !originalCanvasRef.value || !processedCanvasRef.value) return;
-
-  const width = originalCanvasRef.value.width;
-  const height = originalCanvasRef.value.height;
-  const srcW = sourceCanvas.width;
-  const srcH = sourceCanvas.height;
-  const w = srcW * customZoom.value;
-  const h = srcH * customZoom.value;
-
-  for (const canvasRef of [originalCanvasRef, processedCanvasRef]) {
-    const ctx = canvasRef.value.getContext("2d");
-    ctx.fillStyle = getBgFillColor();
-    ctx.fillRect(0, 0, width, height);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(sourceCanvas, customPanX.value, customPanY.value, w, h);
-  }
-}
-
-// Debounced full processing update
 function debouncedUpdatePreview() {
   if (processDebounceTimer) clearTimeout(processDebounceTimer);
   processDebounceTimer = setTimeout(() => {
     updatePreview();
   }, 300);
 }
-
-onMounted(async () => {
-  try {
-    imageProcessor = await import("@aitjcize/epaper-image-convert");
-    isReady.value = true;
-
-    effectivePalette.value = appStore.isGrayscale
-      ? grayscalePalette().perceived
-      : props.palette || imageProcessor.SPECTRA6.perceived;
-
-    if (props.imageFile) {
-      await loadAndProcessImage(props.imageFile);
-    }
-  } catch (error) {
-    console.error("Failed to load image processor:", error);
-  }
-});
 
 // Watch for image file changes
 watch(
@@ -222,62 +195,38 @@ watch(
   }
 );
 
-// Watch for parameter changes - reprocess without reloading image. Debounced so
-// dragging a slider at full panel resolution doesn't reprocess on every tick
-// (laggy); the preview updates once the value settles (on release).
+// Parameter changes reprocess without reloading the image. Debounced so
+// dragging a slider doesn't reprocess on every tick.
 watch(
   () => props.params,
   () => {
-    if (sourceCanvas && isReady.value) {
-      debouncedUpdatePreview();
-    }
+    if (sourceCanvas && isReady.value) debouncedUpdatePreview();
   },
   { deep: true }
 );
 
-// Watch for palette changes - reprocess and update ToneCurve. For grayscale the
-// prop is the device calibration ({black_y, white_y} in the store), so rebuild
-// the perceived ramp via grayscalePalette() rather than using the raw object,
-// which has no perceived black/white for the ToneCurve + CDR to read. (This also
-// makes calibration edits flow into the preview, since the prop IS the store.)
+// Palette or calibration edits flow straight into the preview.
 watch(
-  () => props.palette,
+  palettePair,
   async () => {
-    if (!isReady.value) return;
-    effectivePalette.value = appStore.isGrayscale
-      ? grayscalePalette().perceived
-      : props.palette || imageProcessor.SPECTRA6.perceived;
-    if (sourceCanvas) await updatePreview();
+    if (sourceCanvas && isReady.value) await updatePreview();
   },
   { deep: true }
 );
 
-// Watch for background color changes
-watch(bgColorMode, async () => {
-  if (sourceCanvas && isReady.value) {
-    await updatePreview();
-  }
-});
-
-// Watch the saved/applied orientation (updated only when the user saves) - the
-// frame dimensions swap, so re-lay-out and reprocess the current image.
 watch(
-  () => settingsStore.appliedOrientation,
+  () => framing.value.background,
   async () => {
-    if (sourceCanvas && isReady.value) {
-      await updatePreview();
-    }
+    if (sourceCanvas && isReady.value) await updatePreview();
   }
 );
 
-// Watch for scale mode changes
-watch(scaleMode, async (newMode) => {
-  if (newMode === "custom") {
-    initCustomMode();
-  }
-  if (sourceCanvas && isReady.value) {
-    await updatePreview();
-  }
+// The frame changes shape when the saved orientation changes: a custom window
+// no longer fits, so fall back to the configured layout.
+watch(frame, async () => {
+  framing.value.rect = null;
+  if (scaleMode.value === "custom") scaleMode.value = props.params?.scaleMode || "cover";
+  if (sourceCanvas && isReady.value) await updatePreview();
 });
 
 async function loadAndProcessImage(file) {
@@ -286,25 +235,22 @@ async function loadAndProcessImage(file) {
   processing.value = true;
 
   try {
-    const img = await loadImage(file);
-
-    sourceCanvas = document.createElement("canvas");
-    sourceCanvas.width = img.width;
-    sourceCanvas.height = img.height;
-    const sourceCtx = sourceCanvas.getContext("2d");
-    sourceCtx.drawImage(img, 0, 0);
+    const img = await loadImageFile(file);
+    sourceSize.value = { width: img.naturalWidth, height: img.naturalHeight };
+    sourceCanvas = downscaleCanvas(toCanvas(img), SOURCE_MAX_SIDE);
+    orientedCache = { key: null, canvas: null };
 
     // Default to the configured scale mode and background from the shared
     // processing params (the device settings, or the page-local params on
     // the landing-page demo); the user's per-image override below never
     // writes back to the config
     scaleMode.value = props.params?.scaleMode || "cover";
-    bgColorMode.value = props.params?.backgroundColor || "white";
-
-    // Reinitialize custom mode if active
-    if (scaleMode.value === "custom") {
-      initCustomMode();
-    }
+    framing.value = {
+      rotation: 0,
+      flipH: false,
+      rect: null,
+      background: props.params?.backgroundColor || "white",
+    };
 
     await updatePreview();
   } catch (error) {
@@ -314,9 +260,34 @@ async function loadAndProcessImage(file) {
   }
 }
 
+// The working photo after the editor's rotation / mirror, cached.
+function orientedSource() {
+  const key = `${framing.value.rotation}:${framing.value.flipH}`;
+  if (orientedCache.key !== key) {
+    orientedCache = {
+      key,
+      canvas: orientCanvas(sourceCanvas, framing.value.rotation, framing.value.flipH),
+    };
+  }
+  return orientedCache.canvas;
+}
+
+// Layout options for processImage at a given output size.
+function layoutOptions(source, outW) {
+  const options = { scaleMode: scaleMode.value, backgroundColor: framing.value.background };
+  if (scaleMode.value === "custom") {
+    if (framing.value.rect) {
+      const px = denormalizeRect(framing.value.rect, source.width, source.height);
+      Object.assign(options, rectToZoomPan(px, outW));
+    } else {
+      options.scaleMode = "cover";
+    }
+  }
+  return options;
+}
+
 async function updatePreview() {
-  if (!sourceCanvas || !originalCanvasRef.value || !processedCanvasRef.value || !imageProcessor)
-    return;
+  if (!sourceCanvas || !originalCanvasRef.value || !processedCanvasRef.value) return;
 
   const processingParams = {
     exposure: props.params.exposure,
@@ -332,184 +303,114 @@ async function updatePreview() {
     compressDynamicRange: props.params.compressDynamicRange,
   };
 
-  let palette = imageProcessor.SPECTRA6;
-  if (appStore.isGrayscale) {
-    palette = grayscalePalette();
-  } else if (props.palette && Object.keys(props.palette).length > 0) {
-    palette.perceived = props.palette;
-  }
+  const palette = palettePair.value;
+  const source = orientedSource();
 
-  const { frameWidth, frameHeight } = getFrameDimensions();
+  // Preview at screen resolution, in the frame's logical orientation (no
+  // orientation flag: the native-layout rotation is only for the upload).
+  const { width: frameW, height: frameH } = frame.value;
+  const scale = Math.min(1, PREVIEW_MAX_SIDE / Math.max(frameW, frameH));
+  const previewW = Math.max(1, Math.round(frameW * scale));
+  const previewH = Math.max(1, Math.round(frameH * scale));
 
-  // For preview, pass oriented frame dimensions directly (no orientation
-  // flag — we don't want the native-layout rotation that the upload needs).
-  const commonOpts = {
-    displayWidth: frameWidth,
-    displayHeight: frameHeight,
+  const result = processImage(source, {
+    displayWidth: previewW,
+    displayHeight: previewH,
     palette,
     params: processingParams,
-    scaleMode: scaleMode.value,
-    backgroundColor: bgColorMode.value,
-    zoom: customZoom.value,
-    panX: customPanX.value,
-    panY: customPanY.value,
-  };
-
-  // Process with dithering (perceived palette for preview)
-  const result = imageProcessor.processImage(sourceCanvas, {
-    ...commonOpts,
+    ...layoutOptions(source, previewW),
     usePerceivedOutput: true,
   });
 
-  // Process without dithering for histogram
-  const preDitherResult = imageProcessor.processImage(sourceCanvas, {
-    ...commonOpts,
+  // Histogram of the tone-mapped (pre-dither) image, from a small copy of the
+  // laid-out photo: same pixels, a fraction of the work.
+  const small = downscaleCanvas(result.originalCanvas, HISTOGRAM_MAX_SIDE);
+  const preDither = processImage(small, {
+    displayWidth: small.width,
+    displayHeight: small.height,
+    palette,
+    params: processingParams,
     skipDithering: true,
   });
-  histogram.value = calculateHistogram(preDitherResult.canvas);
+  histogram.value = calculateHistogram(preDither.canvas);
 
-  // Update canvas dimensions
-  const actualWidth = result.canvas.width;
-  const actualHeight = result.canvas.height;
-  originalCanvasRef.value.width = actualWidth;
-  originalCanvasRef.value.height = actualHeight;
-  processedCanvasRef.value.width = actualWidth;
-  processedCanvasRef.value.height = actualHeight;
-
-  // Scale down the visual size if larger than 800px while maintaining aspect ratio
-  const MAX_PREVIEW_SIZE = 800;
-  let styleWidth = actualWidth;
-  let styleHeight = actualHeight;
-
-  if (styleWidth > MAX_PREVIEW_SIZE || styleHeight > MAX_PREVIEW_SIZE) {
-    const ratio = Math.min(MAX_PREVIEW_SIZE / styleWidth, MAX_PREVIEW_SIZE / styleHeight);
-    styleWidth = Math.round(styleWidth * ratio);
-    styleHeight = Math.round(styleHeight * ratio);
+  // Draw both layers at the preview resolution; CSS scales them to fit.
+  for (const canvasRef of [originalCanvasRef, processedCanvasRef]) {
+    canvasRef.value.width = previewW;
+    canvasRef.value.height = previewH;
+    canvasRef.value.style.width = `${previewW}px`;
+    canvasRef.value.style.height = "";
   }
 
-  if (originalCanvasRef.value) {
-    originalCanvasRef.value.style.width = `${styleWidth}px`;
-    originalCanvasRef.value.style.height = "";
-  }
-  if (processedCanvasRef.value) {
-    processedCanvasRef.value.style.width = `${styleWidth}px`;
-    processedCanvasRef.value.style.height = "";
-  }
-
-  // Draw original — result.originalCanvas is the post-layout, pre-preprocessing
-  // snapshot the package already keeps around for thumbnail use, so we get the
+  // result.originalCanvas is the post-layout, pre-processing snapshot: the
   // source resized/positioned to the frame with no color processing applied.
-  const originalCtx = originalCanvasRef.value.getContext("2d");
-  originalCtx.drawImage(result.originalCanvas, 0, 0);
-
-  // Draw processed result (with dithering)
-  const processedCtx = processedCanvasRef.value.getContext("2d");
-  processedCtx.drawImage(result.canvas, 0, 0);
+  originalCanvasRef.value.getContext("2d").drawImage(result.originalCanvas, 0, 0);
+  processedCanvasRef.value.getContext("2d").drawImage(result.canvas, 0, 0);
 
   emit("processed", result);
 }
 
-function loadImage(file) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
-  });
+// ---------------------------------------------------------------------------
+// Layout controls
+// ---------------------------------------------------------------------------
+function onModeChange(mode) {
+  if (!mode) return;
+  if (mode === "custom") {
+    openEditor();
+    return;
+  }
+  scaleMode.value = mode;
+  updatePreview();
 }
 
-// Mouse event handlers
-function onMouseDown(event) {
-  if (scaleMode.value === "custom") {
-    isPanning.value = true;
-    panStartX = event.clientX;
-    panStartY = event.clientY;
-    panStartImgX = customPanX.value;
-    panStartImgY = customPanY.value;
-    event.preventDefault();
-  } else {
-    isDragging.value = true;
-    updateSlider(event);
-  }
+function openEditor() {
+  if (!sourceCanvas) return;
+  editorOpen.value = true;
 }
 
-function onMouseMove(event) {
-  if (isPanning.value && scaleMode.value === "custom") {
-    const scale = getPreviewScale();
-    const dx = (event.clientX - panStartX) / scale;
-    const dy = (event.clientY - panStartY) / scale;
-    customPanX.value = panStartImgX + dx;
-    customPanY.value = panStartImgY + dy;
-    quickFrameUpdate();
-    debouncedUpdatePreview();
-  } else if (isDragging.value) {
-    updateSlider(event);
-  }
+function onEditorApply({ mode, rotation, flipH, background, rect }) {
+  framing.value = { rotation, flipH, rect, background };
+  scaleMode.value = mode;
+  updatePreview();
 }
 
-function onMouseUp() {
-  if (isPanning.value) {
-    isPanning.value = false;
-    if (processDebounceTimer) {
-      clearTimeout(processDebounceTimer);
-      processDebounceTimer = null;
-    }
-    updatePreview();
-  }
+// ---------------------------------------------------------------------------
+// Before / after slider (Pointer Events: mouse, touch and pen)
+// ---------------------------------------------------------------------------
+function onPointerDown(event) {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  isDragging.value = true;
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  updateSlider(event);
+}
+
+function onPointerMove(event) {
+  if (isDragging.value) updateSlider(event);
+}
+
+function onPointerUp() {
   isDragging.value = false;
 }
 
-function onWheel(event) {
-  if (scaleMode.value !== "custom" || !sourceCanvas) return;
-  event.preventDefault();
-
-  const { frameWidth, frameHeight } = getFrameDimensions();
-  const srcW = sourceCanvas.width;
-  const srcH = sourceCanvas.height;
-  const fitScale = Math.min(frameWidth / srcW, frameHeight / srcH);
-  const maxZoomVal = Math.max(frameWidth / srcW, frameHeight / srcH) * 5;
-
-  const zoomFactor = event.deltaY > 0 ? 0.95 : 1.05;
-  let newZoom = customZoom.value * zoomFactor;
-  newZoom = Math.max(fitScale * 0.25, Math.min(maxZoomVal, newZoom));
-
-  // Zoom around mouse position
-  const scale = getPreviewScale();
-  const rect = event.currentTarget.getBoundingClientRect();
-  const mouseFrameX = (event.clientX - rect.left) / scale;
-  const mouseFrameY = (event.clientY - rect.top) / scale;
-
-  const zoomRatio = newZoom / customZoom.value;
-  customPanX.value = mouseFrameX - (mouseFrameX - customPanX.value) * zoomRatio;
-  customPanY.value = mouseFrameY - (mouseFrameY - customPanY.value) * zoomRatio;
-  customZoom.value = newZoom;
-
-  quickFrameUpdate();
-  debouncedUpdatePreview();
-}
-
 function updateSlider(event) {
-  const container = event.currentTarget;
-  const rect = container.getBoundingClientRect();
+  const rect = event.currentTarget.getBoundingClientRect();
   const x = event.clientX - rect.left;
   sliderPosition.value = Math.max(0, Math.min(100, (x / rect.width) * 100));
 }
 
-// Expose method for upload component to get framed canvas and background mask
+// Expose the layout to the upload component, which reprocesses the full
+// resolution photo with the same framing.
 defineExpose({
   scaleMode,
-  getUploadParams() {
+  getFraming() {
     return {
-      backgroundColorName: bgColorMode.value,
-      zoom: customZoom.value,
-      panX: customPanX.value,
-      panY: customPanY.value,
+      scaleMode: scaleMode.value,
+      backgroundColorName: framing.value.background,
+      rotation: framing.value.rotation,
+      flipH: framing.value.flipH,
+      rect: framing.value.rect,
     };
   },
-});
-
-onUnmounted(() => {
-  if (processDebounceTimer) clearTimeout(processDebounceTimer);
 });
 </script>
 
@@ -517,83 +418,87 @@ onUnmounted(() => {
   <v-card>
     <v-card-text>
       <div class="d-flex flex-column align-center">
-        <!-- Scale Mode Selector -->
-        <v-btn-toggle
-          v-model="scaleMode"
-          mandatory
-          color="primary"
-          variant="outlined"
-          density="compact"
-          class="mb-3"
-        >
-          <v-btn value="cover" size="small">
-            <v-icon start size="small">mdi-crop-free</v-icon>
-            Cover
-          </v-btn>
-          <v-btn value="fit" size="small">
-            <v-icon start size="small">mdi-fit-to-screen</v-icon>
-            Fit
-          </v-btn>
-          <v-btn value="custom" size="small">
-            <v-icon start size="small">mdi-cursor-move</v-icon>
-            Custom
-          </v-btn>
-        </v-btn-toggle>
-
-        <!-- Background color selector (only for fit/custom modes) -->
-        <div v-if="scaleMode !== 'cover'" class="d-flex align-center mb-3">
-          <span class="text-caption text-medium-emphasis mr-2">Background:</span>
+        <!-- Layout selector -->
+        <div class="layout-bar">
           <v-btn-toggle
-            v-model="bgColorMode"
+            :model-value="scaleMode"
+            mandatory
+            color="primary"
+            variant="outlined"
+            density="compact"
+            @update:model-value="onModeChange"
+          >
+            <v-btn value="cover" size="small" title="Fill the frame, cropping the photo">
+              <v-icon start size="small">mdi-crop-free</v-icon>
+              Cover
+            </v-btn>
+            <v-btn value="fit" size="small" title="Show the whole photo, with bars">
+              <v-icon start size="small">mdi-fit-to-screen</v-icon>
+              Fit
+            </v-btn>
+            <v-btn value="custom" size="small" title="Choose the framing yourself">
+              <v-icon start size="small">mdi-crop</v-icon>
+              Adjust
+            </v-btn>
+          </v-btn-toggle>
+
+          <v-btn
+            v-if="scaleMode === 'custom' || framing.rotation || framing.flipH"
+            size="small"
+            variant="text"
+            color="primary"
+            prepend-icon="mdi-pencil-outline"
+            @click="openEditor"
+          >
+            Edit framing
+          </v-btn>
+        </div>
+
+        <div v-if="rotationLabel || framing.flipH" class="d-flex ga-2 mb-2">
+          <v-chip v-if="rotationLabel" size="x-small" variant="tonal">{{ rotationLabel }}</v-chip>
+          <v-chip v-if="framing.flipH" size="x-small" variant="tonal">Mirrored</v-chip>
+        </div>
+
+        <!-- Background color selector (only when bars are visible) -->
+        <div v-if="showBackgroundToggle" class="d-flex align-center mb-3">
+          <span class="text-caption text-medium-emphasis mr-2">Bars:</span>
+          <v-btn-toggle
+            v-model="framing.background"
             mandatory
             color="primary"
             variant="outlined"
             density="compact"
           >
-            <v-btn value="black" size="small">Black</v-btn>
             <v-btn value="white" size="small">White</v-btn>
+            <v-btn value="black" size="small">Black</v-btn>
           </v-btn-toggle>
         </div>
 
         <div class="d-flex flex-wrap gap-4 justify-center align-end">
-          <!-- Comparison / Custom Container -->
+          <!-- Before / after comparison -->
           <div
             class="comparison-container"
-            :class="{ 'custom-mode': scaleMode === 'custom' }"
-            @mousedown="onMouseDown"
-            @mousemove="onMouseMove"
-            @mouseup="onMouseUp"
-            @mouseleave="onMouseUp"
-            @wheel="onWheel"
+            @pointerdown="onPointerDown"
+            @pointermove="onPointerMove"
+            @pointerup="onPointerUp"
+            @pointercancel="onPointerUp"
           >
             <div class="canvas-wrapper">
               <canvas ref="originalCanvasRef" class="preview-canvas" />
               <canvas
                 ref="processedCanvasRef"
                 class="preview-canvas processed"
-                :style="{
-                  clipPath: scaleMode !== 'custom' ? `inset(0 0 0 ${sliderPosition}%)` : 'none',
-                }"
+                :style="{ clipPath: `inset(0 0 0 ${sliderPosition}%)` }"
               />
-              <!-- Comparison slider (hidden in custom mode) -->
-              <div
-                v-if="scaleMode !== 'custom'"
-                class="slider-line"
-                :style="{ left: `${sliderPosition}%` }"
-              >
+              <div class="slider-line" :style="{ left: `${sliderPosition}%` }">
                 <div class="slider-handle">
                   <v-icon size="small"> mdi-arrow-left-right </v-icon>
                 </div>
               </div>
             </div>
             <div class="comparison-labels d-flex justify-space-between mt-2">
-              <template v-if="scaleMode !== 'custom'">
-                <span class="text-caption">← Original</span>
-                <span class="text-caption">Processed →</span>
-              </template>
-              <span v-else class="text-caption text-medium-emphasis">
-                Drag to pan, scroll to zoom
-              </span>
+              <span class="text-caption">← Original</span>
+              <span class="text-caption">Processed →</span>
             </div>
           </div>
 
@@ -618,27 +523,49 @@ onUnmounted(() => {
         <v-progress-linear v-if="processing" indeterminate color="primary" class="mt-2" />
       </div>
     </v-card-text>
+
+    <CropEditor
+      v-model="editorOpen"
+      :source="sourceCanvas"
+      :source-size="sourceSize"
+      :frame="frame"
+      :initial="{
+        mode: scaleMode,
+        rotation: framing.rotation,
+        flipH: framing.flipH,
+        rect: framing.rect,
+        background: framing.background,
+      }"
+      :params="params"
+      :palette="palettePair"
+      @apply="onEditorApply"
+    />
   </v-card>
 </template>
 
 <style scoped>
+.layout-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 8px;
+  margin-bottom: 12px;
+}
+
 .comparison-container {
   position: relative;
+  max-width: 100%;
   cursor: ew-resize;
   user-select: none;
-}
-
-.comparison-container.custom-mode {
-  cursor: grab;
-}
-
-.comparison-container.custom-mode:active {
-  cursor: grabbing;
+  /* A horizontal drag moves the slider; vertical swipes still scroll the page. */
+  touch-action: pan-y;
 }
 
 .canvas-wrapper {
   position: relative;
   display: inline-block;
+  max-width: 100%;
   background: #f5f5f5;
   border-radius: 8px;
   overflow: hidden;
@@ -692,5 +619,12 @@ onUnmounted(() => {
   flex-shrink: 0;
   align-self: flex-end;
   margin-left: 20px;
+}
+
+@media (max-width: 600px) {
+  .tone-curve-card {
+    margin-left: 0;
+    align-self: center;
+  }
 }
 </style>
