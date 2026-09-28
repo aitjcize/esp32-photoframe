@@ -136,13 +136,27 @@ async function uploadImage(mode = "upload") {
     const targetHeight = displayHeight.value;
     // Saved/applied orientation, matching the preview (updated on save).
     const orientation = settingsStore.appliedOrientation;
-    const palette = appStore.isGrayscale
-      ? imageProcessor.makeGrayscale16({
-          blackY: settingsStore.palette?.black_y ?? 0.009,
-          whiteY: settingsStore.palette?.white_y ?? 0.65,
-          gamma: settingsStore.palette?.gamma ?? 1.42,
-        })
-      : imageProcessor.SPECTRA6;
+    // Dither against exactly the palette the preview shows (for colour
+    // panels, SPECTRA6 with the device's calibrated perceived colours). This
+    // used to be built separately here from the bare SPECTRA6 constant and
+    // only picked up the calibration because the preview overwrote
+    // SPECTRA6.perceived in place -- a side effect a preview change could
+    // silently drop. The fallback builds the same pair from the store.
+    const palette =
+      imageProcessingRef.value?.getPalette() ??
+      (appStore.isGrayscale
+        ? imageProcessor.makeGrayscale16({
+            blackY: settingsStore.palette?.black_y ?? 0.009,
+            whiteY: settingsStore.palette?.white_y ?? 0.65,
+            gamma: settingsStore.palette?.gamma ?? 1.42,
+          })
+        : {
+            ...imageProcessor.SPECTRA6,
+            perceived:
+              settingsStore.palette && Object.keys(settingsStore.palette).length > 0
+                ? settingsStore.palette
+                : imageProcessor.SPECTRA6.perceived,
+          });
 
     // Get scale mode and params from the preview component
     // Vue auto-unwraps refs from defineExpose, so no .value needed

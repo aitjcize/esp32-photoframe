@@ -88,6 +88,19 @@ function grayscalePalette() {
   });
 }
 
+// The palette the preview dithers with, and the upload must dither with too:
+// for colour panels SPECTRA6 with the device's calibrated perceived colours.
+// Always a new object -- the library's SPECTRA6 constant is shared and is
+// never mutated. Null until the library has loaded.
+function currentPalette() {
+  if (!imageProcessor) return null;
+  if (appStore.isGrayscale) return grayscalePalette();
+  if (props.palette && Object.keys(props.palette).length > 0) {
+    return { ...imageProcessor.SPECTRA6, perceived: props.palette };
+  }
+  return imageProcessor.SPECTRA6;
+}
+
 // Debounce timer for processing during pan/zoom
 let processDebounceTimer = null;
 
@@ -332,12 +345,7 @@ async function updatePreview() {
     compressDynamicRange: props.params.compressDynamicRange,
   };
 
-  let palette = imageProcessor.SPECTRA6;
-  if (appStore.isGrayscale) {
-    palette = grayscalePalette();
-  } else if (props.palette && Object.keys(props.palette).length > 0) {
-    palette.perceived = props.palette;
-  }
+  const palette = currentPalette();
 
   const { frameWidth, frameHeight } = getFrameDimensions();
 
@@ -498,6 +506,7 @@ function updateSlider(event) {
 // Expose method for upload component to get framed canvas and background mask
 defineExpose({
   scaleMode,
+  getPalette: currentPalette,
   getUploadParams() {
     return {
       backgroundColorName: bgColorMode.value,
