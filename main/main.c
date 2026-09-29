@@ -500,14 +500,24 @@ static void log_coredump_summary(void)
     if (esp_core_dump_image_check() != ESP_OK) {
         return;  // no valid core dump stored
     }
+
+    char reason[200];
+    if (esp_core_dump_get_panic_reason(reason, sizeof(reason)) == ESP_OK) {
+        ESP_LOGE(TAG, "COREDUMP: panic reason: %s", reason);
+    }
+
     esp_core_dump_summary_t summary;
-    if (esp_core_dump_get_summary(&summary) == ESP_OK) {
-        ESP_LOGE(TAG, "COREDUMP: task '%s' crashed at PC 0x%08x (%u frames)", summary.exc_task,
-                 (unsigned) summary.exc_pc, (unsigned) summary.exc_bt_info.depth);
-        for (uint32_t i = 0; i < summary.exc_bt_info.depth; i++) {
-            ESP_LOGE(TAG, "COREDUMP   bt[%u] 0x%08x", (unsigned) i,
-                     (unsigned) summary.exc_bt_info.bt[i]);
-        }
+    esp_err_t err = esp_core_dump_get_summary(&summary);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "COREDUMP: stored but could not be summarised (%s); left in flash",
+                 esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGE(TAG, "COREDUMP: task '%s' crashed at PC 0x%08x (%u frames)", summary.exc_task,
+             (unsigned) summary.exc_pc, (unsigned) summary.exc_bt_info.depth);
+    for (uint32_t i = 0; i < summary.exc_bt_info.depth; i++) {
+        ESP_LOGE(TAG, "COREDUMP   bt[%u] 0x%08x", (unsigned) i,
+                 (unsigned) summary.exc_bt_info.bt[i]);
     }
     esp_core_dump_image_erase();  // clear so it isn't re-reported on every boot
 }
