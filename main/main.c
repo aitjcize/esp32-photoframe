@@ -500,6 +500,9 @@ static void log_coredump_summary(void)
     if (esp_core_dump_image_check() != ESP_OK) {
         return;  // no valid core dump stored
     }
+    size_t addr = 0, size = 0;
+    esp_core_dump_image_get(&addr, &size);
+    ESP_LOGE(TAG, "COREDUMP: %u bytes stored", (unsigned) size);
 
     char reason[200];
     if (esp_core_dump_get_panic_reason(reason, sizeof(reason)) == ESP_OK) {

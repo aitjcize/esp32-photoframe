@@ -86,9 +86,8 @@ def build_firmware(board, extra_args, debug=False):
     print(f"\n=== Building firmware for {board}{' [debug]' if debug else ''} ===")
     sdkconfig_defaults = f"sdkconfig.defaults;boards/sdkconfig.defaults.{board}"
     if debug:
-        # Debug-only overlay: core-dump-to-flash capture (+ the coredump partition
-        # from generate_partitions.py). Changes the partition table — never used
-        # for release or demo builds.
+        # Debug-only overlay: core-dump-to-flash capture into the coredump
+        # partition every layout has. Never used for release or demo builds.
         sdkconfig_defaults += ";sdkconfig.defaults.debug"
 
     # Boards differ in target chip (the M5Paper is a plain ESP32, everything
@@ -146,8 +145,7 @@ def main():
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Debug build: enable core-dump-to-flash capture. Changes the "
-        "partition table (adds a coredump partition) — do not ship to users.",
+        help="Debug build: enable core-dump-to-flash capture.",
     )
     parser.add_argument(
         "--step",

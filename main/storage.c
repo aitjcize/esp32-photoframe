@@ -67,9 +67,9 @@ static esp_err_t mount_littlefs(void)
     // filesystem with the partition it now lives in:
     //  - filesystem smaller (reflash from an older layout): remount with
     //    grow_on_mount, which expands it in place and keeps the photos
-    //  - filesystem larger (reflash to a --debug build, whose coredump
-    //    reservation shrinks storage): littlefs cannot shrink and
-    //    lfs_fs_grow() asserts on a smaller size, so reformat instead
+    //  - filesystem larger (reflash to a layout with a smaller storage
+    //    partition): littlefs cannot shrink and lfs_fs_grow() asserts on a
+    //    smaller size, so reformat instead
     const esp_partition_t *partition = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, LITTLEFS_PARTITION_LABEL);
     size_t fs_size = 0, fs_used = 0;
