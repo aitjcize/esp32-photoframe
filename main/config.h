@@ -169,6 +169,7 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 
 // Debugging
 #define NVS_DEBUG_LOG_KEY "debug_log"
+#define NVS_LAST_CRASH_KEY "last_crash"
 
 // Home Assistant
 #define NVS_HA_URL_KEY "ha_url"

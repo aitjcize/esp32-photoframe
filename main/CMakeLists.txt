@@ -3,6 +3,8 @@ set(SOURCES
     "cert_pin.c"
     "color_palette.c"
     "config_manager.c"
+    "crash_log.c"
+    "crash_record.c"
     "debug_log.c"
     "display_flow.c"
     "display_manager.c"

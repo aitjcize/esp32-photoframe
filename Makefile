@@ -89,6 +89,9 @@ test:
 	@echo "Running network backoff tests..."
 	@./host_tests/build/network_backoff_test
 	@echo ""
+	@echo "Running crash record tests..."
+	@./host_tests/build/crash_record_test
+	@echo ""
 	@echo "Running image pipeline tests..."
 	@./host_tests/build/image_pipeline_test
 	@echo ""

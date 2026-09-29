@@ -16,6 +16,7 @@
 #include "color_palette.h"
 #include "config.h"
 #include "config_manager.h"
+#include "crash_log.h"
 #include "debug_log.h"
 #include "display_flow.h"
 #include "display_manager.h"
@@ -1491,6 +1492,17 @@ static esp_err_t debug_log_clear_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t crash_clear_handler(httpd_req_t *req)
+{
+    if (crash_log_clear() != ESP_OK) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"success\"}");
+    return ESP_OK;
+}
+
 static esp_err_t config_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -1987,6 +1999,45 @@ static esp_err_t album_images_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static void add_last_crash(cJSON *response)
+{
+    crash_record_t rec;
+    if (!crash_log_load(&rec)) {
+        cJSON_AddNullToObject(response, "last_crash");
+        return;
+    }
+    cJSON *crash = cJSON_AddObjectToObject(response, "last_crash");
+    char buf[CRASH_RECORD_LINE_MAX];
+    crash_record_format(&rec, BOARD_HAL_NAME, buf, sizeof(buf));
+    cJSON_AddStringToObject(crash, "summary", buf);
+    cJSON_AddStringToObject(crash, "reason", rec.reason);
+    cJSON_AddStringToObject(crash, "task", rec.task);
+    snprintf(buf, sizeof(buf), "0x%08x", (unsigned) rec.pc);
+    cJSON_AddStringToObject(crash, "pc", buf);
+    cJSON *bt = cJSON_AddArrayToObject(crash, "backtrace");
+    for (unsigned i = 0; i < rec.bt_depth && i < CRASH_RECORD_BT_MAX; i++) {
+        snprintf(buf, sizeof(buf), "0x%08x", (unsigned) rec.bt[i]);
+        cJSON_AddItemToArray(bt, cJSON_CreateString(buf));
+    }
+    cJSON_AddBoolToObject(crash, "backtrace_corrupted", rec.bt_corrupted);
+    if (rec.firmware[0]) {
+        cJSON_AddStringToObject(crash, "firmware", rec.firmware);
+    } else {
+        cJSON_AddNullToObject(crash, "firmware");
+    }
+    if (rec.elf_sha[0]) {
+        cJSON_AddStringToObject(crash, "elf_sha256", rec.elf_sha);
+    } else {
+        cJSON_AddNullToObject(crash, "elf_sha256");
+    }
+    if (rec.found_at > 0) {
+        cJSON_AddNumberToObject(crash, "time", (double) rec.found_at);
+    } else {
+        cJSON_AddNullToObject(crash, "time");
+    }
+    cJSON_AddNumberToObject(crash, "dump_size", rec.dump_size);
+}
+
 static esp_err_t system_info_handler(httpd_req_t *req)
 {
     const esp_app_desc_t *app_desc = esp_app_get_description();
@@ -2037,6 +2088,7 @@ static esp_err_t system_info_handler(httpd_req_t *req)
     cJSON_AddStringToObject(response, "compile_time", app_desc->time);
     cJSON_AddStringToObject(response, "compile_date", app_desc->date);
     cJSON_AddStringToObject(response, "idf_version", app_desc->idf_ver);
+    add_last_crash(response);
 
     char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
@@ -2532,6 +2584,8 @@ esp_err_t http_server_init(void)
         register_uri("/api/debug/log", HTTP_GET, debug_log_download_handler);
 
         register_uri("/api/debug/log", HTTP_DELETE, debug_log_clear_handler);
+
+        register_uri("/api/crash/clear", HTTP_POST, crash_clear_handler);
 
         register_uri("/api/battery", HTTP_GET, battery_handler);
 

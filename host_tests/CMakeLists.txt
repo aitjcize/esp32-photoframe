@@ -96,12 +96,31 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/../main
 )
 
+# Last-crash record: reason and the one-line summary
+add_executable(
+  crash_record_test
+  test_crash_record.cpp
+  ../main/crash_record.c
+)
+
+target_link_libraries(
+  crash_record_test
+  GTest::gtest_main
+)
+
+target_include_directories(
+  crash_record_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
 # Discover tests
 include(GoogleTest)
 gtest_discover_tests(cron_test)
 gtest_discover_tests(wake_schedule_test)
 gtest_discover_tests(http_auth_test)
 gtest_discover_tests(network_backoff_test)
+gtest_discover_tests(crash_record_test)
 
 # On-device image pipeline characterization tests (host build of
 # main/image_processor.c against ESP-IDF stubs + system libpng)

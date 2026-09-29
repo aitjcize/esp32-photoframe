@@ -31,7 +31,42 @@ Get device system information.
   "sdcard_inserted": true,
   "has_flash_storage": false,
   "storage_total": 31914983424,
-  "storage_used": 1048576
+  "storage_used": 1048576,
+  "last_crash": null
+}
+```
+
+`last_crash` is `null` until the frame recovers from a crash, then describes
+the newest one (see [Decoding a crash report](DEV.md#decoding-a-crash-report)):
+
+```json
+{
+  "summary": "LoadProhibited, vaddr 0x00000000 | task httpd, pc 0x4201a2b3, bt 0x4201a2b3 0x4201c3d4 | fw v2.20.1, elf 1a2b3c4d, board seeedstudio_xiao_ee02 | found 2026-09-21T14:13:20Z | dump 23456 B",
+  "reason": "LoadProhibited, vaddr 0x00000000",
+  "task": "httpd",
+  "pc": "0x4201a2b3",
+  "backtrace": ["0x4201a2b3", "0x4201c3d4"],
+  "backtrace_corrupted": false,
+  "firmware": "v2.20.1",
+  "elf_sha256": "1a2b3c4d",
+  "time": 1790000000,
+  "dump_size": 23456
+}
+```
+
+`time` is when the next boot found the crash (Unix seconds), `null` if the
+clock wasn't set. `firmware` is `null` when the crash came from a different
+build than the one running; `elf_sha256` (the first 8 hex digits of the
+crashed build's ELF SHA-256) still identifies it.
+
+### `POST /api/crash/clear`
+
+Forget the `last_crash` record.
+
+**Response:**
+```json
+{
+  "status": "success"
 }
 ```
 
