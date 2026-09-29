@@ -491,9 +491,9 @@ void deep_sleep_wake_main(wakeup_source_t wakeup_src)
 }
 
 #if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH
-// Dev builds only: if the previous boot stored a core dump (panic), log the
-// crashed task + backtrace so it lands in the persistent debug log, then clear
-// it. Resolve the addresses offline against build/esp32-photoframe.elf with
+// If the previous boot stored a core dump (panic), log the crashed task +
+// backtrace so it lands in the persistent debug log, then clear it. Resolve
+// the addresses offline against build/esp32-photoframe.elf with
 // xtensa-esp32s3-elf-addr2line. Used to root-cause the #105 wake-path crash.
 static void log_coredump_summary(void)
 {
@@ -600,7 +600,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Reset reason: %s", reset_reason_str);
 
 #if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH
-    // Dev builds: surface any core dump left by a previous crash into the log.
+    // Surface any core dump left by a previous crash into the log.
     log_coredump_summary();
 #endif
 

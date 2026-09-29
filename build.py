@@ -81,14 +81,10 @@ def idf_py_command():
     return [python, script]
 
 
-def build_firmware(board, extra_args, debug=False):
+def build_firmware(board, extra_args):
     """Build firmware with idf.py."""
-    print(f"\n=== Building firmware for {board}{' [debug]' if debug else ''} ===")
+    print(f"\n=== Building firmware for {board} ===")
     sdkconfig_defaults = f"sdkconfig.defaults;boards/sdkconfig.defaults.{board}"
-    if debug:
-        # Debug-only overlay: core-dump-to-flash capture into the coredump
-        # partition every layout has. Never used for release or demo builds.
-        sdkconfig_defaults += ";sdkconfig.defaults.debug"
 
     # Boards differ in target chip (the M5Paper is a plain ESP32, everything
     # else is an ESP32-S3). Pass it explicitly: idf.py resolves the target
@@ -143,11 +139,6 @@ def main():
         help="Remove sdkconfig and run idf.py fullclean before building",
     )
     parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Debug build: enable core-dump-to-flash capture.",
-    )
-    parser.add_argument(
         "--step",
         choices=STEPS,
         action="append",
@@ -176,7 +167,7 @@ def main():
         generate_splash(args.board)
 
     if "firmware" in steps:
-        build_firmware(args.board, extra_args, debug=args.debug)
+        build_firmware(args.board, extra_args)
 
 
 if __name__ == "__main__":

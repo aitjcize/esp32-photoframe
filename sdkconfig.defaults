@@ -45,6 +45,18 @@ CONFIG_ESP_SLEEP_RTC_BUS_ISO_WORKAROUND=y
 # Log level
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
+# Core dumps go to the `coredump` partition (scripts/generate_partitions.py)
+# and become the last_crash record at the next boot (main/crash_log.c). A dump
+# too big for the 56 KiB partition isn't written at all; the crashed task plus
+# MAX_TASKS_NUM others (IDF's count excludes the crashed one) always fit.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=2
+CONFIG_ESP_COREDUMP_CHECK_BOOT=y
+# Write the dump from a stack of its own, not whatever the crashed task has
+# left. The S3 boards get this regardless (task stacks may live in PSRAM); on
+# the M5Paper's ESP32 it defaults to 0.
+CONFIG_ESP_COREDUMP_STACK_SIZE=2048
+
 # Interrupt Watchdog - Increase timeout for long SPI transfers during e-paper refresh
 # Default is 300ms, increase to 1000ms to allow large SPI buffer transfers
 CONFIG_ESP_INT_WDT_TIMEOUT_MS=1000
