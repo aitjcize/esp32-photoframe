@@ -158,6 +158,41 @@ In `idf.py menuconfig`:
 1. Navigate to `Component config` → `Log output`
 2. Set default log level to `Debug` or `Verbose`
 
+### Decoding a crash report
+
+When the firmware panics it saves a core dump to the `coredump` partition. The
+next boot turns it into a one-line record, logs it (`COREDUMP: ...`, also in the
+debug log when that is on) and keeps it until cleared: the web UI shows it
+under **Settings → Maintenance → Last Crash** (Copy Report copies the line),
+and `GET /api/system-info` returns it as `last_crash`. For example:
+
+```
+LoadProhibited, vaddr 0x00000000 | task httpd, pc 0x4201a2b3, bt 0x4201a2b3 0x4201c3d4 0x4037a1b2 | fw v2.20.1, elf 1a2b3c4d, board seeedstudio_xiao_ee02 | found 2026-09-21T14:13:20Z | dump 23456 B
+```
+
+To turn the addresses into source lines:
+
+1. Download `<board>-<version>.elf` for the reported `board` and `fw` from the
+   [release](https://github.com/aitjcize/esp32-photoframe/releases) (for a
+   local build, use `build/esp32-photoframe.elf` of that build).
+2. Check that it is the build that crashed: its SHA-256 must start with the
+   `elf` value. `fw unknown` means the frame was running a different build when
+   it found the dump (e.g. it was reflashed after crash-looping); find the
+   release ELF whose SHA-256 matches.
+   ```bash
+   shasum -a 256 seeedstudio_xiao_ee02-v2.20.1.elf
+   ```
+3. Resolve the PC and backtrace with the ESP-IDF toolchain (after
+   `. $IDF_PATH/export.sh`). Use `xtensa-esp32-elf-addr2line` for the M5Paper,
+   which is a plain ESP32:
+   ```bash
+   xtensa-esp32s3-elf-addr2line -pfiaC -e seeedstudio_xiao_ee02-v2.20.1.elf 0x4201a2b3 0x4201c3d4 0x4037a1b2
+   ```
+
+The dump is erased once its record is saved, so it can't be pulled over USB
+afterwards; a dump the firmware can't summarise stays in flash for
+`idf.py coredump-info`.
+
 ### Common Issues
 
 **Build fails with component errors:**
