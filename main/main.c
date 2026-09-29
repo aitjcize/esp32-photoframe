@@ -680,8 +680,6 @@ void app_main(void)
     switch (wakeup_src) {
     case WAKEUP_SOURCE_CLEAR_BUTTON:
         ESP_LOGI(TAG, "CLEAR button wakeup detected - clearing display and sleeping");
-        board_hal_init();             // Ensure HAL is active
-        display_manager_init();       // Initialize display
         display_manager_clear();      // Clear screen
         power_manager_enter_sleep();  // Go back to sleep
         // Won't reach here
