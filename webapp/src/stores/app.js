@@ -27,6 +27,7 @@ export const useAppStore = defineStore("app", () => {
     compile_date: "",
     idf_version: "",
     board_name: "waveshare_photopainter_73",
+    last_crash: null,
   });
   const loading = ref({
     albums: false,

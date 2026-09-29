@@ -5,6 +5,7 @@ import PaletteCalibration from "./PaletteCalibration.vue";
 import GrayscaleCalibration from "./GrayscaleCalibration.vue";
 import ProcessingControls from "./ProcessingControls.vue";
 import RotationSchedule from "./RotationSchedule.vue";
+import LastCrash from "./LastCrash.vue";
 import { isValidCron } from "../utils/cron";
 import { TIMEZONES } from "../data/timezones";
 import {
@@ -1014,6 +1015,8 @@ async function performFactoryReset() {
             </v-row>
 
             <v-divider class="my-6" />
+
+            <LastCrash />
 
             <div class="text-subtitle-1 mb-4">Factory Reset</div>
             <v-row>
