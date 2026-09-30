@@ -69,10 +69,7 @@ static rgb_t palette_measured[7];
 // Theoretical is the device output ramp (value = round(i * 255 / 15) = i * 17),
 // mirroring epaper-image-convert; measured is the calibrated perceived ramp
 // used for color matching and error diffusion.
-#define GRAY(v)       \
-    {                 \
-        (v), (v), (v) \
-    }
+#define GRAY(v) {(v), (v), (v)}
 static const rgb_t gray_theoretical[16] = {
     GRAY(0),   GRAY(17),  GRAY(34),  GRAY(51),  GRAY(68),  GRAY(85),  GRAY(102), GRAY(119),
     GRAY(136), GRAY(153), GRAY(170), GRAY(187), GRAY(204), GRAY(221), GRAY(238), GRAY(255)};
@@ -393,10 +390,21 @@ static void dither_free(dither_state_t *st)
     free(st->next2_errors);
 }
 
-static void dither_row(dither_state_t *st, uint8_t *row)
+static void dither_row(dither_state_t *st, uint8_t *row, const uint8_t *white_mask)
 {
     for (int x = 0; x < st->width; x++) {
         int idx = x * 3;
+
+        // Exact source white should stay palette white. CDR's neutral white
+        // differs from the measured (tinted) white, and even a corrected
+        // endpoint can receive error from adjacent colors. Absorb that
+        // error here and emit white without generating more colored dots.
+        if (white_mask && white_mask[x]) {
+            row[idx] = palette[1].r;
+            row[idx + 1] = palette[1].g;
+            row[idx + 2] = palette[1].b;
+            continue;
+        }
 
         // Working value = decoded pixel + accumulated error, in the working
         // domain (linear light on grayscale, sRGB on Spectra)
@@ -779,17 +787,27 @@ static esp_err_t run_stream(geometry_t *geo, dither_algorithm_t dither_algorithm
         return err;
     }
 
-    uint8_t *row = (uint8_t *) heap_caps_malloc(geo->out_w * 3, MALLOC_CAP_SPIRAM);
+    // Preserve source-white identity across CDR using one extra byte per
+    // scanline pixel on color panels. GC16 keeps its existing pipeline.
+    uint8_t *row =
+        (uint8_t *) heap_caps_malloc(geo->out_w * (dither.grayscale ? 3 : 4), MALLOC_CAP_SPIRAM);
     if (!row) {
         ESP_LOGE(TAG, "Failed to allocate row buffer");
         dither_free(&dither);
         return ESP_ERR_NO_MEM;
     }
+    uint8_t *white_mask = dither.grayscale ? NULL : row + geo->out_w * 3;
 
     for (int y = 0; y < geo->out_h && err == ESP_OK; y++) {
         geometry_fill_row(geo, y, row);
+        if (white_mask) {
+            for (int x = 0; x < geo->out_w; x++) {
+                int idx = x * 3;
+                white_mask[x] = row[idx] == 255 && row[idx + 1] == 255 && row[idx + 2] == 255;
+            }
+        }
         cdr_apply_row(&cdr, row, geo->out_w);
-        dither_row(&dither, row);
+        dither_row(&dither, row, white_mask);
         geometry_repaint_background(geo, y, row);
         err = sink(sink_ctx, y, row);
 

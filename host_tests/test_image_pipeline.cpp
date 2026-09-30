@@ -200,10 +200,11 @@ Processed CaptureFrame()
 }
 
 // Pipeline entry point: buffer in, displayed frame out.
-Processed RunPipeline(const std::vector<uint8_t> &png)
+Processed RunPipeline(const std::vector<uint8_t> &png,
+                      dither_algorithm_t algorithm = DITHER_FLOYD_STEINBERG)
 {
     esp_err_t err = image_processor_process_to_display(png.data(), png.size(), IMAGE_FORMAT_PNG,
-                                                       DITHER_FLOYD_STEINBERG, nullptr);
+                                                       algorithm, nullptr);
     EXPECT_EQ(err, ESP_OK) << "pipeline failed: " << image_processor_get_last_error();
     if (err != ESP_OK)
         return {};
@@ -288,7 +289,7 @@ TEST_F(ImagePipelineTest, AspectMismatchStillFillsPanel)
     Processed p = RunPipeline(png);
     EXPECT_EQ(p.w, 800);
     EXPECT_EQ(p.h, 480);
-    EXPECT_GT(p.fraction(kWhite), 0.98);  // see SolidWhiteStaysMostlyWhite
+    EXPECT_EQ(p.fraction(kWhite), 1.0);
 }
 
 // The four orientation-config x panel-shape combinations, each verified by
@@ -374,18 +375,92 @@ TEST_F(ImagePipelineTest, PortraitOrientationRotationIsClockwise)
 
 // --- Color mapping --------------------------------------------------------
 
-// ~1% red/yellow speckle on solid white is inherent to the fast luminance
-// CDR: white compresses to a neutral gray slightly above the measured
-// (non-neutral) white point, and float error diffusion turns the bias into
-// sparse colored dots. epaper-image-convert's LAB CDR shows the same
-// artifact (tool: 3728 red + 168 yellow pixels on this input; firmware:
-// 3734 + 168). A per-channel CDR that fixed this was reverted -- it washed
-// out midtone chroma.
-TEST_F(ImagePipelineTest, SolidWhiteStaysMostlyWhite)
+class WhiteDitherTest : public ImagePipelineTest,
+                        public ::testing::WithParamInterface<dither_algorithm_t>
 {
-    Processed p = RunPipeline(EncodePng(800, 480, [](int, int) { return kWhite; }));
-    EXPECT_GT(p.fraction(kWhite), 0.98);
+};
+
+INSTANTIATE_TEST_SUITE_P(AllAlgorithms, WhiteDitherTest,
+                         ::testing::Values(DITHER_FLOYD_STEINBERG, DITHER_STUCKI, DITHER_BURKES,
+                                           DITHER_SIERRA));
+
+// Luminance CDR maps white to a neutral gray, not the tinted measured
+// white point. Exact source white must not turn that mismatch into dots.
+TEST_P(WhiteDitherTest, SolidWhiteStaysWhite)
+{
+    Processed p = RunPipeline(EncodePng(800, 480, [](int, int) { return kWhite; }), GetParam());
+    EXPECT_EQ(p.fraction(kWhite), 1.0);
     EXPECT_TRUE(p.allInPalette());
+}
+
+TEST_P(WhiteDitherTest, WhiteAreasAndThinLinesRejectIncomingColorError)
+{
+    // Both horizontal and vertical edges, isolated white pixels, and large
+    // white fields. Merely fixing the CDR white endpoint is insufficient:
+    // colored neighbors can still diffuse error into these pixels.
+    auto source = [](int x, int y) {
+        if ((x >= 250 && y >= 160) || x % 37 == 0 || y % 41 == 0)
+            return kWhite;
+        return y < 160 ? Rgb{40, 110, 150} : Rgb{165, 80, 37};
+    };
+    Processed p = RunPipeline(EncodePng(800, 480, source), GetParam());
+    ASSERT_EQ(p.w, 800);
+    ASSERT_EQ(p.h, 480);
+    size_t white_mismatches = 0;
+    for (int y = 0; y < p.h; y++)
+        for (int x = 0; x < p.w; x++)
+            if (source(x, y) == kWhite && p.at(x, y) != kWhite)
+                white_mismatches++;
+    EXPECT_EQ(white_mismatches, 0u);
+    EXPECT_TRUE(p.allInPalette());
+    EXPECT_LT(p.fraction(kWhite), 0.9);
+}
+
+TEST_P(WhiteDitherTest, NearWhitesStillDither)
+{
+    // No highlight threshold: even 254 and slightly tinted white retain
+    // their ordinary measured-palette conversion.
+    for (Rgb source : {Rgb{240, 240, 240}, Rgb{254, 254, 254}, Rgb{255, 254, 255}}) {
+        SCOPED_TRACE(::testing::Message() << source);
+        Processed p =
+            RunPipeline(EncodePng(800, 480, [source](int, int) { return source; }), GetParam());
+        EXPECT_LT(p.fraction(kWhite), 0.999);
+        EXPECT_TRUE(p.allInPalette());
+    }
+}
+
+TEST_P(WhiteDitherTest, ScaledWhiteStaysWhiteInProcessedPng)
+{
+    // Exercise the PNG writer sink and geometry, rather than only the
+    // direct display sink. Decode the result without running CDR again.
+    auto png = EncodePng(100, 60, [](int, int) { return kWhite; });
+    std::string input = ::testing::TempDir() + "white_input_" + std::to_string(GetParam()) + ".png";
+    std::string output =
+        ::testing::TempDir() + "white_output_" + std::to_string(GetParam()) + ".png";
+    FILE *fp = fopen(input.c_str(), "wb");
+    ASSERT_NE(fp, nullptr);
+    size_t written = fwrite(png.data(), 1, png.size(), fp);
+    fclose(fp);
+    ASSERT_EQ(written, png.size());
+    esp_err_t err = image_processor_process(input.c_str(), output.c_str(), GetParam());
+    remove(input.c_str());
+    ASSERT_EQ(err, ESP_OK);
+
+    png_image image{};
+    image.version = PNG_IMAGE_VERSION;
+    ASSERT_TRUE(png_image_begin_read_from_file(&image, output.c_str()));
+    image.format = PNG_FORMAT_RGB;
+    Processed p;
+    p.w = image.width;
+    p.h = image.height;
+    p.rgb.resize(PNG_IMAGE_SIZE(image));
+    bool decoded = png_image_finish_read(&image, nullptr, p.rgb.data(), 0, nullptr);
+    png_image_free(&image);
+    remove(output.c_str());
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(p.w, 800);
+    EXPECT_EQ(p.h, 480);
+    EXPECT_EQ(p.fraction(kWhite), 1.0);
 }
 
 TEST_F(ImagePipelineTest, SolidBlackStaysBlack)
@@ -424,7 +499,7 @@ TEST_F(ImagePipelineTest, AlphaPngIsAccepted)
     Processed p = RunPipeline(png);
     EXPECT_EQ(p.w, 800);
     EXPECT_EQ(p.h, 480);
-    EXPECT_GT(p.fraction(kWhite), 0.98);  // see SolidWhiteStaysMostlyWhite
+    EXPECT_EQ(p.fraction(kWhite), 1.0);
 }
 
 // Mid-gray must dither to a stable black/white mixture: pin the output mean
@@ -437,8 +512,7 @@ TEST_F(ImagePipelineTest, MidGrayDitherMeanIsStable)
     double mean = (p.meanChannel(0) + p.meanChannel(1) + p.meanChannel(2)) / 3.0;
     RecordProperty("mid_gray_mean", mean);
     printf("[characterize] mid-gray output mean = %.2f\n", mean);
-    EXPECT_GT(mean, 120.0);
-    EXPECT_LT(mean, 137.0);
+    EXPECT_NEAR(mean, 129.08, 0.05);
 }
 
 // --- Pre-processed PNG fast path ------------------------------------------
