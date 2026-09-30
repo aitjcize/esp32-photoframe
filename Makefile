@@ -83,6 +83,9 @@ test:
 	@echo "Running C unit tests..."
 	@./host_tests/build/cron_test
 	@echo ""
+	@echo "Running battery ADC tests..."
+	@./host_tests/build/battery_adc_test
+	@echo ""
 	@echo "Running HTTP auth tests..."
 	@./host_tests/build/http_auth_test
 	@echo ""
