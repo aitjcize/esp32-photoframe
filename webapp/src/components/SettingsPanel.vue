@@ -217,10 +217,11 @@ const importFileName = ref("");
 
 async function exportConfig() {
   try {
-    const [configRes, processingRes, paletteRes] = await Promise.all([
+    const [configRes, processingRes, paletteRes, systemInfoRes] = await Promise.all([
       fetch("/api/config"),
       fetch("/api/settings/processing"),
       fetch("/api/settings/palette"),
+      fetch("/api/system-info"),
     ]);
 
     const exported = {};
@@ -233,6 +234,20 @@ async function exportConfig() {
     }
     if (processingRes.ok) exported.processing = await processingRes.json();
     if (paletteRes.ok) exported.palette = await paletteRes.json();
+    if (systemInfoRes.ok) {
+      // What the panel is, so photoframe-process / epaper-image-convert can
+      // size and dither for it from this file alone (--device-config). Only
+      // the identity fields: the rest of /api/system-info is runtime state.
+      // Import ignores this block.
+      const info = await systemInfoRes.json();
+      exported.system_info = {
+        board_name: info.board_name,
+        display_type: info.display_type,
+        width: info.width,
+        height: info.height,
+        version: info.version,
+      };
+    }
 
     const blob = new Blob([JSON.stringify(exported, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
