@@ -114,9 +114,11 @@ static esp_err_t sntp_sync_periodic_callback(void)
 }
 
 // Connect to the saved network. wifi_manager_connect() itself is bounded (it
-// gives up after its retries or WIFI_CONNECT_TIMEOUT_MS), so there is nothing
-// left to wait for once it returns. On ESP_ERR_TIMEOUT the link is still up and
-// trying; callers that won't wait for it must call wifi_manager_stop_connecting().
+// runs out of attempts or WIFI_CONNECT_TIMEOUT_MS), so there is nothing left to
+// wait for once it returns. ESP_FAIL means the AP kept rejecting the
+// credentials; ESP_ERR_TIMEOUT that it could not be reached, and the caller
+// must follow up with wifi_manager_keep_reconnecting() or
+// wifi_manager_stop_connecting().
 static esp_err_t connect_to_wifi(void)
 {
     char wifi_ssid[WIFI_SSID_MAX_LEN] = {0};
@@ -751,6 +753,17 @@ void app_main(void)
     }
 
     esp_err_t wifi_err = connect_to_wifi();
+    if (wifi_err != ESP_OK && wifi_err != ESP_ERR_TIMEOUT) {
+        // Only an AP that kept rejecting the credentials gets here.
+        forget_wifi_and_reprovision();
+    }
+
+    // An interactive boot stays up -- a USB-powered frame indefinitely -- so
+    // the link must come back by itself whenever the AP does: after a router
+    // reboot, or minutes after a power cut took both down and the frame came
+    // up first. A battery frame's auto-sleep timer still ends this wake.
+    wifi_manager_keep_reconnecting();
+
     if (wifi_err == ESP_OK) {
         // Check and run periodic tasks (OTA check, SNTP sync if due)
         // Note: If RTC was invalid at boot, sntp_sync was already forced via
@@ -760,23 +773,14 @@ void app_main(void)
 
         // Start mDNS service
         ESP_ERROR_CHECK(mdns_service_init());
-    } else if (wifi_err == ESP_ERR_TIMEOUT) {
-        // Slow rather than failed: e.g. associated but DHCP hasn't answered,
-        // or the AP is still booting after a power cut. That says nothing
-        // about the saved credentials being wrong, so keep them and keep
-        // trying in the background: a battery frame's auto-sleep timer still
-        // ends this wake, while a USB-powered or always-on frame, which never
-        // auto-sleeps, comes online when the network does instead of staying
-        // offline until someone power-cycles it. mDNS is started now so it
-        // announces as soon as an address arrives; the rest of the online
+    } else {
+        // Not reachable yet: the credentials stay, and mDNS is started now so
+        // it announces as soon as an address arrives. The rest of the online
         // work runs from late_wifi_task.
-        ESP_LOGW(TAG, "WiFi connect timed out - keeping credentials, still trying");
-        wifi_manager_keep_reconnecting();
+        ESP_LOGW(TAG, "WiFi not reachable yet - keeping credentials, still trying");
         if (mdns_service_init() != ESP_OK) {
             ESP_LOGW(TAG, "mDNS not started; the frame is reachable by IP only");
         }
-    } else {
-        forget_wifi_and_reprovision();
     }
 
     xTaskCreate(button_task, "button_task", 8192, NULL, 5, NULL);

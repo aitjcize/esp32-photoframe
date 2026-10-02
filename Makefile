@@ -92,6 +92,9 @@ test:
 	@echo "Running crash record tests..."
 	@./host_tests/build/crash_record_test
 	@echo ""
+	@echo "Running WiFi retry policy tests..."
+	@./host_tests/build/wifi_retry_test
+	@echo ""
 	@echo "Running image pipeline tests..."
 	@./host_tests/build/image_pipeline_test
 	@echo ""

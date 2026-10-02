@@ -27,6 +27,7 @@ set(SOURCES
     "http_auth.c"
     "wifi_manager.c"
     "wifi_provisioning.c"
+    "wifi_retry_policy.c"
 )
 
 set(INCLUDE_DIRS ".")
