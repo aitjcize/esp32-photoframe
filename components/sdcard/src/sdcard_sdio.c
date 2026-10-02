@@ -4,13 +4,24 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "sdcard.h"
 #include "sdmmc_cmd.h"
 
 static const char *TAG = "sdcard_sdio";
 
+// Pause before the one retry of an init the card didn't answer. A card still
+// busy with the command a reset interrupted ignores the first sequence.
+#define SDCARD_INIT_RETRY_DELAY_MS 250
+
 sdmmc_card_t *card_host = NULL;
 static char mount_point_buf[32] = {0};
+
+static bool card_did_not_answer(esp_err_t ret)
+{
+    return ret == ESP_ERR_TIMEOUT || ret == ESP_ERR_INVALID_RESPONSE || ret == ESP_ERR_INVALID_CRC;
+}
 
 esp_err_t sdcard_init(const sdcard_config_t *config)
 {
@@ -46,6 +57,12 @@ esp_err_t sdcard_init(const sdcard_config_t *config)
 
     esp_err_t ret = esp_vfs_fat_sdmmc_mount(config->mount_point, &host, &slot_config, &mount_config,
                                             &card_host);
+    if (card_did_not_answer(ret)) {
+        ESP_LOGW(TAG, "SD card did not answer (%s), retrying once", esp_err_to_name(ret));
+        vTaskDelay(pdMS_TO_TICKS(SDCARD_INIT_RETRY_DELAY_MS));
+        ret = esp_vfs_fat_sdmmc_mount(config->mount_point, &host, &slot_config, &mount_config,
+                                      &card_host);
+    }
 
     if (ret != ESP_OK) {
         if (ret == ESP_FAIL) {

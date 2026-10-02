@@ -1,5 +1,6 @@
-# Shared battery-voltage ADC helper used by the ADC-based boards.
-set(SRCS "src/battery_adc.c")
+# Shared helpers: battery-voltage ADC for the ADC-based boards, SD power
+# cycling for the boards with a switched card rail.
+set(SRCS "src/battery_adc.c" "src/sd_power.c")
 
 set(PRIV_REQS
     charger_driver_sy6974b

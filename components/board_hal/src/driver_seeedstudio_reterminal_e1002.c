@@ -14,6 +14,7 @@
 #include "sy6974b.h"
 
 #ifdef CONFIG_HAS_SDCARD
+#include "sd_power.h"
 #include "sdcard.h"
 #endif
 
@@ -66,6 +67,8 @@ esp_err_t board_hal_init(void)
     gpio_hold_dis(BOARD_HAL_BAT_EN_PIN);
 #ifdef CONFIG_HAS_SDCARD
     gpio_hold_dis(BOARD_HAL_SD_PWR_PIN);
+    // Before anything drives the shared SPI bus; see sd_power.h.
+    sd_power_discharge(BOARD_HAL_SD_PWR_PIN, BOARD_HAL_SD_CS_PIN);
 #endif
 
     // --- SPI bus ---
