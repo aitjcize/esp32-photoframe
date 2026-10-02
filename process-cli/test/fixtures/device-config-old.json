@@ -1,0 +1,31 @@
+{
+  "config": {
+    "device_name": "PhotoFrame",
+    "timezone": "UTC0",
+    "display_orientation": "landscape",
+    "rotation_mode": "url"
+  },
+  "processing": {
+    "exposure": 1,
+    "saturation": 1.2,
+    "toneMode": "contrast",
+    "contrast": 1.1,
+    "strength": 0.9,
+    "shadowBoost": 0,
+    "highlightCompress": 1.5,
+    "midpoint": 0.5,
+    "colorMethod": "rgb",
+    "ditherAlgorithm": "floyd-steinberg",
+    "compressDynamicRange": true,
+    "scaleMode": "cover",
+    "backgroundColor": "white"
+  },
+  "palette": {
+    "black": { "r": 2, "g": 2, "b": 2 },
+    "white": { "r": 190, "g": 200, "b": 200 },
+    "yellow": { "r": 205, "g": 202, "b": 0 },
+    "red": { "r": 135, "g": 19, "b": 0 },
+    "blue": { "r": 5, "g": 64, "b": 158 },
+    "green": { "r": 39, "g": 102, "b": 60 }
+  }
+}

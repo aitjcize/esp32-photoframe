@@ -11,9 +11,50 @@ import {
   processImage,
   applyExifOrientation,
   rotateImage,
+  makeGrayscale16,
   SPECTRA6,
   GRAYSCALE16,
 } from "@aitjcize/epaper-image-convert";
+
+/**
+ * Build the palette pair the library dithers with from what a device reports.
+ *
+ * `devicePalette` is the body of GET /api/settings/palette (live or from an
+ * exported config file): the six perceived colours on a colour panel, or
+ * { black_y, white_y, gamma } on a grayscale (GC16) panel.
+ *
+ * @param {Object|null} devicePalette - Device palette, or null for the defaults
+ * @param {boolean} grayscale - Target is a 16-level grayscale panel
+ * @returns {Object} { theoretical, perceived } palette pair
+ */
+export function buildPalette(devicePalette, grayscale) {
+  if (grayscale) {
+    // 16-level grayscale (GC16 / IT8951): dither against the gray ramp. A
+    // device that reports its measured luminance endpoints gets the ramp the
+    // webapp preview uses; otherwise the library's default calibration.
+    if (
+      devicePalette &&
+      typeof devicePalette.black_y === "number" &&
+      typeof devicePalette.white_y === "number"
+    ) {
+      return makeGrayscale16({
+        blackY: devicePalette.black_y,
+        whiteY: devicePalette.white_y,
+        gamma: devicePalette.gamma,
+      });
+    }
+    return GRAYSCALE16;
+  }
+  if (devicePalette) {
+    // Use SPECTRA6 theoretical with device-provided perceived palette
+    return {
+      theoretical: SPECTRA6.theoretical,
+      perceived: devicePalette,
+    };
+  }
+  // Use default SPECTRA6 palette
+  return SPECTRA6;
+}
 
 /**
  * Load image with HEIC support
@@ -120,20 +161,7 @@ export async function processImagePipeline(
   // Build palette object for the library
   // The library expects { theoretical, perceived } format
   // devicePalette from the device is the "perceived" palette
-  let palette;
-  if (grayscale) {
-    // 16-level grayscale (GC16 / IT8951): dither against the gray ramp.
-    palette = GRAYSCALE16;
-  } else if (devicePalette) {
-    // Use SPECTRA6 theoretical with device-provided perceived palette
-    palette = {
-      theoretical: SPECTRA6.theoretical,
-      perceived: devicePalette,
-    };
-  } else {
-    // Use default SPECTRA6 palette
-    palette = SPECTRA6;
-  }
+  const palette = buildPalette(devicePalette, grayscale);
 
   // Call shared processImage pipeline (handles rotation, resize, preprocessing, dithering)
   return processImage(canvas, {

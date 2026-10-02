@@ -53,6 +53,7 @@
     "cli.js",
     "utils.js",
     "server.js",
+    "device-config.js",
     "README.md"
   ]
 }

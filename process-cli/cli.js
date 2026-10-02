@@ -18,6 +18,7 @@ import {
 } from "@aitjcize/epaper-image-convert";
 import { processImagePipeline } from "./utils.js";
 import { createImageServer } from "./server.js";
+import { loadDeviceConfig } from "./device-config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -785,6 +786,13 @@ program
   )
   .option("--device-parameters", "Fetch processing parameters from device")
   .option(
+    "--device-config <file>",
+    "Use a config exported from the frame's web UI (Maintenance > Config Backup > Export Config) " +
+      "instead of fetching from a live device: processing settings, palette and orientation come " +
+      "from the file, and its system_info sets display size, grayscale and firmware version, " +
+      "overriding -d and anything --host would fetch. Cannot be combined with --device-parameters",
+  )
+  .option(
     "--exposure <value>",
     "Exposure multiplier (0.5-2.0, 1.0=normal)",
     parseFloat,
@@ -831,7 +839,7 @@ program
   )
   .option(
     "--orientation <mode>",
-    "Display orientation: landscape or portrait (overridden by --device-parameters)",
+    "Display orientation: landscape or portrait (overridden by --device-parameters / --device-config)",
     "landscape",
   )
   .option(
@@ -861,10 +869,66 @@ program
     let outputDir;
     let useTmpDir = false;
 
-    // Fetch device settings if --device-parameters is specified
+    // Device settings, palette and orientation come from one of two places:
+    // --device-parameters fetches them from the live device, --device-config
+    // reads the same data from a file the web UI exported. Both replace the
+    // per-parameter flags and --orientation.
     let deviceSettings = null;
     let devicePalette = null;
-    if (options.deviceParameters) {
+    // Display size / firmware version from the config file, when it has them
+    let fileDisplay = null;
+    if (options.deviceConfig && options.deviceParameters) {
+      console.error(
+        "Error: --device-config and --device-parameters cannot be used together",
+      );
+      process.exit(1);
+    }
+    if (options.deviceConfig) {
+      let deviceConfig;
+      try {
+        deviceConfig = loadDeviceConfig(options.deviceConfig);
+      } catch (error) {
+        console.error(`Error: ${error.message}`);
+        process.exit(1);
+      }
+      console.log(`Using device config: ${options.deviceConfig}`);
+      deviceSettings = deviceConfig.processing;
+      devicePalette = deviceConfig.palette;
+      if (deviceConfig.orientation) {
+        options.orientation = deviceConfig.orientation;
+      }
+      if (deviceConfig.grayscale) {
+        options.grayscale = true;
+      }
+      if (deviceConfig.width) {
+        fileDisplay = {
+          width: deviceConfig.width,
+          height: deviceConfig.height,
+          version: deviceConfig.version,
+        };
+      }
+      console.log(
+        `  board=${deviceConfig.boardName || "(unknown)"}` +
+          (fileDisplay
+            ? `, display=${fileDisplay.width}x${fileDisplay.height}`
+            : "") +
+          (deviceConfig.grayscale ? " (grayscale)" : "") +
+          `, orientation=${options.orientation}` +
+          (fileDisplay && fileDisplay.version
+            ? `, firmware=${fileDisplay.version}`
+            : ""),
+      );
+      if (deviceSettings) {
+        console.log(
+          `  exposure=${deviceSettings.exposure}, saturation=${deviceSettings.saturation}, tone_mode=${deviceSettings.toneMode}, dither_algorithm=${deviceSettings.ditherAlgorithm || "floyd-steinberg"}`,
+        );
+      } else {
+        console.log("  (no processing settings in file; using CLI/preset)");
+      }
+      if (!devicePalette) {
+        console.log("  (no palette in file; using the default palette)");
+      }
+    } else if (options.deviceParameters) {
       try {
         deviceSettings = await fetchDeviceSettings(options.host);
         devicePalette = await fetchDevicePalette(options.host);
@@ -897,25 +961,54 @@ program
         }
       }
 
-      // If --host is explicitly specified, query device for display resolution
-      // and firmware version (to determine output format)
-      // This overwrites any -d / --display-width / --display-height values
+      // Display resolution and firmware version (the latter picks the output
+      // format), in order of preference: the --device-config file's
+      // system_info; the live device when --host is explicitly specified; the
+      // -d / --display-width / --display-height values. A config exported by
+      // older firmware has no system_info, and then the size must come from
+      // one of the other two rather than silently defaulting to 800x480.
       let deviceVersion = "";
       const hostExplicit = program.getOptionValueSource("host") === "cli";
-      if (hostExplicit) {
+      const fromCli = (name) => program.getOptionValueSource(name) === "cli";
+      // Both dimensions given on the command line: -d, or --display-width
+      // together with --display-height (one alone leaves the other at its
+      // default, which is as much a guess as both)
+      const sizeExplicit =
+        fromCli("dimension") ||
+        (fromCli("displayWidth") && fromCli("displayHeight"));
+      let sizeKnown = sizeExplicit;
+      if (fileDisplay) {
+        options.displayWidth = fileDisplay.width;
+        options.displayHeight = fileDisplay.height;
+        deviceVersion = fileDisplay.version;
+        sizeKnown = true;
+      } else if (hostExplicit) {
         try {
           const sysInfo = await fetchDeviceSystemInfo(options.host);
           options.displayWidth = sysInfo.width;
           options.displayHeight = sysInfo.height;
           deviceVersion = sysInfo.version;
+          sizeKnown = true;
         } catch (error) {
           console.error(
             `Warning: Could not fetch system info from device: ${error.message}`,
           );
-          console.error(
-            `  Using default resolution: ${options.displayWidth}x${options.displayHeight}`,
-          );
+          if (!options.deviceConfig || sizeExplicit) {
+            console.error(
+              `  Using default resolution: ${options.displayWidth}x${options.displayHeight}`,
+            );
+          }
         }
+      }
+      if (options.deviceConfig && !sizeKnown) {
+        console.error(
+          `Error: ${options.deviceConfig} has no system_info (exported by older firmware)` +
+            (hostExplicit ? " and the device could not be queried" : "") +
+            ", so the display size is unknown. Pass -d WxH (e.g. -d 800x480)" +
+            (hostExplicit ? "" : ", give --host to query the device,") +
+            " or re-export the config from current firmware.",
+        );
+        process.exit(1);
       }
 
       // Auto-select format based on firmware version when uploading/displaying

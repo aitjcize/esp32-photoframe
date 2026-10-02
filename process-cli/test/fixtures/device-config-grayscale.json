@@ -1,0 +1,35 @@
+{
+  "config": {
+    "device_name": "Study",
+    "timezone": "UTC0",
+    "display_orientation": "landscape",
+    "rotation_mode": "storage"
+  },
+  "processing": {
+    "exposure": 1,
+    "saturation": 1,
+    "toneMode": "scurve",
+    "contrast": 1,
+    "strength": 0.6,
+    "shadowBoost": 0.1,
+    "highlightCompress": 1.3,
+    "midpoint": 0.5,
+    "colorMethod": "lab",
+    "ditherAlgorithm": "floyd-steinberg",
+    "compressDynamicRange": true,
+    "scaleMode": "cover",
+    "backgroundColor": "white"
+  },
+  "palette": {
+    "black_y": 0.012,
+    "white_y": 0.62,
+    "gamma": 1.4
+  },
+  "system_info": {
+    "board_name": "seeedstudio_reterminal_e1003",
+    "display_type": "gc16",
+    "width": 1872,
+    "height": 1404,
+    "version": "2.9.0"
+  }
+}

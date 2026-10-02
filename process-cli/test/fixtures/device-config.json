@@ -1,0 +1,41 @@
+{
+  "config": {
+    "device_name": "Living Room",
+    "timezone": "CST-8",
+    "ntp_server": "pool.ntp.org",
+    "wifi_ssid": "home",
+    "display_orientation": "portrait",
+    "rotation_mode": "storage",
+    "http_auth_enabled": false
+  },
+  "processing": {
+    "exposure": 1.1,
+    "saturation": 1.4,
+    "toneMode": "scurve",
+    "contrast": 1,
+    "strength": 0.8,
+    "shadowBoost": 0.1,
+    "highlightCompress": 1.6,
+    "midpoint": 0.45,
+    "colorMethod": "lab",
+    "ditherAlgorithm": "stucki",
+    "compressDynamicRange": false,
+    "scaleMode": "fit",
+    "backgroundColor": "black"
+  },
+  "palette": {
+    "black": { "r": 4, "g": 4, "b": 6 },
+    "white": { "r": 188, "g": 198, "b": 196 },
+    "yellow": { "r": 201, "g": 198, "b": 12 },
+    "red": { "r": 140, "g": 22, "b": 8 },
+    "blue": { "r": 8, "g": 60, "b": 150 },
+    "green": { "r": 42, "g": 104, "b": 64 }
+  },
+  "system_info": {
+    "board_name": "seeedstudio_reterminal_e1004",
+    "display_type": "spectra6",
+    "width": 1600,
+    "height": 1200,
+    "version": "2.9.0"
+  }
+}

@@ -74,6 +74,40 @@ photoframe-process ~/Photos/Albums --device-parameters -o output/
 photoframe-process input.jpg --device-parameters --host 192.168.1.100
 ```
 
+### Using an exported device config
+
+Instead of querying a live frame, point the CLI at a config file exported from
+the frame's web UI: **Settings → Maintenance → Config Backup → Export Config**
+(saves `<device-name>-config.json`).
+
+```bash
+# Same result as --device-parameters, without network access to the frame
+photoframe-process input.jpg --device-config living-room-config.json -o output/
+photoframe-process ~/Photos/Albums --device-config living-room-config.json -o output/
+
+# Still upload to a frame; its settings come from the file
+photoframe-process input.jpg --device-config living-room-config.json --upload --host 192.168.1.100
+```
+
+The file provides, with the same precedence as `--device-parameters`:
+
+- `processing` → all processing parameters (replaces the per-parameter flags
+  and `--preset`, exactly like the live device settings do)
+- `palette` → the panel's calibrated palette (perceived colours, or the
+  grayscale luminance calibration on GC16 panels)
+- `config.display_orientation` → overrides `--orientation`
+- `system_info` → display size, grayscale panel and firmware version,
+  overriding `-d` / `--display-width` / `--display-height` and anything
+  `--host` would fetch
+
+`system_info` is only in exports from firmware that writes it. For an older
+export, pass `-d WxH` (or an explicit `--host` to query the frame); the CLI
+refuses to guess the size. `--device-config` and `--device-parameters` cannot
+be combined.
+
+The same file works with
+[`epaper-image-convert --device-config`](https://github.com/aitjcize/epaper-image-convert).
+
 ### Direct Upload
 
 ```bash
@@ -116,6 +150,7 @@ Options:
   --serve-format <format>     Image format to serve: epdgz, png, jpg, or bmp (default: "epdgz")
   --host <host>               Device hostname or IP address (default: "photoframe.local")
   --device-parameters         Fetch processing parameters from device
+  --device-config <file>      Use a config exported from the frame's web UI instead of fetching from a live device
   --exposure <value>          Exposure multiplier (0.5-2.0, 1.0=normal) (default: 1)
   --saturation <value>        Saturation multiplier (0.5-2.0, 1.0=normal) (default: 1.3)
   --tone-mode <mode>          Tone mapping mode: scurve or contrast (default: "scurve")
