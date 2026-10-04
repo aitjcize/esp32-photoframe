@@ -763,7 +763,7 @@ program
   )
   .option(
     "--upload",
-    "Upload converted PNG and thumbnail to device (requires --host)",
+    "Upload converted image and thumbnail to device (requires --host)",
   )
   .option(
     "--direct",

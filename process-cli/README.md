@@ -135,34 +135,77 @@ Serves random images on each request. Configure ESP32: **Rotation Mode** → URL
 ```
 Usage: photoframe-process [options] <input>
 
+ESP32 PhotoFrame image processing CLI
+
 Arguments:
-  input                          Input image file or directory with album subdirectories
+  input                           Input image file or directory with album
+                                  subdirectories
 
 Options:
-  -V, --version               output the version number
-  -o, --output-dir <dir>      Output directory (default: ".")
-  --suffix <suffix>           Suffix to add to output filename (single file mode only) (default: "")
-  --format <format>           Output format: epdgz, png, or bmp (default: "epdgz")
-  --upload                    Upload converted image and thumbnail to device (requires --host)
-  --direct                    Display image directly on device without saving (requires --host, single file only)
-  --serve                     Start HTTP server to serve images from album directory structure
-  --serve-port <port>         Port for HTTP server in --serve mode (default: "8080")
-  --serve-format <format>     Image format to serve: epdgz, png, jpg, or bmp (default: "epdgz")
-  --host <host>               Device hostname or IP address (default: "photoframe.local")
-  --device-parameters         Fetch processing parameters from device
-  --device-config <file>      Use a config exported from the frame's web UI instead of fetching from a live device
-  --exposure <value>          Exposure multiplier (0.5-2.0, 1.0=normal) (default: 1)
-  --saturation <value>        Saturation multiplier (0.5-2.0, 1.0=normal) (default: 1.3)
-  --tone-mode <mode>          Tone mapping mode: scurve or contrast (default: "scurve")
-  --contrast <value>          Contrast multiplier for simple mode (0.5-2.0, 1.0=normal) (default: 1)
-  --scurve-strength <value>   S-curve overall strength (0.0-1.0) (default: 0.9)
-  --scurve-shadow <value>     S-curve shadow boost (0.0-1.0) (default: 0)
-  --scurve-highlight <value>  S-curve highlight compress (0.5-5.0) (default: 1.5)
-  --scurve-midpoint <value>   S-curve midpoint (0.3-0.7) (default: 0.5)
-  --color-method <method>     Color matching: rgb or lab (default: "rgb")
-  --use-perceived-output      Use perceived (measured) palette colors in output for realistic preview
-  --processing-mode <mode>    Processing algorithm: enhanced (with tone mapping) or stock (Waveshare original) (default: "enhanced")
-  -h, --help                  display help for command
+  -V, --version                   output the version number
+  -o, --output-dir <dir>          Output directory (default: ".")
+  --suffix <suffix>               Suffix to add to output filename (single file
+                                  mode only) (default: "")
+  -v, --verbose                   Enable verbose logging
+  --format <format>               Output format: epdgz, png, or bmp (default:
+                                  "epdgz")
+  --grayscale                     Pack output as 16-level grayscale (GC16 /
+                                  IT8951 panels)
+  --preset <name>                 Processing preset: balanced, dynamic, vivid,
+                                  soft, grayscale  (default: "balanced")
+  --upload                        Upload converted image and thumbnail to
+                                  device (requires --host)
+  --direct                        Display image directly on device without
+                                  saving (requires --host, single file only)
+  --serve                         Start HTTP server to serve images from album
+                                  directory structure
+  --serve-port <port>             Port for HTTP server in --serve mode
+                                  (default: "8080")
+  --serve-format <format>         Image format to serve: epdgz, png, jpg, or
+                                  bmp (default: "epdgz")
+  --host <host>                   Device hostname or IP address (default:
+                                  photoframe.local) (default:
+                                  "photoframe.local")
+  --device-parameters             Fetch processing parameters from device
+  --device-config <file>          Use a config exported from the frame's web UI
+                                  (Maintenance > Config Backup > Export Config)
+                                  instead of fetching from a live device:
+                                  processing settings, palette and orientation
+                                  come from the file, and its system_info sets
+                                  display size, grayscale and firmware version,
+                                  overriding -d and anything --host would
+                                  fetch. Cannot be combined with
+                                  --device-parameters
+  --exposure <value>              Exposure multiplier (0.5-2.0, 1.0=normal)
+  --saturation <value>            Saturation multiplier (0.5-2.0, 1.0=normal)
+  --tone-mode <mode>              Tone mapping mode: scurve or contrast
+  --contrast <value>              Contrast multiplier for simple mode (0.5-2.0,
+                                  1.0=normal)
+  --scurve-strength <value>       S-curve overall strength (0.0-1.0)
+  --scurve-shadow <value>         S-curve shadow boost (0.0-1.0)
+  --scurve-highlight <value>      S-curve highlight compress (0.5-5.0)
+  --scurve-midpoint <value>       S-curve midpoint (0.3-0.7)
+  --color-method <method>         Color matching: rgb or lab
+  --use-perceived-output          Use perceived (measured) palette colors in
+                                  output for realistic preview
+  --dither-algorithm <algorithm>  Dithering algorithm: floyd-steinberg, stucki,
+                                  burkes, or sierra
+  --auto-orient                   Auto-rotate images to match target display
+                                  orientation
+  --orientation <mode>            Display orientation: landscape or portrait
+                                  (overridden by --device-parameters /
+                                  --device-config) (default: "landscape")
+  --scale-mode <mode>             Scale mode: cover (crop to fill) or fit
+                                  (letterbox) (default: "cover")
+  --background-color <name>       Background palette color for fit mode (black,
+                                  white, etc.) (default: "white")
+  --display-width <width>         Display width in pixels (default: 800)
+  --display-height <height>       Display height in pixels (default: 480)
+  -d, --dimension <WxH>           Display dimension (e.g., 800x480) - overrides
+                                  display-width/height
+  --compress-dynamic-range        Compress dynamic range to display range
+  --no-compress-dynamic-range     Disable dynamic range compression
+  -h, --help                      display help for command
 ```
 
 ## Output Files
