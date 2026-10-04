@@ -7,14 +7,31 @@
 
 #include "config.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nvs.h"
 #include "storage.h"
 
 static const char *TAG = "album_manager";
 static char enabled_albums_str[512] = "";
 
+// enabled_albums_str is read and mutated from multiple FreeRTOS tasks (the
+// HTTP server, the Telegram bot task, auto-rotate). Without a lock,
+// get_enabled_albums()'s count-then-populate two-pass strtok scan could see
+// a concurrent set_album_enabled() shrink the string between passes,
+// leaving the tail of its malloc'd array as uninitialized memory while
+// still reporting the first pass's (now-too-high) count.
+#define ALBUM_LOCK_TIMEOUT_MS (5 * 1000)
+static SemaphoreHandle_t album_mutex = NULL;
+
 esp_err_t album_manager_init(void)
 {
+    album_mutex = xSemaphoreCreateMutex();
+    if (!album_mutex) {
+        ESP_LOGE(TAG, "Failed to create album mutex");
+        return ESP_ERR_NO_MEM;
+    }
+
     if (!storage_has_persistent_storage()) {
         ESP_LOGI(TAG, "Storage not mounted - skipping album manager initialization");
         return ESP_OK;
@@ -206,6 +223,11 @@ esp_err_t album_manager_set_album_enabled(const char *album_name, bool enabled)
         return ESP_ERR_NOT_FOUND;
     }
 
+    if (xSemaphoreTake(album_mutex, pdMS_TO_TICKS(ALBUM_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGW(TAG, "Timed out acquiring album mutex (set_enabled)");
+        return ESP_ERR_TIMEOUT;
+    }
+
     char new_list[512] = "";
     size_t pos = 0;
     bool found = false;
@@ -259,6 +281,7 @@ esp_err_t album_manager_set_album_enabled(const char *album_name, bool enabled)
 
     ESP_LOGI(TAG, "Set album %s to %s. Enabled albums: %s", album_name,
              enabled ? "enabled" : "disabled", enabled_albums_str);
+    xSemaphoreGive(album_mutex);
     return ESP_OK;
 }
 
@@ -268,9 +291,15 @@ bool album_manager_is_album_enabled(const char *album_name)
         return false;
     }
 
+    if (xSemaphoreTake(album_mutex, pdMS_TO_TICKS(ALBUM_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGW(TAG, "Timed out acquiring album mutex (is_enabled)");
+        return false;
+    }
+
     char temp_str[512];
     strncpy(temp_str, enabled_albums_str, sizeof(temp_str) - 1);
     temp_str[sizeof(temp_str) - 1] = '\0';
+    xSemaphoreGive(album_mutex);
 
     char *token = strtok(temp_str, ",");
     while (token != NULL) {
@@ -296,13 +325,27 @@ esp_err_t album_manager_get_enabled_albums(char ***albums, int *count)
     }
 
     *count = 0;
-    if (strlen(enabled_albums_str) == 0) {
+
+    if (xSemaphoreTake(album_mutex, pdMS_TO_TICKS(ALBUM_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGW(TAG, "Timed out acquiring album mutex (get_enabled)");
+        *albums = NULL;
+        return ESP_ERR_TIMEOUT;
+    }
+    // Snapshot once under the lock - both passes below parse this local copy,
+    // not the shared buffer, so a concurrent set_album_enabled() can't shrink
+    // the string between the counting pass and the populate pass.
+    char snapshot[512];
+    strncpy(snapshot, enabled_albums_str, sizeof(snapshot) - 1);
+    snapshot[sizeof(snapshot) - 1] = '\0';
+    xSemaphoreGive(album_mutex);
+
+    if (strlen(snapshot) == 0) {
         *albums = NULL;
         return ESP_OK;
     }
 
     char temp_str[512];
-    strncpy(temp_str, enabled_albums_str, sizeof(temp_str) - 1);
+    strncpy(temp_str, snapshot, sizeof(temp_str) - 1);
     temp_str[sizeof(temp_str) - 1] = '\0';
 
     char *token = strtok(temp_str, ",");
@@ -321,7 +364,7 @@ esp_err_t album_manager_get_enabled_albums(char ***albums, int *count)
         return ESP_ERR_NO_MEM;
     }
 
-    strncpy(temp_str, enabled_albums_str, sizeof(temp_str) - 1);
+    strncpy(temp_str, snapshot, sizeof(temp_str) - 1);
     temp_str[sizeof(temp_str) - 1] = '\0';
 
     int idx = 0;
