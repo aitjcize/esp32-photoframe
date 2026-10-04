@@ -129,6 +129,11 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+// This project's own release (14 assets - 7 boards x merged+OTA binary) measured 34 KB of
+// response JSON (GitHub's per-asset metadata, e.g. the uploader object, is verbose) - 64 KB
+// leaves real headroom for more assets later.
+#define GITHUB_RESPONSE_MAX_LEN (64 * 1024)
+
 static esp_err_t fetch_github_release_info(char *latest_version, size_t version_len,
                                            char *download_url, size_t url_len)
 {
@@ -168,8 +173,8 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
         goto cleanup;
     }
 
-    if (content_length <= 0) {
-        ESP_LOGE(TAG, "Invalid content length: %d", content_length);
+    if (content_length == 0) {
+        ESP_LOGE(TAG, "Empty response body");
         err = ESP_FAIL;
         goto cleanup;
     }
@@ -179,18 +184,70 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
         err = ESP_FAIL;
         goto cleanup;
     }
-    response_buffer = heap_caps_malloc(content_length + 1, MALLOC_CAP_SPIRAM);
-    if (response_buffer == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate memory for response");
-        err = ESP_ERR_NO_MEM;
-        goto cleanup;
-    }
 
-    response_len = esp_http_client_read_response(client, response_buffer, content_length);
-    if (response_len <= 0) {
-        ESP_LOGE(TAG, "Failed to read response");
-        err = ESP_FAIL;
-        goto cleanup;
+    if (content_length > 0) {
+        // The common case: a fixed Content-Length, read in one call as before.
+        response_buffer = heap_caps_malloc(content_length + 1, MALLOC_CAP_SPIRAM);
+        if (response_buffer == NULL) {
+            ESP_LOGE(TAG, "Failed to allocate memory for response");
+            err = ESP_ERR_NO_MEM;
+            goto cleanup;
+        }
+
+        response_len = esp_http_client_read_response(client, response_buffer, content_length);
+        if (response_len <= 0) {
+            ESP_LOGE(TAG, "Failed to read response");
+            err = ESP_FAIL;
+            goto cleanup;
+        }
+    } else {
+        // content_length < 0: GitHub's releases API can answer with
+        // Transfer-Encoding: chunked rather than a fixed Content-Length, which
+        // esp_http_client_fetch_headers() reports this way. Read in a growing
+        // buffer instead, capped well above the size of a real response, until
+        // the client has no more data (esp_http_client_read() returns 0);
+        // esp_http_client_read() itself already de-chunks the body.
+        size_t capacity = 4096;
+        size_t total = 0;
+        response_buffer = heap_caps_malloc(capacity, MALLOC_CAP_SPIRAM);
+        if (response_buffer == NULL) {
+            ESP_LOGE(TAG, "Failed to allocate memory for response");
+            err = ESP_ERR_NO_MEM;
+            goto cleanup;
+        }
+        while (total + 1 < GITHUB_RESPONSE_MAX_LEN) {
+            if (total + 1 >= capacity) {
+                size_t new_capacity = capacity * 2;
+                if (new_capacity > GITHUB_RESPONSE_MAX_LEN) {
+                    new_capacity = GITHUB_RESPONSE_MAX_LEN;
+                }
+                char *grown = heap_caps_realloc(response_buffer, new_capacity, MALLOC_CAP_SPIRAM);
+                if (grown == NULL) {
+                    ESP_LOGE(TAG, "Failed to grow response buffer to %zu bytes", new_capacity);
+                    err = ESP_ERR_NO_MEM;
+                    goto cleanup;
+                }
+                response_buffer = grown;
+                capacity = new_capacity;
+            }
+            int n =
+                esp_http_client_read(client, response_buffer + total, (int) (capacity - total - 1));
+            if (n < 0) {
+                ESP_LOGE(TAG, "Failed to read response");
+                err = ESP_FAIL;
+                goto cleanup;
+            }
+            if (n == 0) {
+                break;
+            }
+            total += (size_t) n;
+        }
+        if (total == 0) {
+            ESP_LOGE(TAG, "Failed to read response");
+            err = ESP_FAIL;
+            goto cleanup;
+        }
+        response_len = (int) total;
     }
 
     response_buffer[response_len] = '\0';
@@ -240,7 +297,12 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
             // Look for board-specific binary
             if (strcmp(asset_name, target_binary) == 0) {
                 cJSON *browser_download_url = cJSON_GetObjectItem(asset, "browser_download_url");
-                if (browser_download_url && cJSON_IsString(browser_download_url)) {
+                // Only an https:// address that fits the buffer is followed: a download over
+                // plain http would carry the firmware without TLS, and a cut-off address would
+                // download nothing sensible.
+                if (browser_download_url && cJSON_IsString(browser_download_url) &&
+                    strncmp(browser_download_url->valuestring, "https://", 8) == 0 &&
+                    strlen(browser_download_url->valuestring) < url_len) {
                     snprintf(download_url, url_len, "%s", browser_download_url->valuestring);
                     found_binary = true;
                     ESP_LOGI(TAG, "Found firmware binary: %s", asset_name);
@@ -502,7 +564,10 @@ esp_err_t ota_start_update(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (ota_status.state == OTA_STATE_DOWNLOADING || ota_status.state == OTA_STATE_INSTALLING) {
+    // A check still in progress is still writing update_available and firmware_url (the URL this
+    // function is about to start downloading from); wait for it to finish rather than racing it.
+    if (ota_status.state == OTA_STATE_CHECKING || ota_status.state == OTA_STATE_DOWNLOADING ||
+        ota_status.state == OTA_STATE_INSTALLING) {
         ESP_LOGW(TAG, "Update already in progress");
         return ESP_ERR_INVALID_STATE;
     }
@@ -539,6 +604,17 @@ void ota_update_last_check_time(void)
 
 static esp_err_t ota_check_periodic_callback(void)
 {
+    // ota_check_for_update()/ota_start_update() both refuse to start a second check/update
+    // while one is already in progress, but this periodic path used to skip that guard
+    // entirely and could spawn a second concurrent ota_check_task, corrupting the shared
+    // ota_status/firmware_url state mid-check or mid-update. Skip this cycle instead; the
+    // next periodic tick retries.
+    if (ota_status.state == OTA_STATE_CHECKING || ota_status.state == OTA_STATE_DOWNLOADING ||
+        ota_status.state == OTA_STATE_INSTALLING) {
+        ESP_LOGI(TAG, "OTA check/update already in progress, skipping periodic check");
+        return ESP_OK;
+    }
+
     ESP_LOGI(TAG, "Periodic OTA check triggered");
 
     // Check for updates without notifying HA (HA will poll for status)
