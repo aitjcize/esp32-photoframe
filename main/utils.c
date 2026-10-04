@@ -180,9 +180,60 @@ static esp_err_t apply_timezone(const char *tz, char *msg, size_t msg_len)
     return ESP_OK;
 }
 
+// Rotation schedule: an array of cron expressions. Every rule is validated
+// before any is applied; a bad one leaves the existing schedule alone.
+static bool apply_rotate_cron(cJSON *item)
+{
+    int count = cJSON_GetArraySize(item);
+    if (count > MAX_CRON_RULES) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "Too many schedule rules (max %d)", MAX_CRON_RULES);
+        utils_set_config_error(msg);
+        return false;
+    }
+    // An empty schedule is ambiguous (it would silently fall back to
+    // hourly rotation, and the empty set can't be restored after a
+    // reboot). Turning auto_rotate off is the way to stop rotating.
+    if (count == 0) {
+        utils_set_config_error("Schedule must contain at least one rule");
+        return false;
+    }
+    const char *rules[MAX_CRON_RULES];
+    int n = 0;
+    cJSON *el;
+    cJSON_ArrayForEach(el, item)
+    {
+        if (!cJSON_IsString(el)) {
+            utils_set_config_error("Schedule rule must be a string");
+            return false;
+        }
+        const char *expr = cJSON_GetStringValue(el);
+        if (strlen(expr) >= CRON_RULE_MAX_LEN) {
+            utils_set_config_error("Cron expression too long");
+            return false;
+        }
+        cron_rule_t tmp;
+        if (!cron_parse(expr, &tmp)) {
+            char msg[96];
+            snprintf(msg, sizeof(msg), "Invalid cron expression: %s", expr);
+            utils_set_config_error(msg);
+            return false;
+        }
+        if (n < MAX_CRON_RULES) {
+            rules[n++] = expr;
+        }
+    }
+    config_manager_set_cron_rules(rules, n);
+    power_manager_reset_rotate_timer();
+    return true;
+}
+
 esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
 {
     cJSON *item;
+    // The fields are independent: a rejected one is reported through
+    // utils_set_config_error (the last message wins) and the rest still apply.
+    bool had_error = false;
 
     // General
     item = cJSON_GetObjectItem(root, "device_name");
@@ -200,15 +251,8 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
     if (item && cJSON_IsString(item)) {
         char msg[64];
         if (apply_timezone(cJSON_GetStringValue(item), msg, sizeof(msg)) != ESP_OK) {
-            if (from_remote) {
-                // A server push has no caller to answer and is re-sent on
-                // every fetch, so failing it here would drop every other
-                // pushed field, every time, over one bad rule.
-                ESP_LOGW(TAG, "Ignoring timezone in server-pushed config: %s", msg);
-            } else {
-                utils_set_config_error(msg);
-                return ESP_FAIL;
-            }
+            utils_set_config_error(msg);
+            had_error = true;
         }
     }
 
@@ -236,9 +280,10 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
         const char *addr = cJSON_GetStringValue(item);
         if (addr[0] != '\0' && esp_netif_str_to_ip4(addr, &parsed) != ESP_OK) {
             utils_set_config_error("Invalid static IP address");
-            return ESP_FAIL;
+            had_error = true;
+        } else {
+            config_manager_set_static_ip(addr);
         }
-        config_manager_set_static_ip(addr);
     }
 
     item = cJSON_GetObjectItem(root, "static_netmask");
@@ -246,9 +291,10 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
         const char *addr = cJSON_GetStringValue(item);
         if (addr[0] != '\0' && esp_netif_str_to_ip4(addr, &parsed) != ESP_OK) {
             utils_set_config_error("Invalid static netmask");
-            return ESP_FAIL;
+            had_error = true;
+        } else {
+            config_manager_set_static_netmask(addr);
         }
-        config_manager_set_static_netmask(addr);
     }
 
     item = cJSON_GetObjectItem(root, "static_gateway");
@@ -256,28 +302,36 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
         const char *addr = cJSON_GetStringValue(item);
         if (addr[0] != '\0' && esp_netif_str_to_ip4(addr, &parsed) != ESP_OK) {
             utils_set_config_error("Invalid static gateway");
-            return ESP_FAIL;
+            had_error = true;
+        } else {
+            config_manager_set_static_gateway(addr);
         }
-        config_manager_set_static_gateway(addr);
     }
 
     item = cJSON_GetObjectItem(root, "ip_mode");
     if (item && cJSON_IsString(item)) {
         bool want_static = (strcmp(cJSON_GetStringValue(item), "static") == 0);
         if (want_static) {
+            bool static_ok = true;
             if (esp_netif_str_to_ip4(config_manager_get_static_ip(), &parsed) != ESP_OK) {
                 utils_set_config_error("Invalid static IP address");
-                return ESP_FAIL;
+                had_error = true;
+                static_ok = false;
             }
             if (esp_netif_str_to_ip4(config_manager_get_static_netmask(), &parsed) != ESP_OK) {
                 utils_set_config_error("Invalid static netmask");
-                return ESP_FAIL;
+                had_error = true;
+                static_ok = false;
             }
             if (esp_netif_str_to_ip4(config_manager_get_static_gateway(), &parsed) != ESP_OK) {
                 utils_set_config_error("Invalid static gateway");
-                return ESP_FAIL;
+                had_error = true;
+                static_ok = false;
             }
-            config_manager_set_ip_mode(IP_MODE_STATIC);
+            // Leave ip_mode alone unless all three addresses are usable
+            if (static_ok) {
+                config_manager_set_ip_mode(IP_MODE_STATIC);
+            }
         } else {
             config_manager_set_ip_mode(IP_MODE_DHCP);
         }
@@ -288,9 +342,10 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
         const char *dns = cJSON_GetStringValue(item);
         if (dns[0] != '\0' && esp_netif_str_to_ip4(dns, &parsed) != ESP_OK) {
             utils_set_config_error("Invalid DNS server address");
-            return ESP_FAIL;
+            had_error = true;
+        } else {
+            config_manager_set_dns_server(dns);
         }
-        config_manager_set_dns_server(dns);
     }
 
     // WiFi
@@ -323,7 +378,9 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
             } else {
                 ESP_LOGW(TAG, "Failed to connect to new WiFi, reverting to previous credentials");
                 wifi_manager_connect(current_ssid, config_manager_get_wifi_password());
-                return ESP_FAIL;
+                utils_set_config_error(
+                    "Failed to connect to WiFi network. Please check SSID and password.");
+                had_error = true;
             }
         }
     }
@@ -350,7 +407,7 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
             display_manager_initialize_paint();
         } else {
             utils_set_config_error("Display rotation must be 0 or 180 degrees");
-            return ESP_FAIL;
+            had_error = true;
         }
     }
 
@@ -361,51 +418,11 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
         power_manager_reset_rotate_timer();
     }
 
-    // Rotation schedule: an array of cron expressions. Validate every rule
-    // before applying any; reject the whole request on the first bad one.
     item = cJSON_GetObjectItem(root, "rotate_cron");
     if (item && cJSON_IsArray(item)) {
-        int count = cJSON_GetArraySize(item);
-        if (count > MAX_CRON_RULES) {
-            char msg[64];
-            snprintf(msg, sizeof(msg), "Too many schedule rules (max %d)", MAX_CRON_RULES);
-            utils_set_config_error(msg);
-            return ESP_FAIL;
+        if (!apply_rotate_cron(item)) {
+            had_error = true;
         }
-        // An empty schedule is ambiguous (it would silently fall back to
-        // hourly rotation, and the empty set can't be restored after a
-        // reboot). Turning auto_rotate off is the way to stop rotating.
-        if (count == 0) {
-            utils_set_config_error("Schedule must contain at least one rule");
-            return ESP_FAIL;
-        }
-        const char *rules[MAX_CRON_RULES];
-        int n = 0;
-        cJSON *el;
-        cJSON_ArrayForEach(el, item)
-        {
-            if (!cJSON_IsString(el)) {
-                utils_set_config_error("Schedule rule must be a string");
-                return ESP_FAIL;
-            }
-            const char *expr = cJSON_GetStringValue(el);
-            if (strlen(expr) >= CRON_RULE_MAX_LEN) {
-                utils_set_config_error("Cron expression too long");
-                return ESP_FAIL;
-            }
-            cron_rule_t tmp;
-            if (!cron_parse(expr, &tmp)) {
-                char msg[96];
-                snprintf(msg, sizeof(msg), "Invalid cron expression: %s", expr);
-                utils_set_config_error(msg);
-                return ESP_FAIL;
-            }
-            if (n < MAX_CRON_RULES) {
-                rules[n++] = expr;
-            }
-        }
-        config_manager_set_cron_rules(rules, n);
-        power_manager_reset_rotate_timer();
     } else {
         // Backward compatibility: convert a legacy interval to a cron rule.
         item = cJSON_GetObjectItem(root, "rotate_interval");
@@ -455,13 +472,17 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
                 if (pin_ret != ESP_OK) {
                     ESP_LOGE(TAG, "Cert pin failed, rejecting config: %s", err_buf);
                     utils_set_cert_pin_error(err_buf);
-                    return ESP_FAIL;
+                    had_error = true;
+                } else {
+                    config_manager_set_image_url(new_url);
                 }
-            } else if (cur_is_https) {
-                // Downgrading to HTTP/empty: clear the pinned cert
-                cert_pin_clear();
+            } else {
+                if (cur_is_https) {
+                    // Downgrading to HTTP/empty: clear the pinned cert
+                    cert_pin_clear();
+                }
+                config_manager_set_image_url(new_url);
             }
-            config_manager_set_image_url(new_url);
         }
     }
 
@@ -485,13 +506,14 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
         esp_err_t pw_err = config_manager_set_http_password(cJSON_GetStringValue(item));
         if (pw_err == ESP_ERR_INVALID_SIZE) {
             utils_set_config_error("Device password is too long (max 63 bytes)");
-            return ESP_FAIL;
+            had_error = true;
         } else if (pw_err != ESP_OK) {
             utils_set_config_error("Failed to save the device password");
-            return ESP_FAIL;
+            had_error = true;
+        } else {
+            // Lockouts earned against the old password shouldn't outlive it.
+            http_auth_limiter_reset();
         }
-        // Lockouts earned against the old password shouldn't outlive it.
-        http_auth_limiter_reset();
     }
 
     item = cJSON_GetObjectItem(root, "http_header_key");
@@ -537,8 +559,7 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
     if (item && cJSON_IsBool(item)) {
         debug_log_set_enabled(cJSON_IsTrue(item));
     }
-
-    return ESP_OK;
+    return had_error ? ESP_FAIL : ESP_OK;
 }
 
 // Context for HTTP event handler
