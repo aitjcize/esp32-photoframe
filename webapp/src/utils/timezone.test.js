@@ -92,4 +92,9 @@ describe("zoneForRule", () => {
     expect(zoneForRule("XYZ3ABC,M1.1.0,M2.1.0", "Asia/Taipei")).toBe(CUSTOM_ZONE);
     expect(zoneForRule("", "Asia/Taipei")).toBe(CUSTOM_ZONE);
   });
+
+  it("does not mistake a prototype member for a preferred zone", () => {
+    expect(zoneForRule("constructor", "Asia/Taipei")).toBe(CUSTOM_ZONE);
+    expect(zoneForRule("toString", "")).toBe(CUSTOM_ZONE);
+  });
 });

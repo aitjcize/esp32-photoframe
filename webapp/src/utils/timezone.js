@@ -68,7 +68,7 @@ const PREFERRED_ZONE = { UTC0: "Etc/UTC" };
 // when it fits, else the first in the table.
 export function zoneForRule(rule, browserZone) {
   if (browserZone && ruleForZone(browserZone) === rule) return browserZone;
-  if (PREFERRED_ZONE[rule]) return PREFERRED_ZONE[rule];
+  if (Object.hasOwn(PREFERRED_ZONE, rule)) return PREFERRED_ZONE[rule];
   for (const [name, zoneRule] of Object.entries(TIMEZONES)) {
     if (zoneRule === rule) return name;
   }
