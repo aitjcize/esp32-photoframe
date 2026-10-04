@@ -18,7 +18,14 @@ def build_webapp():
     """Build the webapp (npm install + npm run build)."""
     print("\n=== Building webapp ===")
     try:
-        subprocess.run("npm install", shell=True, check=True, cwd="webapp")
+        # A native dependency's prebuilt binary download can fail transiently in
+        # CI and fall into a compile that the runner can't do; one retry
+        # fetches it.
+        try:
+            subprocess.run("npm install", shell=True, check=True, cwd="webapp")
+        except subprocess.CalledProcessError:
+            print("  npm install failed, retrying once...", flush=True)
+            subprocess.run("npm install", shell=True, check=True, cwd="webapp")
         subprocess.run("npm run build", shell=True, check=True, cwd="webapp")
     except subprocess.CalledProcessError as e:
         print(f"  ✗ Webapp build failed with exit code {e.returncode}")
