@@ -12,6 +12,7 @@ set(SOURCES
     "ha_integration.c"
     "http_server.c"
     "image_processor.c"
+    "jpeg_header.c"
     "main.c"
     "mdns_service.c"
     "network_backoff.c"

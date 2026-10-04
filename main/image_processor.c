@@ -19,6 +19,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "jpeg_decoder.h"
+#include "jpeg_header.h"
 #include "processing_settings.h"
 
 static const char *TAG = "image_processor";
@@ -917,34 +918,57 @@ static esp_err_t decode_jpg_buffer(const uint8_t *jpg_data, size_t jpg_size, uin
                                      .indata_size = jpg_size,
                                      .out_format = JPEG_IMAGE_FORMAT_RGB888,
                                      .out_scale = JPEG_IMAGE_SCALE_0};
-    esp_jpeg_image_output_t outimg;
-    esp_jpeg_get_image_info(&jpeg_cfg, &outimg);
-    int original_width = outimg.width;
-    int original_height = outimg.height;
-
-    // Scaling logic - scale down large images to save memory
-    if (outimg.width > BOARD_HAL_DISPLAY_WIDTH * 4 || outimg.height > BOARD_HAL_DISPLAY_HEIGHT * 4)
-        jpeg_cfg.out_scale = JPEG_IMAGE_SCALE_1_4;
-    else if (outimg.width > BOARD_HAL_DISPLAY_WIDTH * 2 ||
-             outimg.height > BOARD_HAL_DISPLAY_HEIGHT * 2)
-        jpeg_cfg.out_scale = JPEG_IMAGE_SCALE_1_2;
-
-    if (jpeg_cfg.out_scale != JPEG_IMAGE_SCALE_0) {
-        esp_jpeg_get_image_info(&jpeg_cfg, &outimg);
-        ESP_LOGI(TAG, "JPG scaled from %dx%d to %dx%d (scale: 1/%d)", original_width,
-                 original_height, outimg.width, outimg.height, 1 << jpeg_cfg.out_scale);
-    } else {
-        ESP_LOGI(TAG, "JPG size: %dx%d (no scaling needed)", outimg.width, outimg.height);
+    esp_jpeg_image_output_t outimg = {0};
+    int original_width = 0, original_height = 0;
+    // esp_jpeg_get_image_info reports the first SOF0 while the decoder sizes
+    // its output from the last one, so take the frame tjpgd will decode and
+    // refuse a file where the two disagree
+    if (esp_jpeg_get_image_info(&jpeg_cfg, &outimg) != ESP_OK ||
+        !jpeg_header_frame_size(jpg_data, jpg_size, &original_width, &original_height) ||
+        original_width != outimg.width || original_height != outimg.height) {
+        ESP_LOGE(TAG, "JPG header rejected (info %dx%d, frame %dx%d)", outimg.width, outimg.height,
+                 original_width, original_height);
+        set_last_error("Invalid JPG header");
+        return ESP_FAIL;
     }
 
-    *rgb_buffer = (uint8_t *) heap_caps_malloc(outimg.output_len, MALLOC_CAP_SPIRAM);
+    // Scaling logic - scale down large images to save memory
+    if (original_width > BOARD_HAL_DISPLAY_WIDTH * 4 ||
+        original_height > BOARD_HAL_DISPLAY_HEIGHT * 4)
+        jpeg_cfg.out_scale = JPEG_IMAGE_SCALE_1_4;
+    else if (original_width > BOARD_HAL_DISPLAY_WIDTH * 2 ||
+             original_height > BOARD_HAL_DISPLAY_HEIGHT * 2)
+        jpeg_cfg.out_scale = JPEG_IMAGE_SCALE_1_2;
+
+    int div = 1 << jpeg_cfg.out_scale;
+    int out_w = original_width / div;
+    int out_h = original_height / div;
+    // esp_jpeg (1.3.1) multiplies the output size in 32 bits, which wraps for
+    // a forged frame; four times the panel each way already exceeds any
+    // board's PSRAM, so capping there loses nothing real
+    uint64_t rgb_size = (uint64_t) out_w * out_h * 3;
+    uint64_t max_size = (uint64_t) BOARD_HAL_DISPLAY_WIDTH * 4 * BOARD_HAL_DISPLAY_HEIGHT * 4 * 3;
+    if (rgb_size == 0 || rgb_size > max_size) {
+        ESP_LOGE(TAG, "JPG too large: %dx%d", original_width, original_height);
+        set_last_error("Image dimensions too large");
+        return ESP_ERR_NO_MEM;
+    }
+
+    if (jpeg_cfg.out_scale != JPEG_IMAGE_SCALE_0) {
+        ESP_LOGI(TAG, "JPG scaled from %dx%d to %dx%d (scale: 1/%d)", original_width,
+                 original_height, out_w, out_h, div);
+    } else {
+        ESP_LOGI(TAG, "JPG size: %dx%d (no scaling needed)", out_w, out_h);
+    }
+
+    *rgb_buffer = (uint8_t *) heap_caps_malloc((size_t) rgb_size, MALLOC_CAP_SPIRAM);
     if (!*rgb_buffer) {
-        ESP_LOGE(TAG, "Failed to allocate JPG RGB buffer of %u bytes", outimg.output_len);
+        ESP_LOGE(TAG, "Failed to allocate JPG RGB buffer of %u bytes", (unsigned) rgb_size);
         return ESP_ERR_NO_MEM;
     }
 
     jpeg_cfg.outbuf = *rgb_buffer;
-    jpeg_cfg.outbuf_size = outimg.output_len;
+    jpeg_cfg.outbuf_size = (size_t) rgb_size;
     esp_err_t decode_err = esp_jpeg_decode(&jpeg_cfg, &outimg);
     if (decode_err != ESP_OK) {
         ESP_LOGE(TAG, "JPG decoding failed: %s", esp_err_to_name(decode_err));

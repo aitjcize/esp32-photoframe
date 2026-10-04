@@ -134,6 +134,24 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/../main
 )
 
+# JPEG frame size as tjpgd will decode it (last SOF0 before SOS)
+add_executable(
+  jpeg_header_test
+  test_jpeg_header.cpp
+  ../main/jpeg_header.c
+)
+
+target_link_libraries(
+  jpeg_header_test
+  GTest::gtest_main
+)
+
+target_include_directories(
+  jpeg_header_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
 # Discover tests
 include(GoogleTest)
 gtest_discover_tests(cron_test)
@@ -142,6 +160,7 @@ gtest_discover_tests(http_auth_test)
 gtest_discover_tests(network_backoff_test)
 gtest_discover_tests(crash_record_test)
 gtest_discover_tests(wifi_retry_test)
+gtest_discover_tests(jpeg_header_test)
 
 # On-device image pipeline characterization tests (host build of
 # main/image_processor.c against ESP-IDF stubs + system libpng)
@@ -151,6 +170,7 @@ add_executable(
   image_pipeline_test
   test_image_pipeline.cpp
   ../main/image_processor.c
+  ../main/jpeg_header.c
   stubs/esp_stubs.c
   stubs/fake_display_manager.c
   stubs/fake_config_manager.c
@@ -181,6 +201,7 @@ add_executable(
   test_display_flow.cpp
   ../main/display_flow.c
   ../main/image_processor.c
+  ../main/jpeg_header.c
   stubs/esp_stubs.c
   stubs/fake_display_manager.c
   stubs/fake_config_manager.c
