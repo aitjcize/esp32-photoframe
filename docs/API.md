@@ -6,6 +6,45 @@ Complete REST API reference for the ESP32 PhotoFrame firmware.
 
 All endpoints are relative to: `http://<device-ip>/`
 
+## Authentication
+
+Off by default. When a device password is set (`http_password` via
+`PATCH /api/config`, or **Settings → General → Advanced network settings** in
+the web UI), every route is gated — the API, `/` and the web UI's assets alike.
+`GET /api/config` reports `http_auth_enabled: true` while one is set; the
+password itself is never returned.
+
+The scheme is HTTP Basic. The username is ignored: the password is the whole
+credential, so any `user:password` pair with the right password is accepted.
+
+```bash
+curl -u ":secret" http://photoframe.local/api/system-info
+```
+
+A request without a valid credential gets `401 Unauthorized` with
+`WWW-Authenticate: Basic realm="ESP32 PhotoFrame"` and the body
+`{"error":"authentication required"}`.
+
+Wrong passwords are rate-limited per client address: 5 wrong passwords are
+free, the next one locks the client out for 30 s, and each further wrong
+password doubles the lockout up to 15 minutes. While locked out the client gets
+`429 Too Many Requests` with a `Retry-After` header (seconds) and the body
+`{"error":"too many wrong passwords, try again later"}` — its password is not
+even checked until the lockout expires. A correct password clears the client's
+record, and changing the device password resets every lockout. A request with
+no `Authorization` header at all (a browser's first request before it shows its
+prompt) answers `401` without counting as a wrong password.
+
+Note that Basic credentials travel base64-encoded, not encrypted: over plain
+HTTP anyone on the same network can read and replay them. The password raises
+the bar against casual access on a shared LAN; it is not a defence against
+someone who can already sniff your traffic.
+
+There is no way back in over the network: `POST /api/factory-reset` sits
+behind the gate like everything else. A forgotten password is cleared by
+erasing the settings (NVS) partition over USB, which resets every other
+setting too — see the README.
+
 ---
 
 ## System
@@ -57,7 +96,8 @@ the newest one (see [Decoding a crash report](DEV.md#decoding-a-crash-report)):
 `time` is when the next boot found the crash (Unix seconds), `null` if the
 clock wasn't set. `firmware` is `null` when the crash came from a different
 build than the one running; `elf_sha256` (the first 8 hex digits of the
-crashed build's ELF SHA-256) still identifies it.
+crashed build's ELF SHA-256) still identifies it, unless the dump did not
+record one, in which case it is `null` too.
 
 ### `POST /api/crash/clear`
 
@@ -157,6 +197,7 @@ Get current device configuration.
   "ca_cert_set": false,
   "last_fetch_error": "",
   "access_token": "",
+  "http_auth_enabled": false,
   "http_header_key": "",
   "http_header_value": "",
   "save_downloaded_images": true,
@@ -198,6 +239,9 @@ Get current device configuration.
 - `ca_cert_set`: Whether a custom CA certificate is pinned for HTTPS
 - `last_fetch_error`: Last image fetch error message (empty if no error)
 - `access_token`: Bearer token for image URL authentication
+- `http_auth_enabled`: Whether a device password is set (see
+  [Authentication](#authentication)). Read-only; the password itself is never
+  returned — set or clear it with `http_password` on `PATCH /api/config`
 - `http_header_key`/`http_header_value`: Custom HTTP header for image fetches
 - `save_downloaded_images`: Save fetched images to Downloads album
 - `ha_url`: Home Assistant URL for integration
@@ -226,6 +270,16 @@ Update configuration. Only include fields to change.
 ```
 
 **TLS certificate pinning:** If the request changes `image_url` to an HTTPS URL different from the current value, the device fetches and pins that server's TLS certificate before applying the config. If the fetch fails, the request returns `400 Bad Request` with a `message` describing the failure and **no config changes are persisted**. Changing `image_url` to an HTTP URL or clearing it clears any previously pinned certificate. `GET /api/config` reports the current state via `ca_cert_set`.
+
+**Device password:** `http_password` sets the password that gates the whole
+HTTP API (see [Authentication](#authentication)). A string sets it, `""` clears
+it (authentication off), and JSON `null` or an absent key leaves it unchanged.
+It must be at most 63 bytes; a longer one is refused with `400` and
+`"Device password is too long (max 63 bytes)"`, nothing truncated. Changing or
+clearing it resets any brute-force lockouts. It takes effect immediately: the
+next request must already carry the new password. The key is ignored when it
+arrives in a server-pushed config (see
+[Config Payload Structure](#config-payload-structure)).
 
 ### `PATCH /api/config`
 
@@ -502,8 +556,8 @@ When `rotation_mode` is `"url"`, the device issues an HTTP `GET` against `image_
 
 **Transport:**
 - Method: `GET`
-- Timeout: 120s per attempt
-- Retries: up to 3 attempts with a 3s delay between retries (failed status, zero-length body, or transport errors all trigger a retry)
+- Timeout: 30 s per socket operation (connect, time to first byte, and every wait for more data), so a dead link fails fast while a slow transfer on weak WiFi may still take a minute or more
+- Retries: up to 3 attempts with a 3 s delay between them, but a retry only starts while the fetch has used less than 20 s in total — quick failures (connection refused, DNS, a server hiccup, zero-length body) are retried, an attempt that already ran into the I/O timeout is not. A completed `4xx` response is never retried: it is the server's verdict on the request (bad URL, bad token, `429`), while `5xx` and transport errors — including a `4xx` whose body was cut off — get their retries
 - Redirects: up to 5 followed automatically
 - User-Agent: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`
 - TLS: if a pinned CA certificate is set (`ca_cert_set: true` in `/api/config`), it is used to validate the server; otherwise the default trust store applies
@@ -521,6 +575,7 @@ Every image-fetch request carries these headers so the server can tailor the res
 | `X-Config-Last-Updated` | Unix timestamp of the last local config change (used for remote sync reconciliation) |
 | `X-Processing-Settings` | JSON blob of the current processing parameters |
 | `X-Color-Palette` | JSON blob of the current color palette |
+| `X-Battery-Percentage` | Battery level `0`–`100`, sent whenever the board reports a percentage in that range and omitted otherwise (a board with no battery gauge reports none), so absence means "unknown" rather than `0`. A frame running without a battery may still send `0` if its gauge reads the empty rail that way |
 
 Authentication and custom headers, when configured via `/api/config`:
 
@@ -543,7 +598,7 @@ The server can include these headers on a `200` response:
 |--------|-------------|
 | `X-Thumbnail-URL` | URL the device fetches next to store a companion thumbnail (30s timeout, no retries, no custom headers) |
 | `X-Config-Payload` | JSON blob of config to merge into device state — see [Config Payload Structure](#config-payload-structure) |
-| `ETag` | Opaque validator cached by the device and echoed back as `If-None-Match` on the next fetch. If the server drops the header on a later `200`, the device clears its cached value |
+| `ETag` | Opaque validator cached by the device and echoed back as `If-None-Match` on the next fetch. It is persisted only once the picture is on the panel — after a failed decode or display the previous ETag stays, so the next fetch asks for this image again instead of getting a `304` for one it never showed — and only if a config push in the same response did not change `image_url` (the new URL starts without one). If the server drops the header on a later `200`, the device clears its cached value |
 
 ### HTTP 304 Not Modified
 
@@ -567,9 +622,22 @@ The `X-Config-Payload` response header carries a JSON object matching the schema
 }
 ```
 
+`http_password` is ignored in a pushed `config` (the device logs a warning and
+applies the rest): the push rides on the frame's own outbound request, with no
+credential check, so a compromised or misconfigured server must not be able to
+lock the owner out or quietly open the device.
+
 ---
 
 ## Error Responses
+
+Which body an error carries depends on what failed, not only on which
+endpoint was called, so pick the parser from the response's `Content-Type`
+(JSON bodies are sent as `application/json`), never from the route alone.
+
+Failures an endpoint diagnoses itself — a rejected config value, a failed
+fetch, a certificate that could not be pinned, a reset that could not erase
+NVS — come back on `/api/config`, `/api/rotate` and `/api/factory-reset` as:
 
 ```json
 {
@@ -578,9 +646,32 @@ The `X-Config-Payload` response header carries a JSON object matching the schema
 }
 ```
 
+Request-level rejections — a body over the size limit, malformed JSON, a
+missing multipart boundary, a request while the device is still initializing
+— are answered with the message as plain text on every endpoint, those three
+included. Image upload, delete and album operations report all their failures
+as plain text, and `/api/format-storage` is mixed (its unsupported-storage
+`400` is plain text, a failed format is JSON). The display endpoints
+(`/api/display`, `/api/display-image`) report a panel refresh already in
+progress as `503` with JSON of their own,
+`{"status":"busy","message":"Display is currently updating, please wait"}`,
+and other failures as plain text.
+
+The authentication gate (see [Authentication](#authentication)) answers before
+any endpoint runs and uses a different shape:
+
+```json
+{
+  "error": "authentication required"
+}
+```
+
 Common HTTP status codes:
 - `200 OK`: Success
 - `400 Bad Request`: Invalid parameters
+- `401 Unauthorized`: A device password is set and the request carried no valid credential (`WWW-Authenticate: Basic realm="ESP32 PhotoFrame"`)
 - `404 Not Found`: Resource not found
+- `429 Too Many Requests`: Too many wrong passwords from this client; `Retry-After` says how many seconds to wait
 - `500 Internal Server Error`: Server error
+- `502 Bad Gateway`: `POST /api/rotate` in URL mode could not fetch the image (the panel is left unchanged)
 - `503 Service Unavailable`: Device busy (display updating)

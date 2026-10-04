@@ -84,6 +84,9 @@ The measured palette accounts for the fact that e-paper displays show darker, mo
 
 **Auto-Rotation**: SD card (default) or URL-based (fetch from web)
 
+- In URL mode a failed fetch leaves the current picture on the panel (there is no fallback to a local image); the reason is shown as the last fetch error in **Settings > Auto Rotate**.
+- When a frame on deep sleep keeps failing its scheduled fetches (weak WiFi, server down), it backs off — 5 minutes, doubling up to 6 hours — by skipping scheduled wakes rather than spending battery on every one. A successful fetch or any button wake clears the backoff. An always-on frame (deep sleep disabled) simply tries again at the next scheduled slot.
+
 **Time zone**: pick your zone in **Settings > General** (DST is handled); the rotation schedule runs in that zone.
 
 Configure via web interface **Settings** section.
@@ -157,10 +160,14 @@ Boards with larger flash chips (XIAO EE02/EE03/EE04, reTerminal E1002/E1004) use
 
 ### Manual Flash
 
-Download from [Releases](https://github.com/aitjcize/esp32-photoframe/releases):
+Download the merged binary for your board from [Releases](https://github.com/aitjcize/esp32-photoframe/releases):
 
 ```bash
+# ESP32-S3 boards (everything except the M5Paper)
 esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 photoframe-firmware-<board>-merged.bin
+
+# M5Stack M5Paper (ESP32)
+esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 photoframe-firmware-m5stack_m5paper_v11-merged.bin
 ```
 
 **Device not detected?** Hold BOOT button + press PWR to enter download mode.
@@ -247,6 +254,8 @@ The device supports two methods for WiFi provisioning:
 - Gallery view with drag-and-drop uploads
 - Settings, battery status, display control
 
+**Device password (optional):** off by default, since most frames sit on a trusted home network. Turn it on under **Settings > General > Advanced network settings** to require a password for the web interface and the whole HTTP API (the browser prompts for it; any username works). The photoframe server, the Home Assistant integration and the companion app must be given the same password or they stop syncing with the frame. It is HTTP Basic over plain HTTP, so anyone on the same network can read and replay it — it keeps casual visitors out of a shared network, nothing more. A forgotten password cannot be reset over the network (factory reset sits behind it too): connect the frame over USB and erase its settings partition, `esptool.py --chip esp32s3 --port /dev/ttyUSB0 erase_region 0x9000 0x6000` (`--chip esp32` on the M5Paper), which also resets WiFi and every other setting but keeps the stored photos; `erase-flash` followed by a reflash wipes the whole internal flash, photos included on boards that store them there (an SD card is untouched either way). Details in [API.md → Authentication](docs/API.md#authentication).
+
 **API:** Full documentation in [API.md](docs/API.md)
 
 ## Troubleshooting
@@ -255,6 +264,7 @@ The device supports two methods for WiFi provisioning:
 - **SD card not detected**: Format as FAT32, try different card
 - **Upload fails**: Check file is valid JPEG, monitor serial output
 - **Device not detected for flash**: Hold BOOT + press PWR for download mode
+- **Frame restarted on its own**: if the firmware crashed, the next boot keeps a one-line record under **Settings > Maintenance > Last Crash**; **Copy Report** copies it for a bug report, and [DEV.md](docs/DEV.md#decoding-a-crash-report) explains how to turn its addresses into source lines. The dump is written to a flash partition that an over-the-air update cannot add (OTA replaces only the application), so a frame updated over the air to the release that introduced the crash record starts recording crashes after its next USB flash — which keeps the stored photos.
 
 ## Offline Image Processing
 
