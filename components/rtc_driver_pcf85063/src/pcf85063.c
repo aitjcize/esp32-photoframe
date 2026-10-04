@@ -128,6 +128,13 @@ esp_err_t pcf85063_read_time(time_t *time_out)
     timeinfo.tm_wday = bcd_to_dec(data[4] & 0x07);
     timeinfo.tm_mon = bcd_to_dec(data[5] & 0x1F) - 1;  // tm_mon is 0-11
     timeinfo.tm_year = bcd_to_dec(data[6]) + 100;      // Years since 1900, RTC starts at 2000
+    // -1 tells mktime() to work out DST itself from the current TZ rule and this date, instead
+    // of the {0}-initialized 0 above forcing "standard time" outright. pcf85063_write_time()
+    // below stores DST-aware local wall-clock fields (via localtime_r()), so reading them back
+    // while forcing standard time made every read land exactly one hour ahead of the true time
+    // whenever DST was actually active - self-correcting only at the next SNTP sync, then
+    // recurring on every subsequent cold boot.
+    timeinfo.tm_isdst = -1;
 
     *time_out = mktime(&timeinfo);
 

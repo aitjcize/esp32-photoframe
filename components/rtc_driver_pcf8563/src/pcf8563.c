@@ -123,6 +123,9 @@ esp_err_t pcf8563_read_time(time_t *time_out)
     // Century bit: 0 = 2000s, 1 = 1900s
     int century = (data[5] & PCF8563_CENTURY_BIT) ? 1900 : 2000;
     timeinfo.tm_year = bcd_to_dec(data[6]) + century - 1900;  // years since 1900
+    // See the identical fix/comment in rtc_driver_pcf85063's read function - same {0}-init-
+    // forces-standard-time bug, same one-hour-during-DST symptom.
+    timeinfo.tm_isdst = -1;
 
     *time_out = mktime(&timeinfo);
 
