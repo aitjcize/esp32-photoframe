@@ -149,6 +149,37 @@ const char *utils_consume_config_error(void)
     return out;
 }
 
+// Validates, persists and activates a POSIX TZ rule; on failure `msg` says why.
+// Only the shape of the rule is checked. newlib's tzset() reports nothing
+// when it can't parse one (it quietly falls back to UTC), and a POSIX parser
+// here would only disagree with it in the corners. What is rejected is wrong
+// under any grammar: an empty rule, control or non-ASCII bytes, and a rule
+// the device would have to truncate.
+static esp_err_t apply_timezone(const char *tz, char *msg, size_t msg_len)
+{
+    if (tz[0] == '\0') {
+        snprintf(msg, msg_len, "Time zone must not be empty");
+        return ESP_FAIL;
+    }
+    for (const unsigned char *p = (const unsigned char *) tz; *p != '\0'; p++) {
+        if (*p < 0x20 || *p > 0x7e) {
+            snprintf(msg, msg_len, "Time zone must be printable ASCII");
+            return ESP_FAIL;
+        }
+    }
+    esp_err_t err = config_manager_set_timezone(tz);
+    if (err == ESP_ERR_INVALID_SIZE) {
+        snprintf(msg, msg_len, "Time zone is too long (max %d characters)", TIMEZONE_MAX_LEN - 1);
+        return ESP_FAIL;
+    } else if (err != ESP_OK) {
+        snprintf(msg, msg_len, "Failed to save the time zone");
+        return ESP_FAIL;
+    }
+    setenv("TZ", tz, 1);
+    tzset();
+    return ESP_OK;
+}
+
 esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
 {
     cJSON *item;
@@ -165,37 +196,20 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
         }
     }
 
-    // Only the shape of the rule is checked. newlib's tzset() reports nothing
-    // when it can't parse one (it quietly falls back to UTC), and a POSIX
-    // parser here would only disagree with it in the corners. What is
-    // rejected is wrong under any grammar: an empty rule, control or
-    // non-ASCII bytes, and a rule the device would have to truncate.
     item = cJSON_GetObjectItem(root, "timezone");
     if (item && cJSON_IsString(item)) {
-        const char *tz = cJSON_GetStringValue(item);
-        if (tz[0] == '\0') {
-            utils_set_config_error("Time zone must not be empty");
-            return ESP_FAIL;
-        }
-        for (const unsigned char *p = (const unsigned char *) tz; *p != '\0'; p++) {
-            if (*p < 0x20 || *p > 0x7e) {
-                utils_set_config_error("Time zone must be printable ASCII");
+        char msg[64];
+        if (apply_timezone(cJSON_GetStringValue(item), msg, sizeof(msg)) != ESP_OK) {
+            if (from_remote) {
+                // A server push has no caller to answer and is re-sent on
+                // every fetch, so failing it here would drop every other
+                // pushed field, every time, over one bad rule.
+                ESP_LOGW(TAG, "Ignoring timezone in server-pushed config: %s", msg);
+            } else {
+                utils_set_config_error(msg);
                 return ESP_FAIL;
             }
         }
-        esp_err_t tz_err = config_manager_set_timezone(tz);
-        if (tz_err == ESP_ERR_INVALID_SIZE) {
-            char msg[64];
-            snprintf(msg, sizeof(msg), "Time zone is too long (max %d characters)",
-                     TIMEZONE_MAX_LEN - 1);
-            utils_set_config_error(msg);
-            return ESP_FAIL;
-        } else if (tz_err != ESP_OK) {
-            utils_set_config_error("Failed to save the time zone");
-            return ESP_FAIL;
-        }
-        setenv("TZ", tz, 1);
-        tzset();
     }
 
     // Advanced network settings (#43): custom NTP server, static IP and DNS
