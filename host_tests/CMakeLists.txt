@@ -188,3 +188,22 @@ target_link_libraries(
 )
 
 gtest_discover_tests(display_flow_test)
+
+# The size check of esp_jpeg's answer
+add_executable(
+  jpeg_size_check_test
+  test_jpeg_size_check.cpp
+)
+
+target_link_libraries(
+  jpeg_size_check_test
+  GTest::gtest_main
+)
+
+target_include_directories(
+  jpeg_size_check_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
+gtest_discover_tests(jpeg_size_check_test)

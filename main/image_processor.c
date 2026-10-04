@@ -19,6 +19,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "jpeg_decoder.h"
+#include "jpeg_size_check.h"
 #include "processing_settings.h"
 
 static const char *TAG = "image_processor";
@@ -919,6 +920,11 @@ static esp_err_t decode_jpg_buffer(const uint8_t *jpg_data, size_t jpg_size, uin
                                      .out_scale = JPEG_IMAGE_SCALE_0};
     esp_jpeg_image_output_t outimg;
     esp_jpeg_get_image_info(&jpeg_cfg, &outimg);
+    if (!jpeg_output_size_ok(outimg.width, outimg.height, 0, outimg.output_len)) {
+        ESP_LOGE(TAG, "JPG header is not usable");
+        set_last_error("JPG header is not usable");
+        return ESP_ERR_INVALID_SIZE;
+    }
     int original_width = outimg.width;
     int original_height = outimg.height;
 
@@ -931,6 +937,12 @@ static esp_err_t decode_jpg_buffer(const uint8_t *jpg_data, size_t jpg_size, uin
 
     if (jpeg_cfg.out_scale != JPEG_IMAGE_SCALE_0) {
         esp_jpeg_get_image_info(&jpeg_cfg, &outimg);
+        if (!jpeg_output_size_ok(original_width, original_height, (int) jpeg_cfg.out_scale,
+                                 outimg.output_len)) {
+            ESP_LOGE(TAG, "JPG header is not usable");
+            set_last_error("JPG header is not usable");
+            return ESP_ERR_INVALID_SIZE;
+        }
         ESP_LOGI(TAG, "JPG scaled from %dx%d to %dx%d (scale: 1/%d)", original_width,
                  original_height, outimg.width, outimg.height, 1 << jpeg_cfg.out_scale);
     } else {
