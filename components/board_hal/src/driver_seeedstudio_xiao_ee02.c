@@ -45,6 +45,31 @@ esp_err_t board_hal_init(void)
     // can reconfigure the TPS22916 enable pin during init.
     gpio_hold_dis(VBAT_ADC_ENABLE_PIN);
 
+    // Configure TPS22916 enable pin (GPIO6) as output, default LOW (disabled)
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << VBAT_ADC_ENABLE_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&io_conf));
+    gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);
+
+    // Battery voltage ADC (shared helper handles calibration + averaging).
+    battery_adc_config_t vbat_cfg = {
+        .unit = ADC_UNIT_1,
+        .channel = VBAT_ADC_CHANNEL,
+        .atten = ADC_ATTEN_DB_12,
+        .enable_pin = VBAT_ADC_ENABLE_PIN,
+        .settle_ms = 10,
+        .samples = 8,
+        .divider = VBAT_VOLTAGE_DIVIDER,
+        .cal_scale = VBAT_CAL_SCALE,
+        .sample_at_create = true,
+    };
+    battery_adc_create(&vbat_cfg, &vbat_adc);
+
     // Initialize SPI bus
     ESP_LOGI(TAG, "Initializing SPI bus...");
     spi_bus_config_t bus_cfg = {
@@ -68,30 +93,6 @@ esp_err_t board_hal_init(void)
         .pin_enable = BOARD_HAL_EPD_ENABLE_PIN,
     };
     epaper_init(&ep_cfg);
-
-    // Configure TPS22916 enable pin (GPIO6) as output, default LOW (disabled)
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << VBAT_ADC_ENABLE_PIN),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    ESP_ERROR_CHECK(gpio_config(&io_conf));
-    gpio_set_level(VBAT_ADC_ENABLE_PIN, 0);
-
-    // Battery voltage ADC (shared helper handles calibration + averaging).
-    battery_adc_config_t vbat_cfg = {
-        .unit = ADC_UNIT_1,
-        .channel = VBAT_ADC_CHANNEL,
-        .atten = ADC_ATTEN_DB_12,
-        .enable_pin = VBAT_ADC_ENABLE_PIN,
-        .settle_ms = 10,
-        .samples = 8,
-        .divider = VBAT_VOLTAGE_DIVIDER,
-        .cal_scale = VBAT_CAL_SCALE,
-    };
-    battery_adc_create(&vbat_cfg, &vbat_adc);
 
     return ESP_OK;
 }

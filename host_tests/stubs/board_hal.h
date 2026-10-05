@@ -9,6 +9,8 @@
 extern "C" {
 #endif
 
+void board_hal_use_boot_battery_sample(bool enabled);
+
 extern int test_board_display_width;
 extern int test_board_display_height;
 extern const char *test_board_display_type;  // "spectra6" or "gc16"
