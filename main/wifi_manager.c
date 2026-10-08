@@ -250,7 +250,7 @@ esp_err_t wifi_manager_connect(const char *ssid, const char *password)
     wifi_manager_apply_ip_config();
 
     wifi_config_t wifi_config = {0};
-    strncpy((char *) wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid) - 1);
+    strncpy((char *) wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
     if (password) {
         strncpy((char *) wifi_config.sta.password, password, sizeof(wifi_config.sta.password) - 1);
     }

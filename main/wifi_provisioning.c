@@ -413,7 +413,7 @@ static esp_err_t provision_save_handler(httpd_req_t *req)
 
     // Configure STA with provided credentials
     wifi_config_t sta_config = {0};
-    strncpy((char *) sta_config.sta.ssid, ssid, sizeof(sta_config.sta.ssid) - 1);
+    strncpy((char *) sta_config.sta.ssid, ssid, sizeof(sta_config.sta.ssid));
     strncpy((char *) sta_config.sta.password, password, sizeof(sta_config.sta.password) - 1);
     sta_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     sta_config.sta.pmf_cfg.capable = true;
