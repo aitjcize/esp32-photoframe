@@ -314,6 +314,40 @@ async function clearDebugLog() {
   }
 }
 
+// Valid JSON is not yet a config export: null, a number, a list or an object without any settings block
+// would be "imported" - nothing is sent - and still end in "Config imported successfully!".
+function looksLikeConfigExport(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  return ["config", "processing", "palette"].some(
+    (key) => data[key] && typeof data[key] === "object" && !Array.isArray(data[key])
+  );
+}
+
+// The frame skips a setting of the wrong type and still answers "success". After an import the file is
+// compared with what the frame reports now; read-only status values are not settings of the file.
+const IMPORT_NOT_COMPARED = /(_configured|_available)$|^(last_fetch_error|http_auth_enabled)$/;
+
+function sameValue(a, b) {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  const keysA = Object.keys(a);
+  return keysA.length === Object.keys(b).length && keysA.every((key) => sameValue(a[key], b[key]));
+}
+
+async function settingsNotTaken(config) {
+  if (!config || typeof config !== "object") return [];
+  try {
+    const response = await fetch("/api/config");
+    if (!response.ok) return [];
+    const now = await response.json();
+    return Object.keys(config).filter(
+      (key) => key in now && !IMPORT_NOT_COMPARED.test(key) && !sameValue(config[key], now[key])
+    );
+  } catch {
+    return []; // nothing to compare with: say nothing rather than guess
+  }
+}
+
 function onImportFileSelected(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -323,6 +357,13 @@ function onImportFileSelected(event) {
   reader.onload = (e) => {
     try {
       importData.value = JSON.parse(e.target.result);
+      if (!looksLikeConfigExport(importData.value)) {
+        importData.value = null;
+        saveError.value = true;
+        saveMessage.value = "This file is not a config export (it has no settings in it)";
+        setTimeout(() => (saveError.value = false), 5000);
+        return;
+      }
       showImportDialog.value = true;
     } catch {
       saveError.value = true;
@@ -362,7 +403,16 @@ async function performImport() {
         body: JSON.stringify(body),
       });
       if (!response.ok) {
-        throw new Error(`${method} ${url} failed with HTTP ${response.status}`);
+        // the frame says why (an invalid rule, a WiFi network it cannot join, ...): show it
+        let detail = "";
+        try {
+          detail = (await response.json()).message || "";
+        } catch {
+          // not JSON: the status alone
+        }
+        throw Object.assign(new Error(`${method} ${url} failed with HTTP ${response.status}`), {
+          detail,
+        });
       }
     }
 
@@ -388,14 +438,27 @@ async function performImport() {
         : " The device password was left in place: turn it off under General → Advanced network settings if you want the frame open.";
     }
 
+    const notTaken = await settingsNotTaken(importData.value.config);
+    const shown =
+      notTaken.slice(0, 6).join(", ") +
+      (notTaken.length > 6 ? ` and ${notTaken.length - 6} more` : "");
+    const taken = notTaken.length
+      ? `Config imported, but the frame does not report these as imported (wrong type or not accepted): ${shown}.`
+      : "";
     saveSuccess.value = true;
     saveError.value = false;
-    saveMessage.value = authNote ? `Config imported.${authNote}` : "Config imported successfully!";
-    setTimeout(() => (saveSuccess.value = false), authNote ? 10000 : 3000);
+    saveMessage.value = taken
+      ? `${taken}${authNote}`
+      : authNote
+        ? `Config imported.${authNote}`
+        : "Config imported successfully!";
+    setTimeout(() => (saveSuccess.value = false), authNote || taken ? 10000 : 3000);
   } catch (error) {
     console.error("Failed to import config:", error);
     saveError.value = true;
-    saveMessage.value = "Failed to import config";
+    saveMessage.value = error.detail
+      ? `Failed to import config: ${error.detail}`
+      : "Failed to import config";
     setTimeout(() => (saveError.value = false), 5000);
   } finally {
     saving.value = false;
