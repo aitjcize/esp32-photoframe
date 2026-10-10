@@ -24,7 +24,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["processed"]);
+const emit = defineEmits(["processed", "error"]);
 const appStore = useAppStore();
 const settingsStore = useSettingsStore();
 
@@ -322,6 +322,7 @@ async function loadAndProcessImage(file) {
     await updatePreview();
   } catch (error) {
     console.error("Image loading failed:", error);
+    emit("error", error);
   } finally {
     processing.value = false;
   }

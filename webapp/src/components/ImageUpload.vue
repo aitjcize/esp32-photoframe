@@ -330,6 +330,13 @@ const snackbar = ref(false);
 const snackbarText = ref("");
 const snackbarColor = ref("info");
 
+// The chosen file could not be read as an image (damaged, or a format this browser cannot decode): say so
+// and drop it, instead of a blank preview with buttons that do nothing.
+function onImageUnreadable() {
+  showMessage("This file could not be read as an image", "error");
+  resetUpload();
+}
+
 function showMessage(text, color = "info") {
   snackbarText.value = text;
   snackbarColor.value = color;
@@ -577,6 +584,7 @@ async function generateAiImage() {
             :palette="settingsStore.palette"
             :tone-curve-teleport="wideEdit ? '#tone-curve-slot' : null"
             @processed="processedResult = $event"
+            @error="onImageUnreadable"
           />
         </div>
         <div v-if="wideEdit" class="edit-controls">
