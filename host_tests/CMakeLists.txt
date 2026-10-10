@@ -16,8 +16,47 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+# cJSON for the code that reads JSON: the copy the firmware build fetched (managed_components/ is not in the
+# repository), else the same release from upstream.
+set(CJSON_LOCAL "${CMAKE_CURRENT_SOURCE_DIR}/../managed_components/espressif__cjson/cJSON")
+if(EXISTS "${CJSON_LOCAL}/cJSON.c")
+  set(CJSON_DIR "${CJSON_LOCAL}")
+else()
+  # only the source is used by the tests; keep cJSON's own tests and install rules out of the build
+  set(ENABLE_CJSON_TEST OFF CACHE BOOL "" FORCE)
+  set(ENABLE_CJSON_UNINSTALL OFF CACHE BOOL "" FORCE)
+  set(ENABLE_CUSTOM_COMPILER_FLAGS OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    cjson
+    URL https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.19.tar.gz
+  )
+  FetchContent_MakeAvailable(cjson)
+  set(CJSON_DIR "${cjson_SOURCE_DIR}")
+endif()
+
 # Enable testing
 enable_testing()
+
+# Which fields of a config request apply_config_from_json() ignored (the real cJSON)
+add_executable(
+  config_track_test
+  test_config_track.cpp
+  ../main/config_track.c
+  ${CJSON_DIR}/cJSON.c
+)
+
+target_link_libraries(
+  config_track_test
+  GTest::gtest_main
+  m
+)
+
+target_include_directories(
+  config_track_test
+  PRIVATE
+  ${CJSON_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
 
 # Cron engine tests
 add_executable(
@@ -161,6 +200,7 @@ gtest_discover_tests(network_backoff_test)
 gtest_discover_tests(crash_record_test)
 gtest_discover_tests(wifi_retry_test)
 gtest_discover_tests(jpeg_header_test)
+gtest_discover_tests(config_track_test)
 
 # On-device image pipeline characterization tests (host build of
 # main/image_processor.c against ESP-IDF stubs + system libpng)

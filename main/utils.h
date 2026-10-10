@@ -36,6 +36,11 @@ const char *utils_consume_cert_pin_error(void);
 void utils_set_config_error(const char *msg);
 const char *utils_consume_config_error(void);
 
+// What the last config request left unapplied: {"ignored": [...], "unknown": [...]} (see
+// config_track.h), or NULL when nothing. consume: the caller owns the result and frees it with
+// cJSON_Delete().
+cJSON *utils_consume_config_report(void);
+
 // Fetch an image from URL, process it, and show it on the display. PNG and
 // JPEG sources stream straight to the panel; EPDGZ and BMP sources are saved
 // to a file (moved into the Downloads album when enabled) and displayed from
