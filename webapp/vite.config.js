@@ -26,8 +26,33 @@ function gzipOutput(outDir) {
   };
 }
 
+// The icon font and Roboto are bundled (src/main.js). Their stylesheets list every font format there ever
+// was; only woff2 is kept (every browser the Web UI needs reads it), and the font files are inlined into
+// the stylesheet (build.assetsInlineLimit below), so the firmware serves no extra file for them.
+function woff2Only() {
+  const FONT_CSS = /[\/](@mdi[\/]font[\/]css[\/]materialdesignicons|@fontsource[\/]roboto[\/]latin-\d+)\.css$/;
+  return {
+    name: "woff2-only",
+    enforce: "pre",
+    transform(code, id) {
+      if (!FONT_CSS.test(id.split("?")[0])) return null;
+      return code.replace(/@font-face\s*\{[^}]*\}/g, (block) => {
+        const woff2 = block.match(
+          /url\(\s*["']?([^"')]+\.woff2[^"')]*)["']?\s*\)\s*format\(\s*["']woff2["']\s*\)/
+        );
+        if (!woff2) return block;
+        return block
+          .replace(/\s*src:[^;]*;/g, "")
+          .replace(/\}\s*$/, `  src: url("${woff2[1]}") format("woff2");
+}`);
+      });
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
+    woff2Only(),
     vue(),
     vuetify({ autoImport: true }),
     gzipOutput(resolve(__dirname, "../main/webapp")),
@@ -35,6 +60,8 @@ export default defineConfig({
   build: {
     outDir: resolve(__dirname, "../main/webapp"),
     emptyOutDir: true,
+    // the bundled fonts go into the stylesheet (see woff2Only); every other asset keeps Vite's default
+    assetsInlineLimit: (file) => (file.endsWith(".woff2") ? true : undefined),
     rollupOptions: {
       external: ["/measurement_sample.jpg"],
       output: {
