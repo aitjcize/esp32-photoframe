@@ -14,9 +14,22 @@ const imageToDisplay = ref(null);
 const deleteImageDialog = ref(false);
 const imageToDelete = ref(null);
 
+// The store says whether an action worked; the dialogs used to close as if it had, whatever the frame
+// answered (a name with a slash, an album that exists, a card that is busy).
+const galleryMessage = ref("");
+const galleryMessageOpen = ref(false);
+function tellFailure(text) {
+  galleryMessage.value = text;
+  galleryMessageOpen.value = true;
+}
+
 async function createAlbum() {
   if (newAlbumName.value.trim()) {
-    await appStore.createAlbum(newAlbumName.value);
+    if (!(await appStore.createAlbum(newAlbumName.value))) {
+      // the dialog stays open: the name can be corrected
+      tellFailure("Could not create the album - the name must be new and must not contain a slash");
+      return;
+    }
     newAlbumName.value = "";
     newAlbumDialog.value = false;
   }
@@ -29,7 +42,9 @@ function confirmDeleteAlbum(album) {
 
 async function deleteAlbum() {
   if (albumToDelete.value) {
-    await appStore.deleteAlbum(albumToDelete.value.name);
+    if (!(await appStore.deleteAlbum(albumToDelete.value.name))) {
+      tellFailure("Could not delete the album");
+    }
     albumToDelete.value = null;
     deleteAlbumDialog.value = false;
   }
@@ -44,7 +59,9 @@ async function displayImage() {
   if (imageToDisplay.value) {
     displayDialog.value = false;
     displayLoading.value = true;
-    await appStore.displayImage(imageToDisplay.value.album, imageToDisplay.value.filename);
+    if (!(await appStore.displayImage(imageToDisplay.value.album, imageToDisplay.value.filename))) {
+      tellFailure("Could not show the image on the display");
+    }
     displayLoading.value = false;
     imageToDisplay.value = null;
   }
@@ -57,7 +74,9 @@ function confirmDeleteImage(image) {
 
 async function deleteImage() {
   if (imageToDelete.value) {
-    await appStore.deleteImage(imageToDelete.value.album, imageToDelete.value.filename);
+    if (!(await appStore.deleteImage(imageToDelete.value.album, imageToDelete.value.filename))) {
+      tellFailure("Could not delete the image");
+    }
     imageToDelete.value = null;
     deleteImageDialog.value = false;
   }
@@ -196,7 +215,9 @@ function getThumbnailUrl(image) {
       <v-card-actions>
         <v-spacer />
         <v-btn variant="text" @click="newAlbumDialog = false"> Cancel </v-btn>
-        <v-btn color="primary" @click="createAlbum"> Create </v-btn>
+        <v-btn color="primary" :disabled="!newAlbumName.trim()" @click="createAlbum">
+          Create
+        </v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -268,6 +289,10 @@ function getThumbnailUrl(image) {
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-snackbar v-model="galleryMessageOpen" color="error" :timeout="6000">
+    {{ galleryMessage }}
+  </v-snackbar>
 </template>
 
 <style scoped>
