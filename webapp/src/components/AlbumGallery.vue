@@ -146,6 +146,7 @@ function getThumbnailUrl(image) {
           >
             <v-card variant="outlined" class="image-card">
               <v-img
+                v-if="image.thumbnail"
                 :src="getThumbnailUrl(image)"
                 :alt="image.filename"
                 aspect-ratio="1"
@@ -159,6 +160,17 @@ function getThumbnailUrl(image) {
                   </div>
                 </template>
               </v-img>
+              <div
+                v-else
+                class="d-flex flex-column align-center justify-center cursor-pointer bg-grey-lighten-3 pa-2"
+                style="aspect-ratio: 1"
+                @click="confirmDisplayImage(image)"
+              >
+                <v-icon icon="mdi-image-outline" size="32" color="grey" />
+                <span class="text-caption text-grey text-truncate" style="max-width: 100%">{{
+                  image.filename
+                }}</span>
+              </div>
               <div class="delete-hotspot">
                 <v-btn
                   icon="mdi-delete"
@@ -228,7 +240,7 @@ function getThumbnailUrl(image) {
         <div class="mb-3">Show this image on the e-paper display?</div>
         <div class="d-flex justify-center">
           <img
-            v-if="imageToDisplay"
+            v-if="imageToDisplay && imageToDisplay.thumbnail"
             :src="getThumbnailUrl(imageToDisplay)"
             alt=""
             class="confirm-thumb"
@@ -254,7 +266,7 @@ function getThumbnailUrl(image) {
         <div class="mb-3">Are you sure you want to delete this image?</div>
         <div class="d-flex justify-center">
           <img
-            v-if="imageToDelete"
+            v-if="imageToDelete && imageToDelete.thumbnail"
             :src="getThumbnailUrl(imageToDelete)"
             alt=""
             class="confirm-thumb"
