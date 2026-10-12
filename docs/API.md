@@ -269,6 +269,11 @@ Update configuration. Only include fields to change.
 }
 ```
 
+**Fields that were not applied:** a field is taken only when its JSON type is the one the setting has; the other ones used to be skipped without a word. The answer - `200` or `400` - names them:
+`"ignored": [...]` for a key the firmware knows that arrived with another JSON type (`"rotate_interval": "soon"`), `"unknown": [...]` for a key it does not know (a typo, a read-only value of `GET /api/config`
+such as `last_fetch_error` or a `..._configured` flag, a setting of another firmware). A list is left out when it is empty, so a client that sends only what the frame knows sees no change. JSON `null` is "no value" and never listed.
+A server-pushed config (see [Config Payload Structure](#config-payload-structure)) is not checked this way.
+
 **TLS certificate pinning:** If the request changes `image_url` to an HTTPS URL different from the current value, the device fetches and pins that server's TLS certificate before applying the config. If the fetch fails, the request returns `400 Bad Request` with a `message` describing the failure and **no config changes are persisted**. Changing `image_url` to an HTTP URL or clearing it clears any previously pinned certificate. `GET /api/config` reports the current state via `ca_cert_set`.
 
 **Device password:** `http_password` sets the password that gates the whole

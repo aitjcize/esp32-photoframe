@@ -12,6 +12,7 @@
 #include "color_palette.h"
 #include "config.h"
 #include "config_manager.h"
+#include "config_track.h"
 #include "cron.h"
 #include "debug_log.h"
 #include "display_flow.h"
@@ -35,6 +36,20 @@
 #include "wifi_manager.h"
 
 static const char *TAG = "utils";
+
+// apply_config_from_json() reports the fields of a request it ignored (config_track.h). Every
+// handler there looks a field up with cJSON_GetObjectItem() and takes it only when its JSON type is
+// the one it reads; these macros let the tracker see both, without touching the call sites. They
+// reach to the end of this file; a call on any other object than the tracked request is passed
+// through unchanged. IsTrue counts as taken only for a boolean: a handler that reads a string with
+// it gets "false", which the report then names.
+#define cJSON_GetObjectItem(object, key) config_track_get((object), (key))
+#define cJSON_IsString(item) config_track_taken((item), cJSON_IsString(item))
+#define cJSON_IsNumber(item) config_track_taken((item), cJSON_IsNumber(item))
+#define cJSON_IsBool(item) config_track_taken((item), cJSON_IsBool(item))
+#define cJSON_IsArray(item) config_track_taken((item), cJSON_IsArray(item))
+#define cJSON_IsObject(item) config_track_taken((item), cJSON_IsObject(item))
+#define cJSON_IsTrue(item) (config_track_taken((item), cJSON_IsBool(item)), cJSON_IsTrue(item))
 
 // Last image fetch error, shown on the auto-rotate UI. Persisted to NVS so it
 // survives deep sleep — a fetch fails right before the device sleeps again, and
@@ -140,6 +155,17 @@ void utils_set_config_error(const char *msg)
     }
 }
 
+// What the last config request of a client left unapplied (config_track.h): consumed by the HTTP
+// handler.
+static cJSON *last_config_report = NULL;
+
+cJSON *utils_consume_config_report(void)
+{
+    cJSON *report = last_config_report;
+    last_config_report = NULL;
+    return report;
+}
+
 const char *utils_consume_config_error(void)
 {
     static char out[256];
@@ -231,6 +257,9 @@ static bool apply_rotate_cron(cJSON *item)
 esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
 {
     cJSON *item;
+    // a client's request is tracked; what the image server pushes carries the whole config,
+    // read-only values too
+    bool tracking = !from_remote && config_track_begin(root);
     // The fields are independent: a rejected one is reported through
     // utils_set_config_error (the last message wins) and the rest still apply.
     bool had_error = false;
@@ -558,6 +587,10 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
     item = cJSON_GetObjectItem(root, "debug_log_enabled");
     if (item && cJSON_IsBool(item)) {
         debug_log_set_enabled(cJSON_IsTrue(item));
+    }
+    if (tracking) {
+        cJSON_Delete(last_config_report);  // one nobody consumed
+        last_config_report = config_track_end();
     }
     return had_error ? ESP_FAIL : ESP_OK;
 }
