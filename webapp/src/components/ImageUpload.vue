@@ -12,6 +12,9 @@ function toggleWideEdit() {
   wideEdit.value = !wideEdit.value;
 }
 
+// The processing parameters under the preview when the wide-edit mode is off (open by default)
+const paramsOpen = ref(true);
+
 // In wide-edit mode the processing controls render next to the preview (as well
 // as in Settings > Processing); both bind the same store, so these mirror the
 // handlers there.
@@ -598,6 +601,27 @@ async function generateAiImage() {
             @preset-change="onPresetChange"
           />
         </div>
+        <div v-else class="edit-params mt-3">
+          <v-btn
+            variant="text"
+            size="small"
+            :append-icon="paramsOpen ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+            @click="paramsOpen = !paramsOpen"
+          >
+            Processing parameters
+          </v-btn>
+          <v-expand-transition>
+            <div v-show="paramsOpen" class="mt-2">
+              <ProcessingControls
+                :params="settingsStore.params"
+                :preset="settingsStore.preset"
+                @update:params="onParamsUpdate"
+                @update:preset="settingsStore.preset = $event"
+                @preset-change="onPresetChange"
+              />
+            </div>
+          </v-expand-transition>
+        </div>
       </div>
     </v-card-text>
 
@@ -718,34 +742,76 @@ async function generateAiImage() {
   left: 50%;
   transform: translateX(-50%);
 }
+/* Preview and controls side by side while both have room (the controls need about 460px), else the
+   controls go below the preview - by the width of the card, not of the window. */
 .edit-split {
   display: flex;
+  flex-wrap: wrap;
   gap: 24px;
   align-items: flex-start;
-  justify-content: center;
 }
-/* Preview: just enough for the image (the tone curve now lives with the
-   controls). Controls: capped so the 3-across rows stay compact instead of
-   sprawling across the whole card. */
 .edit-preview {
-  flex: 0 1 760px;
+  flex: 1 1 520px;
   min-width: 0;
+}
+.edit-split > .edit-preview {
+  max-width: 820px;
 }
 .edit-controls {
-  flex: 1 1 0;
+  flex: 1 1 460px;
   min-width: 0;
-  max-width: 900px;
 }
-/* Not enough room for two columns — stack them (card is still wide). */
-@media (max-width: 960px) {
-  .edit-split {
-    flex-direction: column;
+</style>
+
+<style>
+/* The Tone Curve card in the controls column: it keeps the 20 px left margin it has beside the preview in
+   the normal layout (so it was narrower than the preset card below it), and its chart, its padding and the
+   room under it are made for a page of its own - the point of the wide-edit mode is every parameter beside
+   the picture without scrolling, so it is smaller here. (The utility classes of the template are !important.) */
+#tone-curve-slot {
+  margin-bottom: 8px !important;
+}
+#tone-curve-slot .tone-curve-card {
+  margin-left: 0;
+}
+#tone-curve-slot .tone-curve-card .v-card-subtitle {
+  padding-top: 6px !important;
+}
+#tone-curve-slot .tone-curve-card > .d-flex {
+  padding: 2px 8px 8px !important;
+}
+#tone-curve-slot .curve-canvas {
+  width: 128px;
+  height: 128px;
+}
+@container wide-card (max-width: 1359px) {
+  #tone-curve-slot .curve-canvas {
+    width: 104px;
+    height: 104px;
   }
-  .edit-preview,
+}
+/* In a wide card the Tone Curve card sits to the right of the controls instead of above them: the
+   controls column is then as high as the controls alone, and everything is beside the picture without
+   scrolling. (The width of the card decides: the controls column is about 100 px narrower than half of
+   it.) */
+.wide-edit-card {
+  container: wide-card / inline-size;
+}
+@container wide-card (min-width: 1360px) {
   .edit-controls {
-    flex: 1 1 auto;
-    width: 100%;
-    max-width: none;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 16px;
+    align-items: start;
+  }
+  .edit-controls > .processing-controls {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  #tone-curve-slot {
+    grid-column: 2;
+    grid-row: 1;
+    margin-bottom: 0 !important;
   }
 }
 </style>
