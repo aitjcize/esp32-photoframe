@@ -71,6 +71,10 @@ esp_err_t battery_adc_create(const battery_adc_config_t *cfg, battery_adc_t **ou
         return ESP_ERR_NO_MEM;
     ctx->cfg = *cfg;
 
+    // Keep enable pin out of light-sleep GPIO isolation, else load switch drops mid-read (~0 V).
+    if (cfg->enable_pin >= 0)
+        gpio_sleep_sel_dis((gpio_num_t) cfg->enable_pin);
+
     adc_oneshot_unit_init_cfg_t init_config = {
         .unit_id = cfg->unit,
         .clk_src = ADC_DIGI_CLK_SRC_DEFAULT,
