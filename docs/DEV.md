@@ -99,6 +99,24 @@ Edit `main/config.h` to customize firmware behavior:
 
 ## Development Workflow
 
+### White-area dithering checks
+
+On color panels, the firmware preserves exact RGB `(255, 255, 255)` pixels
+after resizing/rotation and before color-range compression (CDR). Those pixels
+output palette white and absorb incoming diffusion error. Near-whites and
+other colors keep the existing luminance CDR and dithering; GC16 is unchanged.
+The mask uses one extra byte per processing-row pixel, not a full-frame buffer.
+This applies to on-device processing; the webapp and CLI converters are separate.
+
+Host image-pipeline tests cover solid white, thin white lines beside colors,
+near-whites, and scaled PNG output with all four dithering algorithms. Before
+merging, build for EE02 and check raw images that require on-device processing:
+white fields next to photos/text, a near-white ramp, and saturated/midtone
+patches. Compare with the previous firmware and check processing time on the
+device. Also check a GC16 panel for unchanged rendering. Native-size PNGs
+already containing only output-palette colors bypass processing and cannot
+validate this fix.
+
 ### Serial Monitor
 
 Monitor device logs in real-time:
