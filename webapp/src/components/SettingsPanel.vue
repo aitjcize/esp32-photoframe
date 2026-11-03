@@ -352,7 +352,8 @@ function looksLikeConfigExport(data) {
 
 // The frame skips a setting of the wrong type and still answers "success". After an import the file is
 // compared with what the frame reports now; read-only status values are not settings of the file.
-const IMPORT_NOT_COMPARED = /(_configured|_available)$|^(last_fetch_error|http_auth_enabled)$/;
+const IMPORT_NOT_COMPARED =
+  /(_configured|_available)$|^(last_fetch_error|http_auth_enabled|ca_cert_set)$/;
 
 function sameValue(a, b) {
   if (a === b) return true;
