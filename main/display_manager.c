@@ -548,7 +548,19 @@ static void rotate_sequential(char **enabled_albums, int album_count)
 
                     if (current_idx == target_idx) {
                         ESP_LOGI(TAG, "Found target index %ld: %s", (long) target_idx, fullpath);
-                        display_manager_show_image(fullpath);
+                        if (display_manager_show_image(fullpath) != ESP_OK) {
+                            // Display failed (e.g. a transient SD-card read
+                            // glitch decoding this one file) - move the
+                            // target forward one and let the walk continue;
+                            // the very next image found becomes the new
+                            // target instead of leaving a half-rendered panel
+                            // up until the next scheduled rotation.
+                            ESP_LOGW(TAG, "Failed to display %s, trying the next image instead",
+                                     fullpath);
+                            target_idx++;
+                            current_idx++;
+                            continue;
+                        }
                         save_last_displayed_image(fullpath);
                         config_manager_set_last_index(target_idx);
                         found_target = true;
@@ -572,9 +584,15 @@ static void rotate_sequential(char **enabled_albums, int album_count)
     if (!found_target) {
         if (first_image[0] != '\0') {
             ESP_LOGI(TAG, "Wrapping around to start. Displaying: %s", first_image);
-            display_manager_show_image(first_image);
-            save_last_displayed_image(first_image);
-            config_manager_set_last_index(0);  // Reset index to 0
+            if (display_manager_show_image(first_image) == ESP_OK) {
+                save_last_displayed_image(first_image);
+                config_manager_set_last_index(0);  // Reset index to 0
+            } else {
+                // Nothing left to fall back to - this was already the last
+                // resort. The next scheduled rotation tries fresh.
+                ESP_LOGE(TAG, "Failed to display %s on wrap-around; giving up for this rotation",
+                         first_image);
+            }
         } else {
             ESP_LOGW(TAG, "No images found in any enabled albums.");
         }
@@ -695,10 +713,30 @@ static void rotate_random(char **enabled_albums, int album_count)
     // Display random image
     ESP_LOGI(TAG, "Auto-rotate: Displaying random image %d/%d: %s", random_index + 1,
              total_image_count, image_list[random_index]);
-    display_manager_show_image(image_list[random_index]);
-
-    // Store the displayed image filename in NVS
-    save_last_displayed_image(image_list[random_index]);
+    if (display_manager_show_image(image_list[random_index]) == ESP_OK) {
+        // Store the displayed image filename in NVS
+        save_last_displayed_image(image_list[random_index]);
+    } else {
+        ESP_LOGW(TAG, "Failed to display %s, trying a different image instead",
+                 image_list[random_index]);
+        // Recovery from a transient read glitch (e.g. a flaky SD-card access
+        // on just this one file), not a retry loop: exactly one different
+        // image from the same candidate pool, and give up for this rotation if
+        // that fails too; the next scheduled rotation tries fresh either way.
+        int retry_index = (total_image_count > 1) ? random_index : -1;
+        while (retry_index == random_index && total_image_count > 1) {
+            retry_index = (int) (esp_random() % total_image_count);
+        }
+        if (retry_index < 0 || display_manager_show_image(image_list[retry_index]) != ESP_OK) {
+            ESP_LOGE(TAG,
+                     "Auto-rotate: replacement image also failed to display; giving up "
+                     "for this rotation");
+        } else {
+            ESP_LOGI(TAG, "Auto-rotate: recovered by displaying %s instead",
+                     image_list[retry_index]);
+            save_last_displayed_image(image_list[retry_index]);
+        }
+    }
 
     // Free image list
     for (int i = 0; i < total_image_count; i++) {

@@ -507,7 +507,8 @@ static UBYTE read_bmp24_mapped(const char *path, UWORD Xstart, UWORD Ystart, GUI
 
     // BMP stores lines from bottom to top
     // So current file row 'y' corresponds to display row 'height - 1 - y'
-    for (int y = 0; y < height; y++) {
+    int y;
+    for (y = 0; y < height; y++) {
         if (fread(row_data, 1, row_padded, fp) != row_padded) {
             ESP_LOGE(TAG, "Get Bmpdata Failure");
             break;
@@ -535,6 +536,20 @@ static UBYTE read_bmp24_mapped(const char *path, UWORD Xstart, UWORD Ystart, GUI
 
     heap_caps_free(row_data);
     fclose(fp);
+
+    if (y < height) {
+        // A read failed partway through (seen live: an SD card I/O glitch
+        // mid-file, sdmmc_read_sectors_dma). Rows are stored bottom-to-top, so
+        // whatever got drawn before the break is the BOTTOM of the image -
+        // the rest of the panel is just whatever Paint_Clear() left it as
+        // (white), not a decode of this file. This used to fall through to
+        // the same "return 0" as a real success, so the caller displayed a
+        // half-blank panel and logged it as done; report failure instead,
+        // like every other error path in this function already does.
+        ESP_LOGE(TAG, "BMP read incomplete: only %d of %d row(s) decoded", y, height);
+        return 1;
+    }
+
     ESP_LOGI(TAG, "BMP displayed successfully (stream processing)");
     return 0;
 }
