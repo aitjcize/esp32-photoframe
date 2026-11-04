@@ -144,16 +144,21 @@ void display_manager_initialize_paint(void)
 // so a saved frame never carries it. Nothing is drawn while the frame is on
 // USB or charging, when no battery is connected, or when the reading is
 // unknown.
-// Fill a rectangle given in viewer space. When the picture was rotated into
-// the native buffer, viewer (x, y) lands at native (Paint.Width - 1 - y, x),
-// the inverse of the mapping image_processor applies to the picture.
+// Fill a rectangle given in viewer space, both corners inclusive. When the
+// picture was rotated into the native buffer, viewer (x, y) lands at native
+// (Paint.Width - 1 - y, x), the inverse of the mapping image_processor applies
+// to the picture. Pixels are set directly: Paint_DrawRectangle stops one row
+// short and its 1x1 points land one pixel up and left.
 static void badge_fill(bool rotated, int x0, int y0, int x1, int y1, UWORD color)
 {
-    if (rotated) {
-        Paint_DrawRectangle(Paint.Width - 1 - y1, x0, Paint.Width - 1 - y0, x1, color,
-                            DOT_PIXEL_1X1, DRAW_FILL_FULL);
-    } else {
-        Paint_DrawRectangle(x0, y0, x1, y1, color, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+    for (int y = y0; y <= y1; y++) {
+        for (int x = x0; x <= x1; x++) {
+            if (rotated) {
+                Paint_SetPixel(Paint.Width - 1 - y, x, color);
+            } else {
+                Paint_SetPixel(x, y, color);
+            }
+        }
     }
 }
 
