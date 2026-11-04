@@ -243,7 +243,7 @@ esp_err_t display_manager_show_image(const char *filename)
 
     if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to acquire display mutex");
-        return ESP_FAIL;
+        return ESP_ERR_TIMEOUT;
     }
 
     // Expect absolute path from caller
@@ -320,7 +320,7 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
 
     if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to acquire display mutex");
-        return ESP_FAIL;
+        return ESP_ERR_TIMEOUT;
     }
 
     ESP_LOGI(TAG, "Displaying RGB buffer: %dx%d", width, height);
@@ -654,7 +654,15 @@ static void rotate_sequential(char **enabled_albums, int album_count)
 
                     if (current_idx == target_idx) {
                         ESP_LOGI(TAG, "Found target index %ld: %s", (long) target_idx, fullpath);
-                        if (display_manager_show_image(fullpath) != ESP_OK) {
+                        esp_err_t shown = display_manager_show_image(fullpath);
+                        if (shown == ESP_ERR_TIMEOUT) {
+                            // The panel is busy with something else; another
+                            // file would only wait on the same lock again.
+                            ESP_LOGE(TAG, "Display busy; giving up this rotation");
+                            closedir(dir);
+                            return;
+                        }
+                        if (shown != ESP_OK) {
                             // Display failed (e.g. a transient SD-card read
                             // glitch decoding this one file) - move the
                             // target forward one and let the walk continue;
@@ -819,9 +827,14 @@ static void rotate_random(char **enabled_albums, int album_count)
     // Display random image
     ESP_LOGI(TAG, "Auto-rotate: Displaying random image %d/%d: %s", random_index + 1,
              total_image_count, image_list[random_index]);
-    if (display_manager_show_image(image_list[random_index]) == ESP_OK) {
+    esp_err_t shown = display_manager_show_image(image_list[random_index]);
+    if (shown == ESP_OK) {
         // Store the displayed image filename in NVS
         save_last_displayed_image(image_list[random_index]);
+    } else if (shown == ESP_ERR_TIMEOUT) {
+        // The panel is busy with something else; another file would only
+        // wait on the same lock again.
+        ESP_LOGE(TAG, "Display busy; giving up this rotation");
     } else {
         ESP_LOGW(TAG, "Failed to display %s, trying a different image instead",
                  image_list[random_index]);
