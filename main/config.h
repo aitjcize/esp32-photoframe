@@ -30,6 +30,11 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 #define TIMEZONE_MAX_LEN 64
 #define NTP_SERVER_MAX_LEN 128
 #define ACCESS_TOKEN_MAX_LEN 512
+
+// Low battery badge: drawn on the picture at or below this charge (percent)
+#define LOW_BATTERY_THRESHOLD_DEFAULT 10
+#define LOW_BATTERY_THRESHOLD_MIN 5
+#define LOW_BATTERY_THRESHOLD_MAX 50
 // Optional password guarding the device's own HTTP API (#130). Empty disables
 // it, which is the default -- most frames live on a trusted home network.
 #define HTTP_PASSWORD_MAX_LEN 64  // buffer size: at most 63 bytes of password
@@ -169,6 +174,8 @@ typedef enum { IP_MODE_DHCP = 0, IP_MODE_STATIC = 1 } ip_mode_t;
 
 // Debugging
 #define NVS_DEBUG_LOG_KEY "debug_log"
+#define NVS_LOW_BATT_IND_KEY "low_batt_ind"
+#define NVS_LOW_BATT_THR_KEY "low_batt_thr"
 #define NVS_LAST_CRASH_KEY "last_crash"
 
 // Home Assistant

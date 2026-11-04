@@ -1007,6 +1007,31 @@ async function performFactoryReset() {
                 power consumption. Only disable if permanently powered via USB.
               </v-alert>
             </v-expand-transition>
+
+            <v-divider class="my-4" />
+
+            <v-switch
+              v-model="settingsStore.deviceSettings.lowBatteryIndicator"
+              label="Show a low battery badge on the picture"
+              color="primary"
+              hint="A small empty-battery icon in the top-right corner of the picture, drawn when the battery is at or below the threshold. Never shown on USB power or while charging."
+              persistent-hint
+              class="mb-4"
+            />
+
+            <v-slider
+              v-model="settingsStore.deviceSettings.lowBatteryThreshold"
+              :disabled="!settingsStore.deviceSettings.lowBatteryIndicator"
+              label="Low battery threshold"
+              :min="5"
+              :max="50"
+              :step="5"
+              thumb-label="always"
+              color="primary"
+              class="mt-6"
+            >
+              <template #thumb-label="{ modelValue }"> {{ modelValue }}% </template>
+            </v-slider>
           </v-tabs-window-item>
 
           <!-- Home Assistant Tab -->

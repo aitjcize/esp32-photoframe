@@ -204,7 +204,9 @@ Get current device configuration.
   "ha_url": "",
   "openai_api_key": "",
   "google_api_key": "",
-  "deep_sleep_enabled": true
+  "deep_sleep_enabled": true,
+  "low_battery_indicator": true,
+  "low_battery_threshold": 10
 }
 ```
 
@@ -247,6 +249,7 @@ Get current device configuration.
 - `ha_url`: Home Assistant URL for integration
 - `openai_api_key`/`google_api_key`: AI API keys for client-side generation
 - `deep_sleep_enabled`: Enable deep sleep between rotations
+- `low_battery_indicator`: Draw an empty-battery icon on the picture when the battery is at or below `low_battery_threshold` (5-50 %). Not drawn on USB power, while charging, or when the frame has no battery reading
 
 ### `POST /api/config`
 

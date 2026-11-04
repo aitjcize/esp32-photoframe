@@ -158,6 +158,18 @@ In `idf.py menuconfig`:
 1. Navigate to `Component config` → `Log output`
 2. Set default log level to `Debug` or `Verbose`
 
+### Checking the low battery badge on a frame on USB
+
+The badge is never drawn on USB power, so to look at it on the desk build
+with a forced charge level:
+
+```bash
+EXTRA_CPPFLAGS=-DLOW_BATTERY_BADGE_DEMO_PERCENT=12 python3 build.py --board <board> --fullclean
+```
+
+Every picture then carries the badge. Rebuild without the flag
+before flashing a frame for real use.
+
 ### Decoding a crash report
 
 When the firmware panics it saves a core dump to the `coredump` partition. The

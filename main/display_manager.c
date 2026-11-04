@@ -137,6 +137,99 @@ void display_manager_initialize_paint(void)
     Paint_SelectImage(epd_image_buffer);
 }
 
+// Low battery badge: a depleted battery icon in the top-right corner, drawn
+// into the frame buffer right before the panel refresh so it rides on top of
+// whatever picture is shown. It is drawn from the frame's own reading only,
+// after the picture is complete and after any album snapshot has been saved,
+// so a saved frame never carries it. Nothing is drawn while the frame is on
+// USB or charging, when no battery is connected, or when the reading is
+// unknown.
+// Fill a rectangle given in viewer space. When the picture was rotated into
+// the native buffer, viewer (x, y) lands at native (Paint.Width - 1 - y, x),
+// the inverse of the mapping image_processor applies to the picture.
+static void badge_fill(bool rotated, int x0, int y0, int x1, int y1, UWORD color)
+{
+    if (rotated) {
+        Paint_DrawRectangle(Paint.Width - 1 - y1, x0, Paint.Width - 1 - y0, x1, color,
+                            DOT_PIXEL_1X1, DRAW_FILL_FULL);
+    } else {
+        Paint_DrawRectangle(x0, y0, x1, y1, color, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+    }
+}
+
+static void draw_low_battery_badge(void)
+{
+#ifdef LOW_BATTERY_BADGE_DEMO_PERCENT
+    // Visual check on a frame on USB: build with
+    //   EXTRA_CPPFLAGS=-DLOW_BATTERY_BADGE_DEMO_PERCENT=12
+    // to draw the badge on every picture.
+    int percent = LOW_BATTERY_BADGE_DEMO_PERCENT;
+#else
+    if (!config_manager_get_low_battery_indicator()) {
+        return;
+    }
+    if (!board_hal_is_battery_connected() || board_hal_is_usb_connected() ||
+        board_hal_is_charging()) {
+        return;
+    }
+    int percent = board_hal_get_battery_percent();
+    if (percent < 0 || percent > 100 || percent > config_manager_get_low_battery_threshold()) {
+        return;
+    }
+#endif
+    ESP_LOGI(TAG, "Battery at %d%%, drawing low battery badge", percent);
+
+    // The badge is laid out in the viewer's space: the picture as hung. That
+    // is the native buffer unless the configured orientation differs from the
+    // panel's native layout, in which case image_processor rotated the picture
+    // into the buffer and the badge follows the same mapping, so it stays in
+    // the viewer's top-right corner with the battery lying flat.
+    const bool rotated =
+        (Paint.Width > Paint.Height) !=
+        (config_manager_get_display_orientation() == DISPLAY_ORIENTATION_LANDSCAPE);
+    const int view_w = rotated ? Paint.Height : Paint.Width;
+    const int view_h = rotated ? Paint.Width : Paint.Height;
+
+    // Everything scales with the panel: one unit per 480 rows of the shorter
+    // side, so the badge keeps its proportion from 800x480 to 1600x1200.
+    const int u = (view_w < view_h ? view_w : view_h) >= 960 ? 2 : 1;
+    const UWORD white = display_white_color();
+    const UWORD black = display_is_grayscale() ? 0x0 : EPD_7IN3E_BLACK;
+    const UWORD alert = display_is_grayscale() ? 0x0 : EPD_7IN3E_RED;
+
+    const int pad = 10 * u;
+    const int margin = 16 * u;
+    const int icon_w = 48 * u;
+    const int icon_h = 24 * u;
+    const int nub_w = 5 * u;
+    const int nub_h = 10 * u;
+    const int stroke = 2 * u;
+    const int box_w = pad + icon_w + nub_w + pad;
+    const int box_h = icon_h + 2 * pad;
+    if (box_w + 2 * margin > view_w || box_h + 2 * margin > view_h) {
+        return;
+    }
+    const int x0 = view_w - margin - box_w;
+    const int y0 = margin;
+
+    // White card behind the icon so it reads on any picture
+    badge_fill(rotated, x0, y0, x0 + box_w - 1, y0 + box_h - 1, white);
+
+    // Depleted battery: outline, terminal nub and a thin sliver of charge
+    const int ix = x0 + pad;
+    const int iy = y0 + pad;
+    const int ix1 = ix + icon_w - 1;
+    const int iy1 = iy + icon_h - 1;
+    badge_fill(rotated, ix, iy, ix1, iy + stroke - 1, black);
+    badge_fill(rotated, ix, iy1 - stroke + 1, ix1, iy1, black);
+    badge_fill(rotated, ix, iy, ix + stroke - 1, iy1, black);
+    badge_fill(rotated, ix1 - stroke + 1, iy, ix1, iy1, black);
+    badge_fill(rotated, ix1 + 1, iy + (icon_h - nub_h) / 2, ix1 + nub_w,
+               iy + (icon_h + nub_h) / 2 - 1, black);
+    const int inset = 5 * u;
+    badge_fill(rotated, ix + inset, iy + inset, ix + inset + 6 * u - 1, iy1 - inset, alert);
+}
+
 esp_err_t display_manager_show_image(const char *filename)
 {
     if (!filename || strlen(filename) == 0) {
@@ -194,6 +287,8 @@ esp_err_t display_manager_show_image(const char *filename)
     // 4. Update E-Paper Display
     // This is a blocking call that takes ~25-30 seconds for 7-color e-paper
     // It handles: Power On -> Send Data -> Refresh -> Power Off
+    draw_low_battery_badge();
+
     ESP_LOGI(TAG, "Calling epaper_display...");
     epaper_display(epd_image_buffer);
     ESP_LOGI(TAG, "epaper_display returned successfully");
@@ -241,6 +336,8 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
 
     ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
     ESP_LOGI(TAG, "Free heap before epaper_display: %lu bytes", esp_get_free_heap_size());
+
+    draw_low_battery_badge();
 
     ESP_LOGI(TAG, "Calling epaper_display...");
     epaper_display(epd_image_buffer);
@@ -413,12 +510,10 @@ esp_err_t display_manager_end_rgb_stream(bool show, const display_publish_t *pub
     esp_err_t result = ESP_OK;
 
     if (show) {
-        ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
-        epaper_display(epd_image_buffer);
-        ESP_LOGI(TAG, "E-paper display update complete");
-
         const char *record = pub ? pub->display_name : NULL;
 
+        // The snapshot is taken before the badge goes on, so the album keeps
+        // the bare picture
         if (pub && pub->save_path && display_save_frame_epdgz(pub->save_path) != ESP_OK) {
             // The album entry does not exist -- publish the fallback name
             // (or nothing) instead, atomically under the display mutex, so
@@ -427,6 +522,12 @@ esp_err_t display_manager_end_rgb_stream(bool show, const display_publish_t *pub
             record = pub->fallback_name;
             result = ESP_ERR_NOT_FINISHED;
         }
+
+        draw_low_battery_badge();
+
+        ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
+        epaper_display(epd_image_buffer);
+        ESP_LOGI(TAG, "E-paper display update complete");
 
         if (record) {
             // Recorded while the mutex is still held so the reported state

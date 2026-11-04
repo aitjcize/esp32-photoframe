@@ -557,6 +557,22 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
         power_manager_set_deep_sleep_enabled(cJSON_IsTrue(item));
     }
 
+    // Low battery badge
+    item = cJSON_GetObjectItem(root, "low_battery_indicator");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_low_battery_indicator(cJSON_IsTrue(item));
+    }
+    item = cJSON_GetObjectItem(root, "low_battery_threshold");
+    if (item && cJSON_IsNumber(item)) {
+        if (item->valueint >= LOW_BATTERY_THRESHOLD_MIN &&
+            item->valueint <= LOW_BATTERY_THRESHOLD_MAX) {
+            config_manager_set_low_battery_threshold(item->valueint);
+        } else {
+            utils_set_config_error("Low battery threshold must be between 5 and 50 percent");
+            had_error = true;
+        }
+    }
+
     // Debugging
     item = cJSON_GetObjectItem(root, "debug_log_enabled");
     if (item && cJSON_IsBool(item)) {

@@ -82,6 +82,8 @@ The measured palette accounts for the fact that e-paper displays show darker, mo
 - Power: ~40-80mA with auto light sleep
 - Battery life: days to weeks depending on usage
 
+**Low battery badge**: when the battery drops to the threshold set in **Settings > Power** (10% by default), a small empty-battery icon is drawn in the top-right corner of the picture, so a frame on the wall says so before it goes dark. It is never drawn on USB power or while charging, and can be turned off.
+
 **Auto-Rotation**: SD card (default) or URL-based (fetch from web)
 
 - In URL mode a failed fetch leaves the current picture on the panel (there is no fallback to a local image); the reason is shown as the last fetch error in **Settings > Auto Rotate**.

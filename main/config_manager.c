@@ -67,7 +67,9 @@ static char openai_api_key[AI_API_KEY_MAX_LEN] = {0};
 static char google_api_key[AI_API_KEY_MAX_LEN] = {0};
 
 // Power
-static bool deep_sleep_enabled = true;  // Enabled by default
+static bool deep_sleep_enabled = true;     // Enabled by default
+static bool low_battery_indicator = true;  // Badge on the picture when the battery is low
+static int low_battery_threshold = LOW_BATTERY_THRESHOLD_DEFAULT;
 
 // Debugging
 static bool debug_log_enabled = false;
@@ -404,6 +406,20 @@ esp_err_t config_manager_init(void)
             ESP_LOGI(TAG, "Loaded deep sleep setting from NVS: %s",
                      deep_sleep_enabled ? "enabled" : "disabled");
         }
+
+        // Low battery badge
+        uint8_t low_batt_ind_val = 1;
+        if (nvs_get_u8(nvs_handle, NVS_LOW_BATT_IND_KEY, &low_batt_ind_val) == ESP_OK) {
+            low_battery_indicator = (low_batt_ind_val != 0);
+        }
+        uint8_t low_batt_thr_val = LOW_BATTERY_THRESHOLD_DEFAULT;
+        if (nvs_get_u8(nvs_handle, NVS_LOW_BATT_THR_KEY, &low_batt_thr_val) == ESP_OK &&
+            low_batt_thr_val >= LOW_BATTERY_THRESHOLD_MIN &&
+            low_batt_thr_val <= LOW_BATTERY_THRESHOLD_MAX) {
+            low_battery_threshold = low_batt_thr_val;
+        }
+        ESP_LOGI(TAG, "Low battery badge: %s, threshold %d%%", low_battery_indicator ? "on" : "off",
+                 low_battery_threshold);
 
         // Debugging
         uint8_t debug_log_val = 0;
@@ -1237,6 +1253,43 @@ void config_manager_set_deep_sleep_enabled(bool enabled)
 bool config_manager_get_deep_sleep_enabled(void)
 {
     return deep_sleep_enabled;
+}
+
+void config_manager_set_low_battery_indicator(bool enabled)
+{
+    low_battery_indicator = enabled;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_LOW_BATT_IND_KEY, enabled ? 1 : 0);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+}
+
+bool config_manager_get_low_battery_indicator(void)
+{
+    return low_battery_indicator;
+}
+
+void config_manager_set_low_battery_threshold(int percent)
+{
+    if (percent < LOW_BATTERY_THRESHOLD_MIN || percent > LOW_BATTERY_THRESHOLD_MAX) {
+        return;
+    }
+    low_battery_threshold = percent;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_LOW_BATT_THR_KEY, (uint8_t) percent);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+}
+
+int config_manager_get_low_battery_threshold(void)
+{
+    return low_battery_threshold;
 }
 
 void config_manager_set_debug_log_enabled(bool enabled)
