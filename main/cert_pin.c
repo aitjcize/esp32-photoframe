@@ -61,19 +61,21 @@ static esp_tls_t *tls_connect(const char *host, int port, const esp_tls_cfg_t *c
     if (esp_tls_conn_new_sync(host, strlen(host), port, cfg, tls) == 1) {
         return tls;
     }
-    int esp_tls_err = 0;
-    int mbedtls_err = 0;
+    // esp-tls hands back the mbedtls code already negated (a positive
+    // number) and the X.509 verification flags.
+    int mbedtls_code = 0;
+    int verify_flags = 0;
     esp_tls_error_handle_t error_handle = NULL;
     esp_tls_get_error_handle(tls, &error_handle);
     if (error_handle) {
-        esp_tls_get_and_clear_last_error(error_handle, &esp_tls_err, &mbedtls_err);
+        esp_tls_get_and_clear_last_error(error_handle, &mbedtls_code, &verify_flags);
     }
-    ESP_LOGE(TAG, "TLS connection failed to %s:%d (esp_tls=0x%x, mbedtls=-0x%04x)", host, port,
-             esp_tls_err, -mbedtls_err);
+    ESP_LOGE(TAG, "TLS connection failed to %s:%d (mbedtls=-0x%04x, verify flags=0x%x)", host, port,
+             mbedtls_code, verify_flags);
     esp_tls_conn_destroy(tls);
     if (err_out && err_out_len > 0) {
         snprintf(err_out, err_out_len, "TLS handshake failed with %s:%d (mbedtls error -0x%04x)",
-                 host, port, -mbedtls_err);
+                 host, port, mbedtls_code);
     }
     return NULL;
 }
