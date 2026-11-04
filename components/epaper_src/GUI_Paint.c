@@ -199,7 +199,7 @@ parameter:
 ******************************************************************************/
 void Paint_SetPixel(UWORD Xpoint, UWORD Ypoint, UWORD Color)
 {
-    if (Xpoint > Paint.Width || Ypoint > Paint.Height) {
+    if (Xpoint >= Paint.Width || Ypoint >= Paint.Height) {
         ESP_LOGI(TAG, "Exceeding display boundaries");
         return;
     }
@@ -372,24 +372,31 @@ parameter:
 void Paint_DrawPoint(UWORD Xpoint, UWORD Ypoint, UWORD Color, DOT_PIXEL Dot_Pixel,
                      DOT_STYLE Dot_Style)
 {
-    if (Xpoint > Paint.Width || Ypoint > Paint.Height) {
+    if (Xpoint >= Paint.Width || Ypoint >= Paint.Height) {
         ESP_LOGI(TAG, "Paint_DrawPoint Input exceeds the normal display range");
         return;
     }
 
+    // A dot of size n is a (2n-1)-pixel square centred on the point, or an
+    // n-pixel square growing right and up from it. The original code offset
+    // the centred square by n instead of n-1, so every dot (and with it every
+    // line and rectangle) landed one pixel up and left of where it was asked.
     int16_t XDir_Num, YDir_Num;
+    const int16_t reach = Dot_Pixel - 1;
     if (Dot_Style == DOT_FILL_AROUND) {
         for (XDir_Num = 0; XDir_Num < 2 * Dot_Pixel - 1; XDir_Num++) {
             for (YDir_Num = 0; YDir_Num < 2 * Dot_Pixel - 1; YDir_Num++) {
-                if (Xpoint + XDir_Num < Dot_Pixel || Ypoint + YDir_Num < Dot_Pixel)
-                    break;
-                Paint_SetPixel(Xpoint + XDir_Num - Dot_Pixel, Ypoint + YDir_Num - Dot_Pixel, Color);
+                if (Xpoint + XDir_Num < reach || Ypoint + YDir_Num < reach)
+                    continue;
+                Paint_SetPixel(Xpoint + XDir_Num - reach, Ypoint + YDir_Num - reach, Color);
             }
         }
     } else {
         for (XDir_Num = 0; XDir_Num < Dot_Pixel; XDir_Num++) {
             for (YDir_Num = 0; YDir_Num < Dot_Pixel; YDir_Num++) {
-                Paint_SetPixel(Xpoint + XDir_Num - 1, Ypoint + YDir_Num - 1, Color);
+                if (Ypoint < YDir_Num)
+                    continue;
+                Paint_SetPixel(Xpoint + XDir_Num, Ypoint - YDir_Num, Color);
             }
         }
     }
@@ -409,8 +416,8 @@ parameter:
 void Paint_DrawLine(UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend, UWORD Color,
                     DOT_PIXEL Line_width, LINE_STYLE Line_Style)
 {
-    if (Xstart > Paint.Width || Ystart > Paint.Height || Xend > Paint.Width ||
-        Yend > Paint.Height) {
+    if (Xstart >= Paint.Width || Ystart >= Paint.Height || Xend >= Paint.Width ||
+        Yend >= Paint.Height) {
         ESP_LOGI(TAG, "Paint_DrawLine Input exceeds the normal display range");
         return;
     }
@@ -466,15 +473,15 @@ parameter:
 void Paint_DrawRectangle(UWORD Xstart, UWORD Ystart, UWORD Xend, UWORD Yend, UWORD Color,
                          DOT_PIXEL Line_width, DRAW_FILL Draw_Fill)
 {
-    if (Xstart > Paint.Width || Ystart > Paint.Height || Xend > Paint.Width ||
-        Yend > Paint.Height) {
+    if (Xstart >= Paint.Width || Ystart >= Paint.Height || Xend >= Paint.Width ||
+        Yend >= Paint.Height) {
         ESP_LOGI(TAG, "Input exceeds the normal display range");
         return;
     }
 
     if (Draw_Fill) {
         UWORD Ypoint;
-        for (Ypoint = Ystart; Ypoint < Yend; Ypoint++) {
+        for (Ypoint = Ystart; Ypoint <= Yend; Ypoint++) {
             Paint_DrawLine(Xstart, Ypoint, Xend, Ypoint, Color, Line_width, LINE_STYLE_SOLID);
         }
     } else {
