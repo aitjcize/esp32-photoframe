@@ -73,7 +73,7 @@ export const useSettingsStore = defineStore("settings", () => {
   // ... (existing code)
 
   // Original config from server (for change detection)
-  let originalConfig = {};
+  const originalConfig = ref({});
 
   // The time zone rule as the device last reported or accepted it, so the UI
   // can tell a rule the user edited from one it merely loaded.
@@ -184,7 +184,7 @@ export const useSettingsStore = defineStore("settings", () => {
   // Whether the Image URL in the form is the one the frame has; the
   // trust-certificate action acts on the saved one.
   function isImageUrlSaved() {
-    return (deviceSettings.value.imageUrl || "") === (originalConfig.image_url || "");
+    return (deviceSettings.value.imageUrl || "") === (originalConfig.value.image_url || "");
   }
 
   async function loadDeviceSettings() {
@@ -196,7 +196,7 @@ export const useSettingsStore = defineStore("settings", () => {
       const data = await response.json();
 
       // Store original config for change detection
-      originalConfig = JSON.parse(JSON.stringify(data));
+      originalConfig.value = JSON.parse(JSON.stringify(data));
 
       // Parse config into UI-friendly format
       deviceSettings.value.autoRotate = data.auto_rotate || false;
@@ -317,7 +317,7 @@ export const useSettingsStore = defineStore("settings", () => {
     const changedFields = {};
     for (const key in currentConfig) {
       const cur = currentConfig[key];
-      const orig = originalConfig[key];
+      const orig = originalConfig.value[key];
       const differs =
         Array.isArray(cur) || Array.isArray(orig)
           ? JSON.stringify(cur) !== JSON.stringify(orig)
@@ -444,7 +444,7 @@ export const useSettingsStore = defineStore("settings", () => {
         // Update original config with new values. The write-only password
         // is not part of it; record only whether one is now set.
         const { http_password: savedPassword, ...savedFields } = changedFields;
-        Object.assign(originalConfig, savedFields);
+        Object.assign(originalConfig.value, savedFields);
         if (savedFields.timezone !== undefined) {
           savedTimezone.value = savedFields.timezone;
         }
