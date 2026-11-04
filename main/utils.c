@@ -908,6 +908,18 @@ static esp_err_t fetch_perform_download(const char *url, bool *not_modified, ima
             esp_http_client_set_header(client, "X-Battery-Percentage", batt_str);
         }
 
+        // Report the ambient sensor the same way (#157): only boards with a
+        // sensor that answered send the headers, so absence means "none".
+        float temperature, humidity;
+        if (board_hal_get_temperature(&temperature) == ESP_OK &&
+            board_hal_get_humidity(&humidity) == ESP_OK) {
+            char temp_str[16], hum_str[16];
+            snprintf(temp_str, sizeof(temp_str), "%.1f", temperature);
+            snprintf(hum_str, sizeof(hum_str), "%.1f", humidity);
+            esp_http_client_set_header(client, "X-Temperature", temp_str);
+            esp_http_client_set_header(client, "X-Humidity", hum_str);
+        }
+
         err = esp_http_client_perform(client);
 
         status_code = esp_http_client_get_status_code(client);

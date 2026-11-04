@@ -593,6 +593,8 @@ Every image-fetch request carries these headers so the server can tailor the res
 | `X-Processing-Settings` | JSON blob of the current processing parameters |
 | `X-Color-Palette` | JSON blob of the current color palette |
 | `X-Battery-Percentage` | Battery level `0`–`100`, sent whenever the board reports a percentage in that range and omitted otherwise (a board with no battery gauge reports none), so absence means "unknown" rather than `0`. A frame running without a battery may still send `0` if its gauge reads the empty rail that way |
+| `X-Temperature` | Ambient temperature in °C with one decimal (e.g., `23.4`), sent only when the board has a sensor that answered |
+| `X-Humidity` | Relative humidity in % with one decimal (e.g., `45.2`), sent together with `X-Temperature` |
 
 Authentication and custom headers, when configured via `/api/config`:
 
