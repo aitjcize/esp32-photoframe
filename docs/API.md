@@ -530,25 +530,57 @@ Enter deep sleep immediately.
 
 ### `GET /api/ota/status`
 
-Get OTA update status.
+Get OTA update status. `progress_percent` only moves while the state is
+`downloading` or `installing`; `error_message` is present only after a failure.
 
 **Response:**
 ```json
 {
-  "status": "idle",
-  "current_version": "2.7.0",
-  "latest_version": "2.7.0",
-  "update_available": false
+  "state": "update_available",
+  "current_version": "2.19.0",
+  "latest_version": "2.20.0",
+  "progress_percent": 0
 }
 ```
 
+- `state`: `"idle"` (no update, or none checked for yet), `"checking"`,
+  `"update_available"`, `"downloading"`, `"installing"`, `"success"` (the new
+  firmware is written and the device is about to reboot) or `"error"`
+- `current_version`: Firmware running on the device
+- `latest_version`: Newest release found by the last check (empty before the
+  first check)
+- `progress_percent`: Download/install progress, 0–100
+- `error_message`: Reason for the last failure (only when `state` is `"error"`)
+
 ### `POST /api/ota/check`
 
-Check for firmware updates.
+Check GitHub for a newer release. Synchronous: the response is sent once the
+check has finished, or after 30 seconds if it has not.
+
+**Response:**
+```json
+{ "status": "success", "update_available": true }
+```
+
+Answers `{ "status": "error", "message": "Failed to check for updates" }` when
+a check or an update is already running. The device also checks on its own once
+a day; `GET /api/ota/status` reports the outcome either way.
 
 ### `POST /api/ota/update`
 
-Start firmware update. Device reboots after completion.
+Install the release found by the last check. The download runs in the
+background; follow it with `GET /api/ota/status`. The device reboots into the
+new firmware after a successful install.
+
+**Response:**
+```json
+{ "status": "success", "message": "OTA update started" }
+```
+
+Answers `{ "status": "error", "message": "No update available or update already in progress" }`
+when no update has been found or an update is already running, and
+`{ "status": "error", "message": "Failed to start OTA update" }` when the update
+task could not be created.
 
 ---
 
