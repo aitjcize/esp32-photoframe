@@ -268,9 +268,7 @@ void epaper_init(const epaper_config_t *cfg)
         ESP_LOGE(TAG, "Failed to create PM lock: %s", esp_err_to_name(ret));
     }
 #endif
-
-    hw_reset();
-    send_init_sequence();
+    // No reset or init here: epaper_display() runs them before every refresh.
 }
 
 void epaper_clear(uint8_t *image, uint8_t color)
@@ -293,6 +291,16 @@ void epaper_display(uint8_t *image)
 #endif
 
     ESP_LOGI(TAG, "Starting display update: %d bytes", EPD_BUF_SIZE);
+
+    // Reset and re-run the power/booster init before every refresh, as the
+    // ED2208-GCA driver does. Done once at boot only, the first refresh of a
+    // boot works and every later one runs through PON/DRF/POF with BUSY
+    // behaving normally yet leaves the picture unchanged: the panel's analog
+    // side is not re-armed after POF. A frame that deep-sleeps never saw
+    // this (every wake is a boot); one kept awake and rotated from Home
+    // Assistant or the web UI did (ha-esp32-photoframe #9).
+    hw_reset();
+    send_init_sequence();
 
     // CCSET — both controllers
     cmd_data_both(0xE0, CCSET_V_CUR, sizeof(CCSET_V_CUR));
