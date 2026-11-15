@@ -112,6 +112,9 @@ esp_err_t pcf8563_read_time(time_t *time_out)
         return ESP_ERR_INVALID_STATE;
     }
 
+    // The registers hold UTC (see pcf8563_write_time); timegm() reads them
+    // back without consulting the TZ rule, so the DST rule for the stored
+    // date never enters into it.
     struct tm timeinfo = {0};
     timeinfo.tm_sec = bcd_to_dec(data[0] & 0x7F);
     timeinfo.tm_min = bcd_to_dec(data[1] & 0x7F);
@@ -123,15 +126,12 @@ esp_err_t pcf8563_read_time(time_t *time_out)
     // Century bit: 0 = 2000s, 1 = 1900s
     int century = (data[5] & PCF8563_CENTURY_BIT) ? 1900 : 2000;
     timeinfo.tm_year = bcd_to_dec(data[6]) + century - 1900;  // years since 1900
-    // See the identical fix/comment in rtc_driver_pcf85063's read function - same {0}-init-
-    // forces-standard-time bug, same one-hour-during-DST symptom.
-    timeinfo.tm_isdst = -1;
 
-    *time_out = mktime(&timeinfo);
+    *time_out = timegm(&timeinfo);
 
-    ESP_LOGI(TAG, "Read time from PCF8563T: %04d-%02d-%02d %02d:%02d:%02d", timeinfo.tm_year + 1900,
-             timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_hour, timeinfo.tm_min,
-             timeinfo.tm_sec);
+    ESP_LOGI(TAG, "Read time from PCF8563T: %04d-%02d-%02d %02d:%02d:%02d UTC",
+             timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_hour,
+             timeinfo.tm_min, timeinfo.tm_sec);
 
     return ESP_OK;
 }
@@ -148,8 +148,11 @@ esp_err_t pcf8563_write_time(time_t time_in)
         return ESP_ERR_NOT_FOUND;
     }
 
+    // Store UTC, not local time: a local wall clock carries the DST offset of
+    // the moment it was written, and reads back an hour off once the rule
+    // flips (#121). See rtc_driver_pcf85063 for the same change.
     struct tm timeinfo;
-    localtime_r(&time_in, &timeinfo);
+    gmtime_r(&time_in, &timeinfo);
 
     int year_full = timeinfo.tm_year + 1900;
     uint8_t century_bit = (year_full >= 2000) ? 0 : PCF8563_CENTURY_BIT;
@@ -174,7 +177,7 @@ esp_err_t pcf8563_write_time(time_t time_in)
         return ret;
     }
 
-    ESP_LOGI(TAG, "Wrote time to PCF8563T: %04d-%02d-%02d %02d:%02d:%02d", year_full,
+    ESP_LOGI(TAG, "Wrote time to PCF8563T: %04d-%02d-%02d %02d:%02d:%02d UTC", year_full,
              timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_hour, timeinfo.tm_min,
              timeinfo.tm_sec);
 

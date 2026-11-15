@@ -119,7 +119,10 @@ esp_err_t pcf85063_read_time(time_t *time_out)
         return ESP_ERR_INVALID_STATE;
     }
 
-    // Convert BCD to decimal
+    // The registers hold UTC (see pcf85063_write_time), so the conversion back
+    // to a time_t does not depend on the TZ rule: timegm() reads the fields
+    // as UTC, where mktime() would read them as local time and apply the DST
+    // rule to whatever date the registers happen to hold.
     struct tm timeinfo = {0};
     timeinfo.tm_sec = bcd_to_dec(data[0] & 0x7F);
     timeinfo.tm_min = bcd_to_dec(data[1] & 0x7F);
@@ -128,17 +131,10 @@ esp_err_t pcf85063_read_time(time_t *time_out)
     timeinfo.tm_wday = bcd_to_dec(data[4] & 0x07);
     timeinfo.tm_mon = bcd_to_dec(data[5] & 0x1F) - 1;  // tm_mon is 0-11
     timeinfo.tm_year = bcd_to_dec(data[6]) + 100;      // Years since 1900, RTC starts at 2000
-    // -1 tells mktime() to work out DST itself from the current TZ rule and this date, instead
-    // of the {0}-initialized 0 above forcing "standard time" outright. pcf85063_write_time()
-    // below stores DST-aware local wall-clock fields (via localtime_r()), so reading them back
-    // while forcing standard time made every read land exactly one hour ahead of the true time
-    // whenever DST was actually active - self-correcting only at the next SNTP sync, then
-    // recurring on every subsequent cold boot.
-    timeinfo.tm_isdst = -1;
 
-    *time_out = mktime(&timeinfo);
+    *time_out = timegm(&timeinfo);
 
-    ESP_LOGI(TAG, "Read time from PCF85063ATL: %04d-%02d-%02d %02d:%02d:%02d",
+    ESP_LOGI(TAG, "Read time from PCF85063ATL: %04d-%02d-%02d %02d:%02d:%02d UTC",
              timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_hour,
              timeinfo.tm_min, timeinfo.tm_sec);
 
@@ -157,8 +153,12 @@ esp_err_t pcf85063_write_time(time_t time_in)
         return ESP_ERR_NOT_FOUND;
     }
 
+    // Store UTC. The RTC keeps wall-clock fields, and writing local time would
+    // bake the DST offset in force at write time into them: after the next
+    // changeover every cold boot would restore a clock one hour off until
+    // SNTP ran again (#121). UTC has no changeovers.
     struct tm timeinfo;
-    localtime_r(&time_in, &timeinfo);
+    gmtime_r(&time_in, &timeinfo);
 
     uint8_t data[7];
 
@@ -184,7 +184,7 @@ esp_err_t pcf85063_write_time(time_t time_in)
         return ret;
     }
 
-    ESP_LOGI(TAG, "Wrote time to PCF85063ATL: %04d-%02d-%02d %02d:%02d:%02d", year,
+    ESP_LOGI(TAG, "Wrote time to PCF85063ATL: %04d-%02d-%02d %02d:%02d:%02d UTC", year,
              timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_hour, timeinfo.tm_min,
              timeinfo.tm_sec);
 

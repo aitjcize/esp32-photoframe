@@ -98,6 +98,9 @@ test:
 	@echo "Running JPEG header tests..."
 	@./host_tests/build/jpeg_header_test
 	@echo ""
+	@echo "Running RTC clock tests..."
+	@./host_tests/build/rtc_clock_test
+	@echo ""
 	@echo "Running image pipeline tests..."
 	@./host_tests/build/image_pipeline_test
 	@echo ""

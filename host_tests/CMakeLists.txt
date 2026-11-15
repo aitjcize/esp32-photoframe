@@ -152,6 +152,25 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/../main
 )
 
+# External RTC contents written by older firmware (local time) read back by the
+# UTC-storing drivers (#121)
+add_executable(
+  rtc_clock_test
+  test_rtc_clock.cpp
+  ../main/rtc_clock.c
+)
+
+target_link_libraries(
+  rtc_clock_test
+  GTest::gtest_main
+)
+
+target_include_directories(
+  rtc_clock_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
 # Discover tests
 include(GoogleTest)
 gtest_discover_tests(cron_test)
@@ -161,6 +180,7 @@ gtest_discover_tests(network_backoff_test)
 gtest_discover_tests(crash_record_test)
 gtest_discover_tests(wifi_retry_test)
 gtest_discover_tests(jpeg_header_test)
+gtest_discover_tests(rtc_clock_test)
 
 # On-device image pipeline characterization tests (host build of
 # main/image_processor.c against ESP-IDF stubs + system libpng)

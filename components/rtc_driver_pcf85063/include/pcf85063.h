@@ -22,6 +22,8 @@ esp_err_t pcf85063_init(i2c_master_bus_handle_t i2c_bus);
 /**
  * @brief Read time from PCF85063 RTC
  *
+ * The registers are read as UTC (the way pcf85063_write_time() stores them).
+ *
  * @param time_out Pointer to store the time
  * @return ESP_OK on success, error code on failure
  */
@@ -29,6 +31,8 @@ esp_err_t pcf85063_read_time(time_t *time_out);
 
 /**
  * @brief Write time to PCF85063 RTC
+ *
+ * The time is stored as UTC so a DST changeover cannot shift what reads back.
  *
  * @param time_in Time to write
  * @return ESP_OK on success, error code on failure

@@ -40,6 +40,7 @@
 #include "periodic_tasks.h"
 #include "power_manager.h"
 #include "processing_settings.h"
+#include "rtc_clock.h"
 #include "splash_screen.h"
 #include "storage.h"
 #include "utils.h"
@@ -61,6 +62,32 @@ static volatile bool s_sntp_time_applied = false;
 static void sntp_time_sync_notification(struct timeval *tv)
 {
     s_sntp_time_applied = true;
+}
+
+// Whether the external RTC was last written by this firmware, as UTC. Unset on
+// a frame updated from firmware that wrote local time (see rtc_clock.h).
+static bool rtc_written_as_utc(void)
+{
+    nvs_handle_t nvs_handle;
+    uint8_t flag = 0;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle) != ESP_OK) {
+        return false;
+    }
+    nvs_get_u8(nvs_handle, NVS_RTC_UTC_KEY, &flag);
+    nvs_close(nvs_handle);
+    return flag == 1;
+}
+
+static void rtc_mark_written_as_utc(void)
+{
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) != ESP_OK) {
+        return;
+    }
+    if (nvs_set_u8(nvs_handle, NVS_RTC_UTC_KEY, 1) == ESP_OK) {
+        nvs_commit(nvs_handle);
+    }
+    nvs_close(nvs_handle);
 }
 
 // Periodic callback for SNTP sync
@@ -102,6 +129,7 @@ static esp_err_t sntp_sync_periodic_callback(void)
         esp_err_t ret = board_hal_rtc_set_time(now);
         if (ret == ESP_OK) {
             ESP_LOGI(TAG, "Updated external RTC with SNTP time");
+            rtc_mark_written_as_utc();
         } else {
             ESP_LOGW(TAG, "Failed to update external RTC: %s", esp_err_to_name(ret));
         }
@@ -592,6 +620,17 @@ void app_main(void)
         time_t external_time;
         esp_err_t ret = board_hal_rtc_get_time(&external_time);
         if (ret == ESP_OK) {
+            if (!rtc_written_as_utc()) {
+                // First boot after updating from firmware that stored local
+                // time (see rtc_clock.h): read the old contents as such, and
+                // have SNTP rewrite the RTC in UTC as soon as there is a
+                // network.
+                external_time = rtc_clock_from_legacy_local(external_time);
+                ESP_LOGW(TAG,
+                         "External RTC holds local time from older firmware; "
+                         "syncing SNTP to rewrite it in UTC");
+                periodic_tasks_force_run(SNTP_TASK_NAME);
+            }
             struct tm external_timeinfo;
             localtime_r(&external_time, &external_timeinfo);
 
