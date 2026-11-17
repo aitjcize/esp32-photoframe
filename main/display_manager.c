@@ -24,6 +24,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "nvs.h"
+#include "png.h"
 #include "storage.h"
 #include "utils.h"
 #include "zlib.h"
@@ -35,6 +36,16 @@ static const char *TAG = "display_manager";
 // legitimately hold the display mutex for a minute or more; waiters queue
 // for a matching window instead of failing spuriously.
 #define DISPLAY_LOCK_TIMEOUT_MS (120 * 1000)
+
+// Boards without PSRAM (the ESP32-C6 OpenPaper 7) cannot hold a frame buffer:
+// 800x480 at 4bpp is 192 KB, which leaves too little internal RAM for WiFi,
+// TLS and the PNG decoder next to it. They stream every frame, row by row,
+// straight into the panel controller's own frame memory instead.
+#if CONFIG_SPIRAM
+#define DISPLAY_STREAM_TO_PANEL 0
+#else
+#define DISPLAY_STREAM_TO_PANEL 1
+#endif
 
 // Grayscale (gc*) panels take linear-intensity nibbles (0=black..15=white)
 // rather than Spectra ink-color indices, so both the decode mapping and the
@@ -53,8 +64,16 @@ static SemaphoreHandle_t display_mutex = NULL;
 static char current_image[64] = {0};
 static char last_displayed_image[256] = {0};  // Internal state: last displayed image path
 
+#if !DISPLAY_STREAM_TO_PANEL
 static uint8_t *epd_image_buffer = NULL;
 static uint32_t image_buffer_size;
+#endif
+
+// Bytes per packed frame row, two pixels per byte
+static size_t frame_row_bytes(void)
+{
+    return ((size_t) BOARD_HAL_DISPLAY_WIDTH + 1) / 2;
+}
 
 // Load last displayed image from NVS
 static void load_last_displayed_image(void)
@@ -114,6 +133,10 @@ esp_err_t display_manager_init(void)
 
     // epaper_port_init() is now called by board_hal_init()
 
+#if DISPLAY_STREAM_TO_PANEL
+    ESP_LOGI(TAG, "Display manager initialized (streaming to panel, no frame buffer)");
+    return ESP_OK;
+#else
     image_buffer_size = ((BOARD_HAL_DISPLAY_WIDTH % 2 == 0) ? (BOARD_HAL_DISPLAY_WIDTH / 2)
                                                             : (BOARD_HAL_DISPLAY_WIDTH / 2 + 1)) *
                         BOARD_HAL_DISPLAY_HEIGHT;
@@ -127,39 +150,71 @@ esp_err_t display_manager_init(void)
 
     ESP_LOGI(TAG, "Display manager initialized");
     return ESP_OK;
+#endif
 }
 
 void display_manager_initialize_paint(void)
 {
+#if !DISPLAY_STREAM_TO_PANEL
     Paint_NewImage(epd_image_buffer, BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT,
                    config_manager_get_display_rotation_deg() % 360, display_white_color());
     Paint_SetScale(display_is_grayscale() ? 16 : 6);
     Paint_SelectImage(epd_image_buffer);
+#endif
 }
 
-// Fill a rectangle given in viewer space, both corners inclusive. When the
-// picture was rotated into the native buffer, viewer (x, y) lands at native
-// (Paint.Width - 1 - y, x), the inverse of the mapping image_processor applies
-// to the picture.
-static void badge_fill(bool rotated, int x0, int y0, int x1, int y1, UWORD color)
+// Frame size in the logical (pre-rotation) coordinates pictures are painted in.
+// Rotation is limited to 0/180 (see apply_config_from_json), so this is the
+// panel's own size.
+static int frame_width(void)
 {
+    return BOARD_HAL_DISPLAY_WIDTH;
+}
+
+static int frame_height(void)
+{
+    return BOARD_HAL_DISPLAY_HEIGHT;
+}
+
+// One filled rectangle of the badge, in frame coordinates, corners inclusive
+typedef struct {
+    int x0, y0, x1, y1;
+    UWORD color;
+} badge_rect_t;
+
+#define BADGE_MAX_RECTS 7
+
+typedef struct {
+    badge_rect_t rects[BADGE_MAX_RECTS];
+    int count;
+} badge_t;
+
+// Add a rectangle given in viewer space. When the picture was rotated into the
+// native frame, viewer (x, y) lands at frame (width - 1 - y, x), the inverse of
+// the mapping image_processor applies to the picture.
+static void badge_add(badge_t *badge, bool rotated, int x0, int y0, int x1, int y1, UWORD color)
+{
+    if (badge->count >= BADGE_MAX_RECTS) {
+        return;
+    }
+    badge_rect_t *r = &badge->rects[badge->count++];
     if (rotated) {
-        Paint_DrawRectangle(Paint.Width - 1 - y1, x0, Paint.Width - 1 - y0, x1, color,
-                            DOT_PIXEL_1X1, DRAW_FILL_FULL);
+        *r = (badge_rect_t){frame_width() - 1 - y1, x0, frame_width() - 1 - y0, x1, color};
     } else {
-        Paint_DrawRectangle(x0, y0, x1, y1, color, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+        *r = (badge_rect_t){x0, y0, x1, y1, color};
     }
 }
 
 // Low battery badge: a depleted battery icon in the top-right corner, drawn
-// into the frame buffer right before the panel refresh so it rides on top of
+// over the picture right before the panel refresh so it rides on top of
 // whatever picture is shown. It is drawn from the frame's own reading only,
 // after the picture is complete and after any album snapshot has been saved,
 // so a saved frame never carries it. Nothing is drawn while the frame is on
 // USB or charging, when no battery is connected, or when the reading is
-// unknown.
-static void draw_low_battery_badge(void)
+// unknown. Leaves badge->count at 0 when there is nothing to draw.
+static void low_battery_badge(badge_t *badge)
 {
+    badge->count = 0;
 #ifdef LOW_BATTERY_BADGE_DEMO_PERCENT
     // Visual check on a frame on USB: build with
     //   EXTRA_CPPFLAGS=-DLOW_BATTERY_BADGE_DEMO_PERCENT=12
@@ -181,15 +236,15 @@ static void draw_low_battery_badge(void)
     ESP_LOGI(TAG, "Battery at %d%%, drawing low battery badge", percent);
 
     // The badge is laid out in the viewer's space: the picture as hung. That
-    // is the native buffer unless the configured orientation differs from the
+    // is the native frame unless the configured orientation differs from the
     // panel's native layout, in which case image_processor rotated the picture
-    // into the buffer and the badge follows the same mapping, so it stays in
+    // into the frame and the badge follows the same mapping, so it stays in
     // the viewer's top-right corner with the battery lying flat.
     const bool rotated =
-        (Paint.Width > Paint.Height) !=
+        (frame_width() > frame_height()) !=
         (config_manager_get_display_orientation() == DISPLAY_ORIENTATION_LANDSCAPE);
-    const int view_w = rotated ? Paint.Height : Paint.Width;
-    const int view_h = rotated ? Paint.Width : Paint.Height;
+    const int view_w = rotated ? frame_height() : frame_width();
+    const int view_h = rotated ? frame_width() : frame_height();
 
     // Everything scales with the panel: one unit per 480 rows of the shorter
     // side, so the badge keeps its proportion from 800x480 to 1600x1200.
@@ -214,21 +269,34 @@ static void draw_low_battery_badge(void)
     const int y0 = margin;
 
     // White card behind the icon so it reads on any picture
-    badge_fill(rotated, x0, y0, x0 + box_w - 1, y0 + box_h - 1, white);
+    badge_add(badge, rotated, x0, y0, x0 + box_w - 1, y0 + box_h - 1, white);
 
     // Depleted battery: outline, terminal nub and a thin sliver of charge
     const int ix = x0 + pad;
     const int iy = y0 + pad;
     const int ix1 = ix + icon_w - 1;
     const int iy1 = iy + icon_h - 1;
-    badge_fill(rotated, ix, iy, ix1, iy + stroke - 1, black);
-    badge_fill(rotated, ix, iy1 - stroke + 1, ix1, iy1, black);
-    badge_fill(rotated, ix, iy, ix + stroke - 1, iy1, black);
-    badge_fill(rotated, ix1 - stroke + 1, iy, ix1, iy1, black);
-    badge_fill(rotated, ix1 + 1, iy + (icon_h - nub_h) / 2, ix1 + nub_w,
-               iy + (icon_h + nub_h) / 2 - 1, black);
+    badge_add(badge, rotated, ix, iy, ix1, iy + stroke - 1, black);
+    badge_add(badge, rotated, ix, iy1 - stroke + 1, ix1, iy1, black);
+    badge_add(badge, rotated, ix, iy, ix + stroke - 1, iy1, black);
+    badge_add(badge, rotated, ix1 - stroke + 1, iy, ix1, iy1, black);
+    badge_add(badge, rotated, ix1 + 1, iy + (icon_h - nub_h) / 2, ix1 + nub_w,
+              iy + (icon_h + nub_h) / 2 - 1, black);
     const int inset = 5 * u;
-    badge_fill(rotated, ix + inset, iy + inset, ix + inset + 6 * u - 1, iy1 - inset, alert);
+    badge_add(badge, rotated, ix + inset, iy + inset, ix + inset + 6 * u - 1, iy1 - inset, alert);
+}
+
+#if !DISPLAY_STREAM_TO_PANEL
+
+// Draw the low battery badge, if any, into the frame buffer
+static void paint_low_battery_badge(void)
+{
+    badge_t badge;
+    low_battery_badge(&badge);
+    for (int i = 0; i < badge.count; i++) {
+        const badge_rect_t *r = &badge.rects[i];
+        Paint_DrawRectangle(r->x0, r->y0, r->x1, r->y1, r->color, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+    }
 }
 
 esp_err_t display_manager_show_image(const char *filename)
@@ -288,7 +356,7 @@ esp_err_t display_manager_show_image(const char *filename)
     // 4. Update E-Paper Display
     // This is a blocking call that takes ~25-30 seconds for 7-color e-paper
     // It handles: Power On -> Send Data -> Refresh -> Power Off
-    draw_low_battery_badge();
+    paint_low_battery_badge();
 
     ESP_LOGI(TAG, "Calling epaper_display...");
     epaper_display(epd_image_buffer);
@@ -338,7 +406,7 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
     ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
     ESP_LOGI(TAG, "Free heap before epaper_display: %lu bytes", esp_get_free_heap_size());
 
-    draw_low_battery_badge();
+    paint_low_battery_badge();
 
     ESP_LOGI(TAG, "Calling epaper_display...");
     epaper_display(epd_image_buffer);
@@ -356,8 +424,12 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
     return ESP_OK;
 }
 
-esp_err_t display_manager_begin_rgb_stream(void)
+esp_err_t display_manager_begin_rgb_stream(const display_publish_t *pub)
 {
+    // The snapshot (pub->save_path) is taken from the finished frame buffer
+    // in display_manager_end_rgb_stream
+    (void) pub;
+
     if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "Failed to acquire display mutex");
         return ESP_FAIL;
@@ -524,7 +596,7 @@ esp_err_t display_manager_end_rgb_stream(bool show, const display_publish_t *pub
             result = ESP_ERR_NOT_FINISHED;
         }
 
-        draw_low_battery_badge();
+        paint_low_battery_badge();
 
         ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
         epaper_display(epd_image_buffer);
@@ -593,6 +665,616 @@ esp_err_t display_manager_show_calibration(void)
     ESP_LOGI(TAG, "Calibration pattern displayed successfully");
     return ESP_OK;
 }
+
+esp_err_t display_manager_show_rows(display_row_fill_fn fill, void *ctx)
+{
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire display mutex");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    // Native rows straight into the buffer: no Paint rotation, no badge
+    const size_t row_bytes = frame_row_bytes();
+    esp_err_t err = ESP_OK;
+    for (int y = 0; y < BOARD_HAL_DISPLAY_HEIGHT && err == ESP_OK; y++) {
+        err = fill(ctx, y, epd_image_buffer + (size_t) y * row_bytes);
+    }
+    if (err == ESP_OK) {
+        epaper_display(epd_image_buffer);
+    }
+
+    xSemaphoreGive(display_mutex);
+    return err;
+}
+
+#else  // DISPLAY_STREAM_TO_PANEL
+
+// A frame is produced top row first, in frame (pre-rotation) coordinates, one
+// packed row at a time. Each row is
+//   1. deflated into the album snapshot, when one was asked for -- so, as on
+//      the frame-buffer path, the saved picture never carries the badge,
+//   2. overlaid with the low battery badge, and
+//   3. sent on to the panel controller.
+// A 180 degree display rotation is done by the controller's scan direction.
+// Nothing reaches the screen before the refresh at the end, so a frame given
+// up halfway leaves the previous picture in place.
+
+// deflate state at the zlib defaults is ~260 KB; at windowBits 12 / memLevel 5
+// it is ~38 KB, and any gzip reader still inflates the result
+#define SNAPSHOT_WINDOW_BITS 12
+#define SNAPSHOT_MEM_LEVEL 5
+#define SNAPSHOT_OUT_CHUNK 1024
+
+typedef struct {
+    uint8_t *row;  // frame row next_y, being assembled by the producer
+    int next_y;
+    badge_t badge;
+
+    const char *snap_path;  // NULL when no snapshot was asked for
+    FILE *snap_fp;
+    z_stream snap;
+    uint8_t *snap_out;
+    bool snap_ready;  // deflater initialized
+    bool snap_failed;
+} panel_stream_t;
+
+static panel_stream_t ps;
+
+static void snapshot_drain(int flush)
+{
+    do {
+        ps.snap.next_out = ps.snap_out;
+        ps.snap.avail_out = SNAPSHOT_OUT_CHUNK;
+        if (deflate(&ps.snap, flush) == Z_STREAM_ERROR) {
+            ps.snap_failed = true;
+            return;
+        }
+        size_t have = SNAPSHOT_OUT_CHUNK - ps.snap.avail_out;
+        if (have > 0 && fwrite(ps.snap_out, 1, have, ps.snap_fp) != have) {
+            ESP_LOGE(TAG, "Failed to write frame snapshot");
+            ps.snap_failed = true;
+            return;
+        }
+    } while (ps.snap.avail_out == 0);
+}
+
+static void snapshot_open(const char *path)
+{
+    ps.snap_path = path;
+    ps.snap_fp = fopen(path, "wb");
+    ps.snap_out = malloc(SNAPSHOT_OUT_CHUNK);
+    // windowBits + 16 selects the gzip wrapper GUI_ReadEPDGZ expects
+    ps.snap_ready =
+        ps.snap_fp && ps.snap_out &&
+        deflateInit2(&ps.snap, Z_DEFAULT_COMPRESSION, Z_DEFLATED, SNAPSHOT_WINDOW_BITS + 16,
+                     SNAPSHOT_MEM_LEVEL, Z_DEFAULT_STRATEGY) == Z_OK;
+    if (!ps.snap_ready) {
+        ESP_LOGE(TAG, "Failed to start frame snapshot %s", path);
+        ps.snap_failed = true;
+    }
+}
+
+static void snapshot_write_row(const uint8_t *row)
+{
+    if (!ps.snap_ready || ps.snap_failed) {
+        return;
+    }
+    ps.snap.next_in = (Bytef *) row;
+    ps.snap.avail_in = frame_row_bytes();
+    snapshot_drain(Z_NO_FLUSH);
+}
+
+// Finish the snapshot; keep it only if the frame was shown and every row made
+// it into the file
+static esp_err_t snapshot_close(bool keep)
+{
+    if (ps.snap_ready) {
+        if (keep && !ps.snap_failed) {
+            ps.snap.next_in = NULL;
+            ps.snap.avail_in = 0;
+            snapshot_drain(Z_FINISH);
+        }
+        deflateEnd(&ps.snap);
+    }
+    free(ps.snap_out);
+    // Buffered writes can surface a full-disk error only at close
+    if (ps.snap_fp && fclose(ps.snap_fp) != 0) {
+        ps.snap_failed = true;
+    }
+
+    esp_err_t err = (keep && !ps.snap_failed) ? ESP_OK : ESP_FAIL;
+    if (err != ESP_OK) {
+        unlink(ps.snap_path);
+    } else {
+        ESP_LOGI(TAG, "Saved frame snapshot: %s", ps.snap_path);
+    }
+    return err;
+}
+
+static void row_set_pixel(uint8_t *row, int x, uint8_t color)
+{
+    uint8_t *p = &row[x / 2];
+    if (x % 2 == 0) {
+        *p = (uint8_t) ((*p & 0x0F) | (color << 4));
+    } else {
+        *p = (uint8_t) ((*p & 0xF0) | (color & 0x0F));
+    }
+}
+
+static void stream_row_fill_white(void)
+{
+    memset(ps.row, display_white_color() * 0x11, frame_row_bytes());
+}
+
+// Start a streamed frame. rotate applies the configured display rotation
+// (pictures), badge the low battery badge; a snapshot_path saves the frame,
+// without the badge, as .epdgz once it is shown.
+static esp_err_t stream_begin(const char *snapshot_path, bool rotate, bool badge)
+{
+    ps = (panel_stream_t){0};
+    ps.row = malloc(frame_row_bytes());
+    if (!ps.row) {
+        ESP_LOGE(TAG, "Failed to allocate row buffer");
+        return ESP_ERR_NO_MEM;
+    }
+    if (snapshot_path) {
+        snapshot_open(snapshot_path);
+    }
+    if (badge) {
+        low_battery_badge(&ps.badge);
+    }
+    epaper_stream_begin(rotate && config_manager_get_display_rotation_deg() == 180);
+    return ESP_OK;
+}
+
+// Send ps.row as frame row ps.next_y
+static void stream_send_row(void)
+{
+    if (ps.snap_path) {
+        snapshot_write_row(ps.row);
+    }
+
+    const int y = ps.next_y;
+    for (int i = 0; i < ps.badge.count; i++) {
+        const badge_rect_t *r = &ps.badge.rects[i];
+        if (y >= r->y0 && y <= r->y1) {
+            for (int x = r->x0; x <= r->x1; x++) {
+                row_set_pixel(ps.row, x, r->color);
+            }
+        }
+    }
+
+    epaper_stream_write(ps.row, frame_row_bytes());
+    ps.next_y++;
+
+    // Yield periodically so the IDLE task can feed the watchdog
+    if ((ps.next_y & 63) == 0) {
+        vTaskDelay(1);
+    }
+}
+
+// Finish the frame: refresh pads any rows not produced with white, then shows
+// it; otherwise the frame is abandoned. Returns the snapshot's outcome (ESP_OK
+// when none was asked for).
+static esp_err_t stream_end(bool refresh)
+{
+    if (refresh) {
+        while (ps.next_y < frame_height()) {
+            stream_row_fill_white();
+            stream_send_row();
+        }
+    }
+
+    esp_err_t snap_err = ESP_OK;
+    if (ps.snap_path) {
+        snap_err = snapshot_close(refresh);
+    }
+
+    if (refresh) {
+        ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
+    }
+    epaper_stream_end(refresh);
+
+    free(ps.row);
+    ps.row = NULL;
+    return snap_err;
+}
+
+// Map an RGB row onto the frame row, clipped to the frame width
+static void stream_row_from_rgb(const uint8_t *rgb, int width)
+{
+    GUI_RGBMapFn map_rgb = display_is_grayscale() ? GUI_RGBToGray16 : GUI_RGBToSpectra6;
+    stream_row_fill_white();
+    for (int x = 0; x < width && x < frame_width(); x++) {
+        const uint8_t *p = &rgb[x * 3];
+        row_set_pixel(ps.row, x, map_rgb(p[0], p[1], p[2]));
+    }
+}
+
+static int stream_epdgz_row(void *ctx, int y, const uint8_t *row)
+{
+    (void) ctx;
+    memcpy(ps.row, row, frame_row_bytes());
+    stream_send_row();
+    return 0;
+}
+
+// Stream a PNG file's rows, clipped to the frame; rows past its bottom edge are
+// left to stream_end's white padding
+static int stream_png_file(const char *path)
+{
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        ESP_LOGE(TAG, "Cannot open PNG file: %s", path);
+        return 1;
+    }
+
+    uint8_t sig[8];
+    if (fread(sig, 1, 8, fp) != 8 || png_sig_cmp(sig, 0, 8) != 0) {
+        ESP_LOGE(TAG, "Not a valid PNG file");
+        fclose(fp);
+        return 1;
+    }
+
+    png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    png_infop info_ptr = png_ptr ? png_create_info_struct(png_ptr) : NULL;
+    png_bytep volatile row = NULL;
+    int result = 1;
+    if (!png_ptr || !info_ptr) {
+        goto done;
+    }
+
+    if (setjmp(png_jmpbuf(png_ptr))) {
+        ESP_LOGE(TAG, "PNG decode error");
+        goto done;
+    }
+
+    png_init_io(png_ptr, fp);
+    png_set_sig_bytes(png_ptr, 8);
+    png_read_info(png_ptr, info_ptr);
+
+    int width = png_get_image_width(png_ptr, info_ptr);
+    int height = png_get_image_height(png_ptr, info_ptr);
+    if (png_get_interlace_type(png_ptr, info_ptr) != PNG_INTERLACE_NONE) {
+        ESP_LOGE(TAG, "Interlaced PNG cannot be streamed");
+        goto done;
+    }
+
+    // Any PNG flavor to 8-bit RGB
+    png_set_expand(png_ptr);
+    png_set_strip_16(png_ptr);
+    png_set_strip_alpha(png_ptr);
+    png_set_packing(png_ptr);
+    png_set_gray_to_rgb(png_ptr);
+    png_read_update_info(png_ptr, info_ptr);
+    if (png_get_channels(png_ptr, info_ptr) != 3) {
+        ESP_LOGE(TAG, "Unexpected PNG channel count");
+        goto done;
+    }
+
+    row = (png_bytep) malloc(png_get_rowbytes(png_ptr, info_ptr));
+    if (!row) {
+        ESP_LOGE(TAG, "Failed to allocate PNG row buffer");
+        goto done;
+    }
+
+    for (int y = 0; y < height && y < frame_height(); y++) {
+        png_read_row(png_ptr, row, NULL);
+        stream_row_from_rgb(row, width);
+        stream_send_row();
+    }
+    result = 0;
+
+done:
+    free((void *) row);
+    if (png_ptr) {
+        png_destroy_read_struct(&png_ptr, info_ptr ? &info_ptr : NULL, NULL);
+    }
+    fclose(fp);
+    return result;
+}
+
+static uint32_t le32(const uint8_t *p)
+{
+    return (uint32_t) p[0] | ((uint32_t) p[1] << 8) | ((uint32_t) p[2] << 16) |
+           ((uint32_t) p[3] << 24);
+}
+
+// Largest BMP width or height accepted
+#define BMP_MAX_DIM 16384
+
+// Stream a 24-bit BMP file's rows, clipped to the frame. Rows are fetched by
+// seeking, since BMPs usually store them bottom to top.
+static int stream_bmp_file(const char *path)
+{
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        ESP_LOGE(TAG, "Cannot open BMP file: %s", path);
+        return 1;
+    }
+
+    uint8_t hdr[54];
+    if (fread(hdr, 1, sizeof(hdr), fp) != sizeof(hdr) || hdr[0] != 'B' || hdr[1] != 'M') {
+        ESP_LOGE(TAG, "Not a valid BMP file");
+        fclose(fp);
+        return 1;
+    }
+    uint32_t offset = le32(&hdr[10]);
+    int32_t width = (int32_t) le32(&hdr[18]);
+    int32_t height = (int32_t) le32(&hdr[22]);
+    uint16_t bpp = (uint16_t) (hdr[28] | (hdr[29] << 8));
+    bool top_down = height < 0;
+    if (top_down) {
+        height = -height;
+    }
+    // The size cap keeps the row size and file offsets below from overflowing
+    // a 32-bit size_t and long
+    if (bpp != 24 || width <= 0 || height <= 0 || width > BMP_MAX_DIM || height > BMP_MAX_DIM) {
+        ESP_LOGE(TAG, "Unsupported BMP (%ldx%ld, %u bpp)", (long) width, (long) height, bpp);
+        fclose(fp);
+        return 1;
+    }
+
+    size_t row_padded = ((size_t) width * 3 + 3) & ~(size_t) 3;
+    uint8_t *row = malloc(row_padded);
+    if (!row) {
+        ESP_LOGE(TAG, "Failed to allocate BMP row buffer");
+        fclose(fp);
+        return 1;
+    }
+
+    int result = 0;
+    for (int y = 0; y < height && y < frame_height(); y++) {
+        long file_row = top_down ? y : (height - 1 - y);
+        if (fseek(fp, (long) offset + file_row * (long) row_padded, SEEK_SET) != 0 ||
+            fread(row, 1, row_padded, fp) != row_padded) {
+            ESP_LOGE(TAG, "BMP read failed at row %d", y);
+            result = 1;
+            break;
+        }
+        // BMP is BGR; only the columns inside the frame are used
+        for (int32_t x = 0; x < width && x < frame_width(); x++) {
+            uint8_t t = row[x * 3];
+            row[x * 3] = row[x * 3 + 2];
+            row[x * 3 + 2] = t;
+        }
+        stream_row_from_rgb(row, width);
+        stream_send_row();
+    }
+
+    free(row);
+    fclose(fp);
+    return result;
+}
+
+// Record the image now on the panel for /api/current_image; NULL clears it
+static void publish_current_image(const char *record)
+{
+    if (record) {
+        strncpy(current_image, record, sizeof(current_image) - 1);
+        create_image_link(record);
+    } else {
+        current_image[0] = '\0';
+        unlink(CURRENT_IMAGE_LINK);
+    }
+}
+
+esp_err_t display_manager_show_image(const char *filename)
+{
+    if (!filename || strlen(filename) == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire display mutex");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    ESP_LOGI(TAG, "Displaying image: %s", filename);
+    ESP_LOGI(TAG, "Free heap before display: %lu bytes", esp_get_free_heap_size());
+
+    esp_err_t err = stream_begin(NULL, true, true);
+    if (err != ESP_OK) {
+        xSemaphoreGive(display_mutex);
+        return err;
+    }
+
+    const char *ext = strrchr(filename, '.');
+    int rc;
+    if (ext && strcasecmp(ext, ".epdgz") == 0) {
+        rc = GUI_ReadEPDGZRows(filename, frame_row_bytes(), frame_height(), stream_epdgz_row, NULL);
+    } else if (ext && strcasecmp(ext, ".png") == 0) {
+        rc = stream_png_file(filename);
+    } else {
+        rc = stream_bmp_file(filename);
+    }
+
+    stream_end(rc == 0);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to read %s", filename);
+        xSemaphoreGive(display_mutex);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Free heap after display: %lu bytes", esp_get_free_heap_size());
+    publish_current_image(filename);
+
+    xSemaphoreGive(display_mutex);
+    ESP_LOGI(TAG, "Image displayed successfully");
+    return ESP_OK;
+}
+
+esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, int height)
+{
+    if (!rgb_buffer || width <= 0 || height <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire display mutex");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t err = stream_begin(NULL, true, true);
+    if (err == ESP_OK) {
+        for (int y = 0; y < height && y < frame_height(); y++) {
+            stream_row_from_rgb(rgb_buffer + (size_t) y * width * 3, width);
+            stream_send_row();
+        }
+        stream_end(true);
+        // Displayed from a buffer, not a file
+        current_image[0] = '\0';
+    }
+
+    xSemaphoreGive(display_mutex);
+    return err;
+}
+
+esp_err_t display_manager_begin_rgb_stream(const display_publish_t *pub)
+{
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire display mutex");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Beginning streamed RGB display (direct to panel)");
+    esp_err_t err = stream_begin(pub ? pub->save_path : NULL, true, true);
+    if (err != ESP_OK) {
+        xSemaphoreGive(display_mutex);
+    }
+    return err;
+}
+
+esp_err_t display_manager_push_rgb_row(int y, const uint8_t *rgb_row, int width)
+{
+    if (!rgb_row) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (y >= frame_height()) {
+        return ESP_OK;
+    }
+    if (y < ps.next_y) {
+        // The panel takes rows strictly top to bottom
+        ESP_LOGE(TAG, "Row %d arrived after row %d", y, ps.next_y - 1);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    while (ps.next_y < y) {
+        stream_row_fill_white();
+        stream_send_row();
+    }
+    stream_row_from_rgb(rgb_row, width);
+    stream_send_row();
+    return ESP_OK;
+}
+
+esp_err_t display_manager_push_rgb_column(int x, const uint8_t *rgb_col, int height)
+{
+    // Columns cannot be streamed to the panel, which takes whole rows top to
+    // bottom. Only pictures that need a 90 degree turn into the panel's
+    // layout come this way, and those need processing this board can't do.
+    ESP_LOGE(TAG, "Rotated (column) streaming is not supported without PSRAM");
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t display_manager_end_rgb_stream(bool show, const display_publish_t *pub)
+{
+    esp_err_t result = ESP_OK;
+    esp_err_t snap_err = stream_end(show);
+
+    if (show) {
+        const char *record = pub ? pub->display_name : NULL;
+        if (pub && pub->save_path && snap_err != ESP_OK) {
+            // The album entry does not exist -- publish the fallback name
+            // (or nothing) instead, atomically under the display mutex, so
+            // the link never points at a missing album entry
+            ESP_LOGE(TAG, "Failed to save frame snapshot to %s", pub->save_path);
+            record = pub->fallback_name;
+            result = ESP_ERR_NOT_FINISHED;
+        }
+        ESP_LOGI(TAG, "E-paper display update complete");
+        publish_current_image(record);
+    }
+
+    xSemaphoreGive(display_mutex);
+    return result;
+}
+
+esp_err_t display_manager_clear(void)
+{
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        return ESP_FAIL;
+    }
+
+    // stream_end pads every row with white
+    esp_err_t err = stream_begin(NULL, false, false);
+    if (err == ESP_OK) {
+        stream_end(true);
+
+        // Remove the current image link so API returns 404
+        publish_current_image(NULL);
+        save_last_displayed_image("");
+    }
+
+    xSemaphoreGive(display_mutex);
+    return err;
+}
+
+esp_err_t display_manager_show_calibration(void)
+{
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire display mutex for calibration");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Displaying calibration pattern");
+
+    esp_err_t err = stream_begin(NULL, true, false);
+    if (err == ESP_OK) {
+        const int w = frame_width();
+        const int h = frame_height();
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                // Grayscale (GC16) panels get a 16-level gray step wedge
+                // instead of the 6-color swatches
+                UBYTE c = display_is_grayscale()
+                              ? Paint_GrayscaleCalibrationPatternColor(x, y, w, h)
+                              : Paint_CalibrationPatternColor(x, y, w, h);
+                row_set_pixel(ps.row, x, c);
+            }
+            stream_send_row();
+        }
+        stream_end(true);
+        ESP_LOGI(TAG, "Calibration pattern displayed successfully");
+    }
+
+    xSemaphoreGive(display_mutex);
+    return err;
+}
+
+esp_err_t display_manager_show_rows(display_row_fill_fn fill, void *ctx)
+{
+    if (xSemaphoreTake(display_mutex, pdMS_TO_TICKS(DISPLAY_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire display mutex");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    // Native rows: no rotation, no badge
+    esp_err_t err = stream_begin(NULL, false, false);
+    if (err == ESP_OK) {
+        for (int y = 0; y < frame_height() && err == ESP_OK; y++) {
+            err = fill(ctx, y, ps.row);
+            if (err == ESP_OK) {
+                stream_send_row();
+            }
+        }
+        stream_end(err == ESP_OK);
+    }
+
+    xSemaphoreGive(display_mutex);
+    return err;
+}
+#endif  // DISPLAY_STREAM_TO_PANEL
 
 bool display_manager_is_busy(void)
 {

@@ -15,6 +15,11 @@
 static const char *TAG = "epaper_ed2208_gca";
 
 static epaper_config_t g_cfg;
+
+// PSR byte-0 bits that reverse the gate (UD) and source (SHL) scan directions;
+// flipping both shows the frame rotated by 180 degrees (streamed updates only)
+#define PSR_SCAN_FLIP 0x0C
+static bool s_flip_180 = false;
 static spi_device_handle_t spi;
 
 #ifdef CONFIG_PM_ENABLE
@@ -106,15 +111,13 @@ static void send_command(uint8_t cmd)
     cmd_data(cmd, NULL, 0);
 }
 
-// Send image buffer in DATA_CHUNK_SIZE-byte chunks, each in its own CS window,
+// Send image data in DATA_CHUNK_SIZE-byte chunks, each in its own CS window,
 // copied to a stack-local buffer to avoid PSRAM DMA issues.
-static void send_buffer(uint8_t *data, int len)
+static void send_data(const uint8_t *data, int len)
 {
     uint8_t buf[DATA_CHUNK_SIZE];
-    uint8_t *ptr = data;
+    const uint8_t *ptr = data;
     int remaining = len;
-
-    ESP_LOGI(TAG, "Sending %d bytes in %d-byte chunks", len, DATA_CHUNK_SIZE);
 
     while (remaining > 0) {
         int chunk = (remaining > DATA_CHUNK_SIZE) ? DATA_CHUNK_SIZE : remaining;
@@ -132,7 +135,12 @@ static void send_buffer(uint8_t *data, int len)
         ptr += chunk;
         remaining -= chunk;
     }
+}
 
+static void send_buffer(uint8_t *data, int len)
+{
+    ESP_LOGI(TAG, "Sending %d bytes in %d-byte chunks", len, DATA_CHUNK_SIZE);
+    send_data(data, len);
     ESP_LOGI(TAG, "Buffer send complete");
 }
 
@@ -224,11 +232,42 @@ static void hw_reset(void)
 
 // --- Display operations ---
 
-static void send_init_sequence(void)
+static uint8_t psr_flip(void)
+{
+    return s_flip_180 ? PSR_SCAN_FLIP : 0;
+}
+
+// Good Display GDEP073E01 register set, from GxEPD2_730c_GDEP073E01 as the
+// paperlesspaper firmware ships it
+static void send_init_sequence_gdep073e01(void)
 {
     cmd_data(0xAA, (uint8_t[]){0x49, 0x55, 0x20, 0x08, 0x09, 0x18}, 6);  // CMDH
+    cmd_data(0x01, (uint8_t[]){0x3F, 0x00, 0x32, 0x2A, 0x0E, 0x2A}, 6);  // PWRR
+    cmd_data(0x00, (uint8_t[]){0x5F ^ psr_flip()}, 1);                   // PSR
+    cmd_data(0x13, (uint8_t[]){0x00, 0x04}, 2);                          // IPC
+    cmd_data(0x30, (uint8_t[]){0x02}, 1);                                // PLL
+    cmd_data(0x41, (uint8_t[]){0x00}, 1);                                // TSE
+    cmd_data(0x50, (uint8_t[]){0x3F}, 1);                                // CDI
+    cmd_data(0x60, (uint8_t[]){0x02, 0x00}, 2);                          // TCON
+    cmd_data(0x61, (uint8_t[]){0x03, 0x20, 0x01, 0xE0}, 4);              // TRES
+    cmd_data(0x82, (uint8_t[]){0x1E}, 1);                                // VDCS
+    cmd_data(0x84, (uint8_t[]){0x01}, 1);                                // T_VDCS
+    cmd_data(0x86, (uint8_t[]){0x00}, 1);                                // AGID
+    cmd_data(0xE3, (uint8_t[]){0x2F}, 1);                                // PWS
+    cmd_data(0xE0, (uint8_t[]){0x00}, 1);                                // CCSET
+    cmd_data(0xE6, (uint8_t[]){0x00}, 1);                                // TSSET
+}
+
+static void send_init_sequence(void)
+{
+    if (g_cfg.gca_gdep073e01_init) {
+        send_init_sequence_gdep073e01();
+        return;
+    }
+
+    cmd_data(0xAA, (uint8_t[]){0x49, 0x55, 0x20, 0x08, 0x09, 0x18}, 6);  // CMDH
     cmd_data(0x01, (uint8_t[]){0x3F}, 1);                                // PWRR
-    cmd_data(0x00, (uint8_t[]){0x5F, 0x69}, 2);                          // PSR
+    cmd_data(0x00, (uint8_t[]){0x5F ^ psr_flip(), 0x69}, 2);             // PSR
     cmd_data(0x03, (uint8_t[]){0x00, 0x54, 0x00, 0x44}, 4);              // POFS
     cmd_data(0x05, (uint8_t[]){0x40, 0x1F, 0x1F, 0x2C}, 4);              // BTST1
     cmd_data(0x06, (uint8_t[]){0x6F, 0x1F, 0x16, 0x25}, 4);              // BTST2 (Seeed_GFX tuned)
@@ -323,6 +362,58 @@ void epaper_display(uint8_t *image)
     ESP_LOGI(TAG, "Starting display update: %d bytes", EPD_BUF_SIZE);
     display_update_cycle(image);
     ESP_LOGI(TAG, "Display update complete");
+}
+
+void epaper_stream_begin(bool flip_180)
+{
+#ifdef CONFIG_PM_ENABLE
+    if (pm_lock) {
+        esp_pm_lock_acquire(pm_lock);
+    }
+#endif
+
+    ESP_LOGI(TAG, "Starting streamed display update%s", flip_180 ? " (rotated 180)" : "");
+    s_flip_180 = flip_180;
+    hw_reset();
+    wait_busy("reset");
+
+    send_init_sequence();
+    wait_busy("init");
+
+    send_command(0x10);  // DATA_START_TRANSMISSION
+}
+
+void epaper_stream_write(const uint8_t *data, size_t len)
+{
+    send_data(data, (int) len);
+}
+
+void epaper_stream_end(bool refresh)
+{
+    if (refresh) {
+        wait_busy("data");
+
+        send_command(0x04);  // POWER_ON
+        wait_busy("power_on");
+
+        cmd_data(0x12, (uint8_t[]){0x00}, 1);  // DISPLAY_REFRESH
+        wait_busy("refresh");
+
+        cmd_data(0x02, (uint8_t[]){0x00}, 1);  // POWER_OFF
+        wait_busy("power_off");
+        ESP_LOGI(TAG, "Streamed display update complete");
+    } else {
+        ESP_LOGI(TAG, "Streamed display update abandoned");
+    }
+
+    cmd_data(0x07, (uint8_t[]){0xA5}, 1);  // DEEP_SLEEP
+    s_flip_180 = false;
+
+#ifdef CONFIG_PM_ENABLE
+    if (pm_lock) {
+        esp_pm_lock_release(pm_lock);
+    }
+#endif
 }
 
 void epaper_enter_deepsleep(void)

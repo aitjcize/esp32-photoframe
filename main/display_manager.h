@@ -31,6 +31,15 @@ void display_manager_initialize_paint(void);
  */
 esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, int height);
 
+// Fills one native-orientation frame row: (width + 1) / 2 bytes, two pixels
+// per byte, high nibble first
+typedef esp_err_t (*display_row_fill_fn)(void *ctx, int y, uint8_t *row);
+
+// Show a frame produced row by row, top to bottom, in the panel's native
+// orientation (no display rotation, no low battery badge, no current-image
+// record). Used for the built-in screens.
+esp_err_t display_manager_show_rows(display_row_fill_fn fill, void *ctx);
+
 /**
  * @brief Row-streaming variant of display_manager_show_rgb_buffer
  *
@@ -56,7 +65,9 @@ typedef struct {
     const char *fallback_name;
 } display_publish_t;
 
-esp_err_t display_manager_begin_rgb_stream(void);
+// pub is the same publish record end_rgb_stream will get; boards that stream to
+// the panel need its save_path up front, to snapshot the rows as they pass.
+esp_err_t display_manager_begin_rgb_stream(const display_publish_t *pub);
 esp_err_t display_manager_push_rgb_row(int y, const uint8_t *rgb_row, int width);
 // Column variant for rotated streaming: paints pixels (x, 0..height-1). Used
 // when rows are produced in processing-space order on a rotated orientation.

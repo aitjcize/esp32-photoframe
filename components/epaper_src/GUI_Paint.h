@@ -236,6 +236,9 @@ void Paint_DrawBitMap(const unsigned char* image_buffer);
 // calibration
 void Paint_DrawCalibrationPattern(void);
 void Paint_DrawGrayscaleCalibrationPattern(void);
+// Color of the calibration pattern at (x, y) of a width x height frame
+UBYTE Paint_CalibrationPatternColor(UWORD x, UWORD y, UWORD width, UWORD height);
+UBYTE Paint_GrayscaleCalibrationPatternColor(UWORD x, UWORD y, UWORD width, UWORD height);
 
 #ifdef __cplusplus
 }

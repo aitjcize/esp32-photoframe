@@ -2,6 +2,7 @@
 #define EPAPER_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // Resolution APIs
@@ -46,6 +47,11 @@ typedef struct {
     // Emit each row's 16-bit words in reverse order, for panels that scan
     // right-to-left (the Seeed ED103TC2 does; the M5Paper ED047TC2 does not).
     bool mirror_x;
+
+    // --- ED2208-GCA-only option ---
+    // Program Good Display's GDEP073E01 register set (as used by GxEPD2 and the
+    // paperlesspaper firmware) instead of the Waveshare/Seeed one.
+    bool gca_gdep073e01_init;
 } epaper_config_t;
 
 /**
@@ -77,6 +83,33 @@ void epaper_clear(uint8_t *image, uint8_t color);
  * @param celsius Panel temperature in degrees Celsius
  */
 void epaper_set_temperature(int8_t celsius);
+
+/**
+ * @brief Begin a streamed frame update.
+ *
+ * For boards without PSRAM, which cannot hold a frame buffer: the frame goes
+ * straight into the controller's own frame memory, one chunk at a time, via
+ * epaper_stream_write(), and epaper_stream_end() refreshes the panel. Only
+ * drivers used on such boards implement this (currently ED2208-GCA).
+ *
+ * @param flip_180 Scan the frame rotated by 180 degrees, so a frame streamed
+ *                 top row first can be shown upside down
+ */
+void epaper_stream_begin(bool flip_180);
+
+/**
+ * @brief Send the next chunk of a streamed frame: packed pixels, two per byte,
+ * rows top to bottom.
+ */
+void epaper_stream_write(const uint8_t *data, size_t len);
+
+/**
+ * @brief Finish a streamed frame update.
+ *
+ * @param refresh Refresh the panel with the streamed frame; false abandons it
+ *                and leaves the panel showing its previous picture
+ */
+void epaper_stream_end(bool refresh);
 
 /**
  * @brief Enter deep sleep mode

@@ -1380,7 +1380,7 @@ esp_err_t image_processor_process_to_display(const uint8_t *input_data, size_t i
             return err;
         }
         if (streamable) {
-            err = display_manager_begin_rgb_stream();
+            err = display_manager_begin_rgb_stream(pub);
             if (err == ESP_OK) {
                 err = png_stream_run(&stream, dither_algorithm, display_row_sink, &sink_ctx, true,
                                      sink_ctx.rotated);
@@ -1417,7 +1417,7 @@ esp_err_t image_processor_process_to_display(const uint8_t *input_data, size_t i
     ESP_LOGI(TAG, "Decoded image: %dx%d", width, height);
 
     // Stream processed rows straight into the display buffer, then refresh
-    err = display_manager_begin_rgb_stream();
+    err = display_manager_begin_rgb_stream(pub);
     if (err == ESP_OK) {
         err = process_rgb_stream(rgb_buffer, width, height, dither_algorithm, display_row_sink,
                                  &sink_ctx, true, sink_ctx.rotated);
@@ -1698,7 +1698,7 @@ esp_err_t image_processor_process_or_display_png(const char *path,
             png_init_io(png_ptr, fp);
             png_set_sig_bytes(png_ptr, 8);
 
-            esp_err_t err = display_manager_begin_rgb_stream();
+            esp_err_t err = display_manager_begin_rgb_stream(pub);
             if (err != ESP_OK) {
                 png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
                 fclose(fp);

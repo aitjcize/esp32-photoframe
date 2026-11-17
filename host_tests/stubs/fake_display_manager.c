@@ -73,8 +73,10 @@ const char *fake_display_pub_fallback_name(void)
     return pub_fallback_name;
 }
 
-esp_err_t display_manager_begin_rgb_stream(void)
+esp_err_t display_manager_begin_rgb_stream(const display_publish_t *pub)
 {
+    // The publish record is checked where the real end consumes it
+    (void) pub;
     if (streaming)
         return ESP_ERR_INVALID_STATE;
     free(frame);

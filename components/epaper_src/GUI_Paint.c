@@ -1059,14 +1059,11 @@ info:       Draws 6 color boxes (2 rows x 3 columns) for display calibration.
             Colors: Black, White, Yellow, Red, Blue, Green
             Works with any screen size by calculating box dimensions dynamically.
 ******************************************************************************/
-void Paint_DrawCalibrationPattern(void)
+UBYTE Paint_CalibrationPatternColor(UWORD x, UWORD y, UWORD width, UWORD height)
 {
     // Color indices for 6-color e-paper (matches EPD_7IN3E_* defines)
     // Order: Black, White, Yellow, Red, Blue, Green
-    const UBYTE colors[6] = {0x0, 0x1, 0x2, 0x3, 0x5, 0x6};
-
-    UWORD width = Paint.Width;
-    UWORD height = Paint.Height;
+    static const UBYTE colors[6] = {0x0, 0x1, 0x2, 0x3, 0x5, 0x6};
 
     // For portrait displays (height > width), we need to swap the layout
     // so that we still get 3 columns x 2 rows visually
@@ -1078,71 +1075,73 @@ void Paint_DrawCalibrationPattern(void)
     UWORD box_width = is_portrait ? (width / 2) : (width / 3);
     UWORD box_height = is_portrait ? (height / 3) : (height / 2);
 
+    UWORD box_row = y / box_height;
+    UWORD box_col = x / box_width;
+
+    UWORD box_idx;
+    if (is_portrait) {
+        // Portrait: 2 cols x 3 rows, 90° CW rotation of landscape
+        // Landscape layout (row-major):
+        //   [0:Black] [1:White] [2:Yellow]
+        //   [3:Red]   [4:Blue]  [5:Green]
+        // Portrait layout (90° CW rotation):
+        //   [3:Red]   [0:Black]
+        //   [4:Blue]  [1:White]
+        //   [5:Green] [2:Yellow]
+        if (box_row > 2)
+            box_row = 2;
+        if (box_col > 1)
+            box_col = 1;
+        // Map: (row, col) -> landscape index
+        // (0,0)->3, (0,1)->0, (1,0)->4, (1,1)->1, (2,0)->5, (2,1)->2
+        box_idx = box_row + (1 - box_col) * 3;
+    } else {
+        // Landscape: 3 cols x 2 rows
+        if (box_row > 1)
+            box_row = 1;
+        if (box_col > 2)
+            box_col = 2;
+        box_idx = box_row * 3 + box_col;
+    }
+
+    return colors[box_idx];
+}
+
+void Paint_DrawCalibrationPattern(void)
+{
+    UWORD width = Paint.Width;
+    UWORD height = Paint.Height;
+
     for (UWORD y = 0; y < height; y++) {
-        UWORD box_row = y / box_height;
-
         for (UWORD x = 0; x < width; x++) {
-            UWORD box_col = x / box_width;
-
-            UWORD box_idx;
-            if (is_portrait) {
-                // Portrait: 2 cols x 3 rows, 90° CW rotation of landscape
-                // Landscape layout (row-major):
-                //   [0:Black] [1:White] [2:Yellow]
-                //   [3:Red]   [4:Blue]  [5:Green]
-                // Portrait layout (90° CW rotation):
-                //   [3:Red]   [0:Black]
-                //   [4:Blue]  [1:White]
-                //   [5:Green] [2:Yellow]
-                if (box_row > 2)
-                    box_row = 2;
-                if (box_col > 1)
-                    box_col = 1;
-                // Map: (row, col) -> landscape index
-                // (0,0)->3, (0,1)->0, (1,0)->4, (1,1)->1, (2,0)->5, (2,1)->2
-                box_idx = box_row + (1 - box_col) * 3;
-            } else {
-                // Landscape: 3 cols x 2 rows
-                if (box_row > 1)
-                    box_row = 1;
-                if (box_col > 2)
-                    box_col = 2;
-                box_idx = box_row * 3 + box_col;
-            }
-
-            UBYTE color = colors[box_idx];
-            Paint_SetPixel(x, y, color);
+            Paint_SetPixel(x, y, Paint_CalibrationPatternColor(x, y, width, height));
         }
     }
 }
 
-void Paint_DrawGrayscaleCalibrationPattern(void)
+UBYTE Paint_GrayscaleCalibrationPatternColor(UWORD x, UWORD y, UWORD width, UWORD height)
 {
     // 16 equal bars stepping the raw GC16 hardware levels 0 (black) .. 15
     // (white). The nibble written by Paint_SetPixel IS the gray level, so this
     // shows the panel's true per-level response -- the ground truth for tuning
     // the grayscale calibration (black/white luminance + gamma) against. Bars
     // run along the longer axis so each stays a reasonable width.
+    UWORD pos = (width >= height) ? x : y;
+    UWORD bar = ((width >= height) ? width : height) / 16;
+    UBYTE level = (bar > 0) ? (UBYTE) (pos / bar) : 0;
+    if (level > 15)
+        level = 15;
+    return level;
+}
+
+void Paint_DrawGrayscaleCalibrationPattern(void)
+{
     UWORD width = Paint.Width;
     UWORD height = Paint.Height;
 
-    if (width >= height) {
-        UWORD bar = width / 16;
+    for (UWORD y = 0; y < height; y++) {
         for (UWORD x = 0; x < width; x++) {
-            UBYTE level = (bar > 0) ? (UBYTE) (x / bar) : 0;
-            if (level > 15)
-                level = 15;
-            for (UWORD y = 0; y < height; y++)
-                Paint_SetPixel(x, y, level);
-        }
-    } else {
-        UWORD bar = height / 16;
-        for (UWORD y = 0; y < height; y++) {
-            UBYTE level = (bar > 0) ? (UBYTE) (y / bar) : 0;
-            if (level > 15)
-                level = 15;
-            for (UWORD x = 0; x < width; x++)
-                Paint_SetPixel(x, y, level);
+            Paint_SetPixel(x, y, Paint_GrayscaleCalibrationPatternColor(x, y, width, height));
         }
     }
 }
