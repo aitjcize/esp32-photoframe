@@ -1,5 +1,6 @@
 #include "crash_log.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
@@ -81,7 +82,13 @@ void crash_log_capture(void)
 
     esp_core_dump_summary_t summary = {0};
     err = esp_core_dump_get_summary(&summary);
-    if (err != ESP_OK || summary.exc_bt_info.depth == 0) {
+#if CONFIG_IDF_TARGET_ARCH_RISCV
+    // RISC-V summaries carry a raw stack dump instead of a decoded backtrace
+    bool summarised = err == ESP_OK;
+#else
+    bool summarised = err == ESP_OK && summary.exc_bt_info.depth > 0;
+#endif
+    if (!summarised) {
         ESP_LOGE(TAG, "COREDUMP: %u bytes stored but could not be summarised (%s); left in flash",
                  (unsigned) size, esp_err_to_name(err));
         return;
@@ -90,18 +97,30 @@ void crash_log_capture(void)
     crash_record_t rec = {
         .version = CRASH_RECORD_VERSION,
         .pc = summary.exc_pc,
-        .bt_corrupted = summary.exc_bt_info.corrupted,
         .dump_size = size,
     };
     char details[sizeof(rec.reason)];
     if (esp_core_dump_get_panic_reason(details, sizeof(details)) != ESP_OK) {
         details[0] = '\0';
     }
+#if CONFIG_IDF_TARGET_ARCH_RISCV
+    // The exception names crash_record knows are Xtensa EXCCAUSE values, so
+    // describe a RISC-V trap by its raw CSRs, and offer the return address as
+    // the one caller frame the summary has
+    if (!details[0]) {
+        snprintf(details, sizeof(details), "mcause %u, mtval 0x%08x",
+                 (unsigned) summary.ex_info.mcause, (unsigned) summary.ex_info.mtval);
+    }
+    crash_record_set_reason(&rec, details, 0, 0);
+    rec.bt[rec.bt_depth++] = summary.ex_info.ra;
+#else
+    rec.bt_corrupted = summary.exc_bt_info.corrupted;
     crash_record_set_reason(&rec, details, summary.ex_info.exc_cause, summary.ex_info.exc_vaddr);
-    strlcpy(rec.task, summary.exc_task, sizeof(rec.task));
     for (uint32_t i = 0; i < summary.exc_bt_info.depth && i < CRASH_RECORD_BT_MAX; i++) {
         rec.bt[rec.bt_depth++] = summary.exc_bt_info.bt[i];
     }
+#endif
+    strlcpy(rec.task, summary.exc_task, sizeof(rec.task));
 
     // The dump names its own build. Only vouch for the version string when
     // that is the build running now; a reflash after a crash loop isn't.

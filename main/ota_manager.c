@@ -190,7 +190,9 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
 
     if (content_length > 0) {
         // A fixed Content-Length, read in one call.
-        response_buffer = heap_caps_malloc((size_t) content_length + 1, MALLOC_CAP_SPIRAM);
+        // PSRAM when the board has it; internal RAM otherwise
+        response_buffer = heap_caps_malloc_prefer((size_t) content_length + 1, 2, MALLOC_CAP_SPIRAM,
+                                                  MALLOC_CAP_DEFAULT);
         if (response_buffer == NULL) {
             ESP_LOGE(TAG, "Failed to allocate memory for response");
             err = ESP_ERR_NO_MEM;
@@ -210,7 +212,8 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
         // (esp_http_client_read() returns 0); the client de-chunks the body.
         size_t capacity = 4096;
         size_t total = 0;
-        response_buffer = heap_caps_malloc(capacity, MALLOC_CAP_SPIRAM);
+        response_buffer =
+            heap_caps_malloc_prefer(capacity, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
         if (response_buffer == NULL) {
             ESP_LOGE(TAG, "Failed to allocate memory for response");
             err = ESP_ERR_NO_MEM;
@@ -222,7 +225,8 @@ static esp_err_t fetch_github_release_info(char *latest_version, size_t version_
                 if (new_capacity > GITHUB_RESPONSE_MAX_LEN) {
                     new_capacity = GITHUB_RESPONSE_MAX_LEN;
                 }
-                char *grown = heap_caps_realloc(response_buffer, new_capacity, MALLOC_CAP_SPIRAM);
+                char *grown = heap_caps_realloc_prefer(response_buffer, new_capacity, 2,
+                                                       MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
                 if (grown == NULL) {
                     ESP_LOGE(TAG, "Failed to grow response buffer to %zu bytes", new_capacity);
                     err = ESP_ERR_NO_MEM;

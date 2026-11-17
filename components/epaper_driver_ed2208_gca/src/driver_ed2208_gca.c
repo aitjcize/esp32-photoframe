@@ -6,6 +6,7 @@
 #include "epaper.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "soc/soc_caps.h"
 
 #ifdef CONFIG_PM_ENABLE
 #include "esp_pm.h"
@@ -365,7 +366,10 @@ void epaper_enter_deepsleep(void)
         if (g_cfg.pin_cs1 >= 0) {
             gpio_hold_en(g_cfg.pin_cs1);
         }
+#if !SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP
+        // Chips like the C6 keep a held pad through deep sleep on their own
         gpio_deep_sleep_hold_en();
+#endif
     }
 
 #ifdef CONFIG_PM_ENABLE

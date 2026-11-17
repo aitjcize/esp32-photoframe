@@ -11,6 +11,7 @@
 #include <freertos/task.h>
 #include <nvs.h>
 #include <nvs_flash.h>
+#include <soc/soc_caps.h>
 #include <time.h>
 
 #if CONFIG_SOC_USB_SERIAL_JTAG_SUPPORTED
@@ -74,21 +75,30 @@ static const char *TAG = "power_manager";
 #define CLEAR_KEY_CAN_WAKE 1
 #endif
 
+// Pin-mask bit for a key, 0 for a key the board doesn't have (GPIO_NUM_NC is
+// -1). The inner ternary only keeps the dead shift well-defined.
+#define KEY_BIT(k) ((k) == GPIO_NUM_NC ? 0ULL : (1ULL << ((k) < 0 ? 0 : (k))))
+
 // Build the EXT1 pin mask. Keys handled by another wake unit, or that this chip
 // can't distinguish, are left out.
 static uint64_t ext1_button_mask(void)
 {
     uint64_t mask = 0;
     if (!WAKEUP_KEY_ON_EXT0 && BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC) {
-        mask |= (1ULL << BOARD_HAL_WAKEUP_KEY);
+        mask |= KEY_BIT(BOARD_HAL_WAKEUP_KEY);
     }
     if (BOARD_HAL_ROTATE_KEY != GPIO_NUM_NC) {
-        mask |= (1ULL << BOARD_HAL_ROTATE_KEY);
+        mask |= KEY_BIT(BOARD_HAL_ROTATE_KEY);
     }
     if (CLEAR_KEY_CAN_WAKE && BOARD_HAL_CLEAR_KEY != GPIO_NUM_NC) {
-        // The ternary keeps the shift well-defined when the board defines no
-        // clear key (GPIO_NUM_NC is -1); the runtime guard above skips it.
-        mask |= (1ULL << (BOARD_HAL_CLEAR_KEY < 0 ? 0 : BOARD_HAL_CLEAR_KEY));
+        mask |= KEY_BIT(BOARD_HAL_CLEAR_KEY);
+    }
+    // Only RTC/LP pads can wake the chip (GPIO0-7 on the C6); a key on any
+    // other pad works while awake but would make the whole EXT1 setup fail.
+    for (int pin = 0; pin < 64; pin++) {
+        if ((mask & (1ULL << pin)) && !esp_sleep_is_valid_wakeup_gpio((gpio_num_t) pin)) {
+            mask &= ~(1ULL << pin);
+        }
     }
     return mask;
 }
@@ -316,15 +326,15 @@ esp_err_t power_manager_init(void)
         ext1_wakeup_pin_mask = esp_sleep_get_ext1_wakeup_status();
 
         if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC &&
-            (ext1_wakeup_pin_mask & (1ULL << BOARD_HAL_WAKEUP_KEY))) {
+            (ext1_wakeup_pin_mask & KEY_BIT(BOARD_HAL_WAKEUP_KEY))) {
             wakeup_source = WAKEUP_SOURCE_BOOT_BUTTON;
             ESP_LOGI(TAG, "Wakeup caused by BOOT button (GPIO %d)", BOARD_HAL_WAKEUP_KEY);
         } else if (BOARD_HAL_ROTATE_KEY != GPIO_NUM_NC &&
-                   (ext1_wakeup_pin_mask & (1ULL << BOARD_HAL_ROTATE_KEY))) {
+                   (ext1_wakeup_pin_mask & KEY_BIT(BOARD_HAL_ROTATE_KEY))) {
             wakeup_source = WAKEUP_SOURCE_ROTATE_BUTTON;
             ESP_LOGI(TAG, "Wakeup caused by ROTATE button (GPIO %d)", BOARD_HAL_ROTATE_KEY);
         } else if (BOARD_HAL_CLEAR_KEY != GPIO_NUM_NC &&
-                   (ext1_wakeup_pin_mask & (1ULL << BOARD_HAL_CLEAR_KEY))) {
+                   (ext1_wakeup_pin_mask & KEY_BIT(BOARD_HAL_CLEAR_KEY))) {
             wakeup_source = WAKEUP_SOURCE_CLEAR_BUTTON;
             ESP_LOGI(TAG, "Wakeup caused by CLEAR button (GPIO %d)", BOARD_HAL_CLEAR_KEY);
         } else {
@@ -351,13 +361,13 @@ esp_err_t power_manager_init(void)
     // Configure button GPIOs as input with pull-ups
     uint64_t pin_mask = 0;
     if (BOARD_HAL_WAKEUP_KEY != GPIO_NUM_NC) {
-        pin_mask |= (1ULL << BOARD_HAL_WAKEUP_KEY);
+        pin_mask |= KEY_BIT(BOARD_HAL_WAKEUP_KEY);
     }
     if (BOARD_HAL_ROTATE_KEY != GPIO_NUM_NC) {
-        pin_mask |= (1ULL << BOARD_HAL_ROTATE_KEY);
+        pin_mask |= KEY_BIT(BOARD_HAL_ROTATE_KEY);
     }
     if (BOARD_HAL_CLEAR_KEY != GPIO_NUM_NC) {
-        pin_mask |= (1ULL << (BOARD_HAL_CLEAR_KEY < 0 ? 0 : BOARD_HAL_CLEAR_KEY));
+        pin_mask |= KEY_BIT(BOARD_HAL_CLEAR_KEY);
     }
 
     if (pin_mask != 0) {
@@ -391,7 +401,10 @@ esp_err_t power_manager_init(void)
         if (BOARD_HAL_CLEAR_KEY != GPIO_NUM_NC) {
             gpio_hold_en(BOARD_HAL_CLEAR_KEY);
         }
+#if !SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP
+        // Chips like the C6 keep a held pad through deep sleep on their own
         gpio_deep_sleep_hold_en();
+#endif
 #endif
     }
 

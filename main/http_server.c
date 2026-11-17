@@ -2331,7 +2331,8 @@ static char *recv_settings_body(httpd_req_t *req)
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Request body missing or too large");
         return NULL;
     }
-    char *buf = heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM);
+    // PSRAM when the board has it; internal RAM otherwise (8 KB at most)
+    char *buf = heap_caps_malloc_prefer(len + 1, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
     if (!buf) {
         httpd_resp_send_500(req);
         return NULL;
