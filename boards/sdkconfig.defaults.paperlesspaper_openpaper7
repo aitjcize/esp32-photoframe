@@ -1,0 +1,44 @@
+# paperlesspaper OpenPaper 7 (7.3" Spectra 6, ESP32-C6-MINI-1-N4)
+CONFIG_BOARD_DRIVER_PAPERLESSPAPER_OPENPAPER7=y
+
+# Target chip. build.py also passes -DIDF_TARGET=esp32c6 so idf.py picks the
+# target up before it reads the defaults files.
+CONFIG_IDF_TARGET="esp32c6"
+
+# Flash: the module's 4MB holds only the bootloader, partition table and the
+# two OTA app slots (scripts/generate_partitions.py). Photos live on the
+# external 16MB SPI flash, which the board HAL registers as the "storage"
+# partition.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_USE_INTERNAL_FLASH_STORAGE=y
+CONFIG_STORAGE_ON_EXTERNAL_FLASH=y
+
+# No PSRAM on the C6. The global sdkconfig.defaults sets the ESP32-S3 PSRAM
+# options; kconfgen warns about the unknown symbols and ignores them.
+CONFIG_SPIRAM=n
+
+# Each OTA slot is ~1.9MB, so build for size.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# The console is UART0 behind the board's CP2102N USB-serial bridge.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# WiFi features the firmware never uses, dropped to fit the OTA slot: no
+# WPA2/3-Enterprise credentials can be configured, the provisioning AP is
+# open, and OWE (Enhanced Open) networks are not offered as a choice.
+CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT=n
+CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT=n
+CONFIG_ESP_WIFI_ENABLE_WPA3_OWE_STA=n
+
+# Internal RAM is the only RAM: keep WiFi, lwIP and FreeRTOS code in flash
+# instead of IRAM (~40 KB more heap; the image grows by nothing, since IRAM
+# code is stored in flash anyway). Costs some network throughput, which a
+# photo frame doesn't notice.
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_EXTRA_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_LWIP_IRAM_OPTIMIZATION=n
+CONFIG_LWIP_EXTRA_IRAM_OPTIMIZATION=n
+CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y

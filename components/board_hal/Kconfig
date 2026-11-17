@@ -103,11 +103,22 @@ menu "Board Configuration"
                 slot on the same SPI bus as the IT8951.
                 v1.0 is electrically identical and works with this driver too.
 
+        config BOARD_DRIVER_PAPERLESSPAPER_OPENPAPER7
+            bool "paperlesspaper OpenPaper 7 (7.3\" Spectra 6, ESP32-C6)"
+            select EP_DRIVER_ED2208_GCA
+            help
+                Driver for the paperlesspaper OpenPaper 7 (Paper 7, PCB V2): an
+                ESP32-C6-MINI-1-N4 (4MB flash, no PSRAM) driving a 7.3" Spectra 6
+                panel (GDEP073E01). Photos are stored on the board's external
+                16MB W25Q128 SPI flash. Battery is 4x NiMH behind a BQ25172
+                charger; USB presence comes from a FUSB303 USB-C controller.
+                No external RTC, no temperature sensor.
+
     endchoice
 
     config USE_INTERNAL_FLASH_STORAGE
         bool "Use internal flash as storage (LittleFS)"
-        default y if BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02 || BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE03 || BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE04 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1004
+        default y if BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE02 || BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE03 || BOARD_DRIVER_SEEEDSTUDIO_XIAO_EE04 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1002 || BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1004 || BOARD_DRIVER_PAPERLESSPAPER_OPENPAPER7
         default n
         help
             Mounts a LittleFS partition from internal flash to use as storage.
@@ -115,5 +126,15 @@ menu "Board Configuration"
             and you don't have enough space for a storage partition.
             If disabled, the system will use a small RAM-based filesystem (MemFS)
             for temporary image processing instead.
+
+    config STORAGE_ON_EXTERNAL_FLASH
+        bool "Storage partition lives on an external SPI flash"
+        depends on USE_INTERNAL_FLASH_STORAGE
+        default y if BOARD_DRIVER_PAPERLESSPAPER_OPENPAPER7
+        default n
+        help
+            The board HAL registers an external SPI flash chip as the "storage"
+            partition, so the partition table carries none and the LittleFS
+            code mounts the external chip instead.
 
 endmenu

@@ -52,6 +52,9 @@ cd ..
 # M5Stack M5Paper v1.0/v1.1 (4.7" 16-level grayscale, ESP32 — not S3)
 ./build.py --board m5stack_m5paper_v11
 
+# paperlesspaper OpenPaper 7 (7.3" 6-color, ESP32-C6 — no PSRAM, 4MB flash)
+./build.py --board paperlesspaper_openpaper7
+
 # Clean build (optional)
 ./build.py --board waveshare_photopainter_73 --fullclean
 ```
@@ -60,7 +63,8 @@ The script automatically:
 1. Builds the frontend webapp (`webapp/`)
 2. Sets the correct `sdkconfig.defaults` for the selected board
 3. Passes the board's target chip via `-DIDF_TARGET` (`esp32s3` for every board
-   except the M5Paper, which is a plain `esp32`)
+   except the M5Paper, which is a plain `esp32`, and the OpenPaper 7, an
+   `esp32c6`)
 4. Runs `idf.py build` OR `idf.py build` with correct options
 
 ### 3. Flash and Monitor
@@ -196,7 +200,8 @@ To turn the addresses into source lines:
    ```
 3. Resolve the PC and backtrace with the ESP-IDF toolchain (after
    `. $IDF_PATH/export.sh`). Use `xtensa-esp32-elf-addr2line` for the M5Paper,
-   which is a plain ESP32:
+   which is a plain ESP32, and `riscv32-esp-elf-addr2line` for the OpenPaper 7
+   (ESP32-C6, whose record carries the PC and the return address only):
    ```bash
    xtensa-esp32s3-elf-addr2line -pfiaC -e seeedstudio_xiao_ee02-v2.20.1.elf 0x4201a2b3 0x4201c3d4 0x4037a1b2
    ```

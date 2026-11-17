@@ -1,6 +1,6 @@
 # ESP32 PhotoFrame
 
-A modern, feature-rich firmware for ESP32-based e-paper photo frames (currently supporting **Waveshare PhotoPainter**, **Seeed Studio XIAO EE02/EE03/EE04**, **Seeed Studio reTerminal E1002/E1003/E1004**, and **M5Stack M5Paper**). This firmware replaces stock firmware with a powerful RESTful API, web interface, and **significantly better image quality**.
+A modern, feature-rich firmware for ESP32-based e-paper photo frames (currently supporting **Waveshare PhotoPainter**, **Seeed Studio XIAO EE02/EE03/EE04**, **Seeed Studio reTerminal E1002/E1003/E1004**, **M5Stack M5Paper**, and **paperlesspaper OpenPaper 7** (experimental)). This firmware replaces stock firmware with a powerful RESTful API, web interface, and **significantly better image quality**.
 
 ![PhotoFrame](.img/esp32-photoframe.png)
 
@@ -116,10 +116,19 @@ Configure your API keys in **Settings > AI Generation**.
 | [Seeed Studio reTerminal E1003](https://www.seeedstudio.com/reTerminal-E1003-p-6731.html) | 10.3" 16-level grayscale | SD card (SPI) + Internal flash | `seeedstudio_reterminal_e1003` |
 | [Seeed Studio reTerminal E1004](https://www.seeedstudio.com/reTerminal-E1004-p-6692.html) | 13.3" 6-color | SD card (SPI) + Internal flash | `seeedstudio_reterminal_e1004` |
 | [M5Stack M5Paper v1.1](https://docs.m5stack.com/en/core/m5paper_v1.1) | 4.7" 16-level grayscale | SD card (SPI) | `m5stack_m5paper_v11` |
+| [paperlesspaper OpenPaper 7](https://paperlesspaper.de/en/buy-7-inch-epaper-picture-frame) (experimental) | 7.3" 6-color | External SPI flash (16MB) | `paperlesspaper_openpaper7` |
 
 The reTerminal E1002, E1003, and E1004 also include a SHT40 temperature/humidity sensor, PCF8563 RTC, and battery monitoring. The XIAO EE03 has a SHT40 sensor and battery monitoring as well (but no RTC). The M5Paper has an SHT30 sensor, a BM8563 RTC, and battery monitoring.
 
 > **M5Paper note:** this is the only supported board built on the original **ESP32** rather than an ESP32-S3, so its firmware is a separate binary — flash `m5stack_m5paper_v11` and nothing else to it. The **v1.0** and **v1.1** revisions are electrically identical (v1.1 only swapped the rigid panel for a flexible one), so the same firmware runs on both. The touchscreen is not used by this firmware.
+
+> **OpenPaper 7 note (experimental):** support was ported from the [paperlesspaper reference firmware](https://github.com/paperlesspaper/paperlesspaper-firmware) and [hardware files](https://github.com/paperlesspaper/paperlesspaper-hardware) (Paper 7, PCB V2) and has not yet been verified on the device. The board is an **ESP32-C6** with no PSRAM and 4MB flash, so its firmware is a separate binary, photos live on the board's 16MB external flash, and pictures stream to the panel row by row instead of through a frame buffer. It shows **pre-processed images only**: images processed by the web UI, the photoframe server or the Home Assistant integration work, but the frame cannot convert a raw JPEG or an unprocessed PNG itself. There is no RTC (the time comes from NTP) and no temperature sensor. The frame charges its four AAA NiMH cells over USB-C (rechargeable NiMH cells only, never alkaline). Charging runs while USB power is present; a cable plugged in while the frame sleeps starts charging at its next wake. The battery percentage is estimated from the pack voltage and is approximate. The 13.3" OpenPaper L is not supported yet.
+>
+> **Back up the stock firmware first.** The paperlesspaper firmware keeps the frame's device-specific cloud certificates in internal flash, and only paperlesspaper support can issue them again. Flashing this firmware erases them, and the photos on the external flash are reformatted on first boot. To be able to go back, save the whole internal flash before flashing (hold the small button while pressing the large one to enter download mode):
+> ```bash
+> esptool.py --chip esp32c6 --port /dev/ttyUSB0 read_flash 0 0x400000 openpaper7-stock-backup.bin
+> ```
+> Restore it later with `esptool.py --chip esp32c6 --port /dev/ttyUSB0 write_flash 0 openpaper7-stock-backup.bin`.
 
 ### Button Functions
 
@@ -127,11 +136,11 @@ Buttons behave differently depending on whether the device is awake (web UI acce
 
 **When in deep sleep:**
 
-| Button | Waveshare PhotoPainter | XIAO EE02 / EE03 / EE04 | reTerminal E1002 | reTerminal E1003 | reTerminal E1004 | M5Paper |
-|--------|----------------------|-------------------|------------------|------------------|------------------|---------|
-| **Wake** | BOOT button | Button 3 | Green button | Refresh button | Refresh button | Centre (push) button |
-| **Rotate** | KEY button | Button 1 | Left button | Left button | Right button | Left button |
-| **Clear** | N/A | Button 2 | Right button | Right button | Left button | N/A (awake only) |
+| Button | Waveshare PhotoPainter | XIAO EE02 / EE03 / EE04 | reTerminal E1002 | reTerminal E1003 | reTerminal E1004 | M5Paper | OpenPaper 7 |
+|--------|----------------------|-------------------|------------------|------------------|------------------|---------|-------------|
+| **Wake** | BOOT button | Button 3 | Green button | Refresh button | Refresh button | Centre (push) button | Large button (resets the frame) |
+| **Rotate** | KEY button | Button 1 | Left button | Left button | Right button | Left button | N/A (small button, awake only) |
+| **Clear** | N/A | Button 2 | Right button | Right button | Left button | N/A (awake only) | N/A |
 
 - **Wake**: Wakes the device and starts the web UI / HTTP server (stays awake)
 - **Rotate**: Wakes the device, rotates to the next image, then goes back to sleep
@@ -152,6 +161,7 @@ Boards with larger flash chips (XIAO EE02/EE03/EE04, reTerminal E1002/E1004) use
 - **PhotoPainter Restarts**: All existing Waveshare PhotoPainter boards on the market use the AXP2101 power management IC, which causes unexplained restarts when connected to both Type-C and a lithium battery simultaneously. **Workaround:** use either USB power only or battery only. Using both at the same time may cause frequent firmware restarts due to unstable power supply. Waveshare has confirmed this issue and future boards will ship with TG28 as a replacement, which will not have this problem. See [waveshareteam/ESP32-S3-PhotoPainter#5](https://github.com/waveshareteam/ESP32-S3-PhotoPainter/issues/5#issuecomment-3876269519) for details.
 - **M5Paper Deep Sleep & USB Power**: the M5Paper routes no USB VBUS signal to a GPIO and has no I2C charger to ask, so the firmware cannot tell whether it is on USB power and will keep going to sleep on its auto-sleep timer while plugged in. **Workaround:** disable deep sleep in **Settings > General** if you want the device always reachable on USB.
 - **M5Paper Clear Button**: the original ESP32's wake logic can only distinguish two buttons out of deep sleep (its EXT1 unit cannot match "any of several pins low", so the wake button uses EXT0 and the rotate button uses EXT1). The right-hand **Clear** button therefore only works while the device is awake; press the centre button first to wake it.
+- **OpenPaper 7 Buttons**: the large button is wired to the chip's reset line, so pressing it restarts the frame, which then comes up with WiFi and the web UI like a wake press on other boards. The small button sits on a pin the ESP32-C6 cannot wake from, so it only rotates the image while the frame is awake. Holding the small button while pressing the large one enters the USB download mode for flashing.
 - **Seeed Studio Deep Sleep & USB Power**: The XIAO EE02, EE03, and EE04 can only detect USB connections from a **PC** (via USB-Serial-JTAG SOF packets); chargers and power banks will **not** keep them awake (these boards do not route USB VBUS to an ESP32 GPIO). The same applies to **reTerminal E1002 hardware revisions earlier than V1.2**, which use the non-I2C **ETA6003** charger. The reTerminal **E1002 V1.2+** (which switched to the **SY6974B** charger) **and the E1004** read the SY6974B's power-good status over I2C, so they detect *any* USB/charger/power-bank input and stay awake on external power automatically — no workaround needed. The Waveshare PhotoPainter likewise detects USB power via its AXP2101 PMIC. **Workaround (XIAO EE02/EE03/EE04, and E1002 boards older than V1.2):** if you want the device always accessible while powered by a charger or power bank, disable deep sleep in **Settings > General**.
 
 ## Installation
@@ -165,11 +175,14 @@ Boards with larger flash chips (XIAO EE02/EE03/EE04, reTerminal E1002/E1004) use
 Download the merged binary for your board from [Releases](https://github.com/aitjcize/esp32-photoframe/releases):
 
 ```bash
-# ESP32-S3 boards (everything except the M5Paper)
+# ESP32-S3 boards (everything except the M5Paper and OpenPaper 7)
 esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 photoframe-firmware-<board>-merged.bin
 
 # M5Stack M5Paper (ESP32)
 esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 photoframe-firmware-m5stack_m5paper_v11-merged.bin
+
+# paperlesspaper OpenPaper 7 (ESP32-C6)
+esptool.py --chip esp32c6 --port /dev/ttyUSB0 --baud 921600 write_flash 0x0 photoframe-firmware-paperlesspaper_openpaper7-merged.bin
 ```
 
 **Device not detected?** Hold BOOT button + press PWR to enter download mode.
@@ -202,6 +215,9 @@ We provide a `build.py` helper script to simplify building for different boards.
 
 # Build for M5Stack M5Paper v1.0/v1.1 (4.7" 16-level grayscale e-paper, ESP32)
 ./build.py --board m5stack_m5paper_v11
+
+# Build for paperlesspaper OpenPaper 7 (7.3" 6-color e-paper, ESP32-C6)
+./build.py --board paperlesspaper_openpaper7
 
 # Flash the firmware
 idf.py -p /dev/ttyUSB0 flash monitor

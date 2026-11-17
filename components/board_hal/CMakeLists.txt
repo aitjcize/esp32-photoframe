@@ -9,6 +9,8 @@ set(PRIV_REQS
     epaper_driver_it8951
     esp_driver_i2c
     esp_driver_spi
+    esp_partition
+    spi_flash
     pmic_driver_axp2101
     rtc_driver_pcf85063
     rtc_driver_pcf8563
@@ -34,6 +36,8 @@ elseif(CONFIG_BOARD_DRIVER_SEEEDSTUDIO_RETERMINAL_E1004)
     list(APPEND SRCS "src/driver_seeedstudio_reterminal_e1004.c")
 elseif(CONFIG_BOARD_DRIVER_M5STACK_M5PAPER_V11)
     list(APPEND SRCS "src/driver_m5stack_m5paper_v11.c")
+elseif(CONFIG_BOARD_DRIVER_PAPERLESSPAPER_OPENPAPER7)
+    list(APPEND SRCS "src/driver_paperlesspaper_openpaper7.c")
 endif()
 
 idf_component_register(

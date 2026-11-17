@@ -16,8 +16,9 @@ BOARD_DIMENSIONS = {b["id"]: tuple(b["resolution"]) for b in BOARDS}
 # the default). Used to pick the dithering palette for splash generation, etc.
 BOARD_DISPLAY_TYPE = {b["id"]: b.get("display_type", "spectra6") for b in BOARDS}
 
-# ESP-IDF target chip per board. All boards are ESP32-S3 except the M5Paper,
-# which is a plain ESP32 (ESP32-D0WDQ6-V3). Used to pass -DIDF_TARGET to
+# ESP-IDF target chip per board. Boards are ESP32-S3 unless boards.json says
+# otherwise: the M5Paper is a plain ESP32 (ESP32-D0WDQ6-V3) and the OpenPaper 7
+# an ESP32-C6. Used to pass -DIDF_TARGET to
 # idf.py and to pick the esptool --chip / bootloader offset.
 BOARD_TARGET = {b["id"]: b.get("target", "esp32s3") for b in BOARDS}
 
@@ -25,7 +26,7 @@ BOARD_TARGET = {b["id"]: b.get("target", "esp32s3") for b in BOARDS}
 _BOOTLOADER_OFFSET = {"esp32": "0x1000"}
 
 # ESP Web Tools chipFamily string per IDF target.
-_CHIP_FAMILY = {"esp32": "ESP32", "esp32s3": "ESP32-S3"}
+_CHIP_FAMILY = {"esp32": "ESP32", "esp32c6": "ESP32-C6", "esp32s3": "ESP32-S3"}
 
 
 def board_chip_family(board):

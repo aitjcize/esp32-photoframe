@@ -2,7 +2,8 @@
 """
 Generate partitions.csv for ESP32 PhotoFrame based on sdkconfig settings.
 
-Reads CONFIG_USE_INTERNAL_FLASH_STORAGE and CONFIG_ESPTOOLPY_FLASHSIZE_*
+Reads CONFIG_USE_INTERNAL_FLASH_STORAGE, CONFIG_STORAGE_ON_EXTERNAL_FLASH and
+CONFIG_ESPTOOLPY_FLASHSIZE_*
 from one or more config files to determine the appropriate partition layout.
 
 Usage:
@@ -13,6 +14,7 @@ import argparse
 import sys
 
 FLASH_SIZE_MAP = {
+    "CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y": 4,
     "CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y": 8,
     "CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y": 16,
     "CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y": 32,
@@ -35,6 +37,7 @@ coredump, data, coredump,0x12000, 0xe000,
 
 def parse_config_files(paths):
     use_internal_flash = False
+    external_storage = False
     flash_size_mb = 16  # default
 
     for path in paths:
@@ -44,18 +47,35 @@ def parse_config_files(paths):
                     line = line.strip()
                     if line == "CONFIG_USE_INTERNAL_FLASH_STORAGE=y":
                         use_internal_flash = True
+                    elif line == "CONFIG_STORAGE_ON_EXTERNAL_FLASH=y":
+                        external_storage = True
                     elif line in FLASH_SIZE_MAP:
                         flash_size_mb = FLASH_SIZE_MAP[line]
         except FileNotFoundError:
             print(f"Warning: config file not found: {path}", file=sys.stderr)
 
-    return use_internal_flash, flash_size_mb
+    return use_internal_flash, external_storage, flash_size_mb
 
 
-def generate_csv(use_internal_flash, flash_size_mb):
+def generate_csv(use_internal_flash, external_storage, flash_size_mb):
     csv = HEADER
 
-    if use_internal_flash:
+    if external_storage:
+        # The board HAL registers an external SPI flash as the storage
+        # partition, so the internal flash is all app: two OTA slots filling
+        # it from 0x20000, each on a 64 KiB boundary.
+        ota_size = ((flash_size_mb * 1024 * 1024 - 0x20000) // 2) & ~0xFFFF
+        ota_1_offset = 0x20000 + ota_size
+        csv += (
+            f"ota_0,    app,  ota_0,   0x20000,  {ota_size:#010x},\n"
+            f"ota_1,    app,  ota_1,   {ota_1_offset:#010x},{ota_size:#010x},\n"
+        )
+        print(
+            f"Partition table: storage on external flash "
+            f"({flash_size_mb}MB flash, OTA size: {ota_size:#010x})",
+            file=sys.stderr,
+        )
+    elif use_internal_flash:
         if flash_size_mb == 8:
             stg_offset = 0x520000
             csv += (
@@ -111,8 +131,10 @@ def main():
     parser.add_argument("--output", required=True, help="Path to write partitions.csv")
     args = parser.parse_args()
 
-    use_internal_flash, flash_size_mb = parse_config_files(args.sdkconfig)
-    csv = generate_csv(use_internal_flash, flash_size_mb)
+    use_internal_flash, external_storage, flash_size_mb = parse_config_files(
+        args.sdkconfig
+    )
+    csv = generate_csv(use_internal_flash, external_storage, flash_size_mb)
 
     with open(args.output, "w") as f:
         f.write(csv)

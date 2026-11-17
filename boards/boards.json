@@ -66,5 +66,14 @@
     "target": "esp32",
     "storage": "SD card (SPI)",
     "url": "https://docs.m5stack.com/en/core/m5paper_v1.1"
+  },
+  {
+    "id": "paperlesspaper_openpaper7",
+    "label": "paperlesspaper OpenPaper 7",
+    "display": "7.3\" 6-color",
+    "resolution": [800, 480],
+    "target": "esp32c6",
+    "storage": "External SPI flash",
+    "url": "https://paperlesspaper.de/en/buy-7-inch-epaper-picture-frame"
   }
 ]
