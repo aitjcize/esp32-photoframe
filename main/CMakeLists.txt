@@ -11,6 +11,7 @@ set(SOURCES
     "dns_server.c"
     "ha_integration.c"
     "http_server.c"
+    "image_pick.c"
     "image_processor.c"
     "jpeg_header.c"
     "main.c"

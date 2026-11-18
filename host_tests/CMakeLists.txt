@@ -77,6 +77,25 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/../main
 )
 
+# Random rotation picks during the album walk instead of listing every path (#165)
+add_executable(
+  image_pick_test
+  test_image_pick.cpp
+  ../main/image_pick.c
+)
+
+target_link_libraries(
+  image_pick_test
+  GTest::gtest_main
+)
+
+target_include_directories(
+  image_pick_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
 # HTTP Basic credential checking for the optional device API password (#130)
 add_executable(
   http_auth_test
@@ -177,6 +196,7 @@ gtest_discover_tests(cron_test)
 gtest_discover_tests(wake_schedule_test)
 gtest_discover_tests(http_auth_test)
 gtest_discover_tests(network_backoff_test)
+gtest_discover_tests(image_pick_test)
 gtest_discover_tests(crash_record_test)
 gtest_discover_tests(wifi_retry_test)
 gtest_discover_tests(jpeg_header_test)

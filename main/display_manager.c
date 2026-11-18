@@ -23,6 +23,7 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "image_pick.h"
 #include "nvs.h"
 #include "storage.h"
 #include "utils.h"
@@ -709,12 +710,10 @@ static void rotate_sequential(char **enabled_albums, int album_count)
     }
 }
 
-static void rotate_random(char **enabled_albums, int album_count)
+// Offer every image in the enabled albums to the picker, in directory order
+static void offer_album_images(char **enabled_albums, int album_count, image_pick_t *pick)
 {
-    ESP_LOGI(TAG, "Random rotation mode");
-
-    // Count total images across all enabled albums
-    int total_image_count = 0;
+    char fullpath[IMAGE_PICK_PATH_MAX];
     for (int i = 0; i < album_count; i++) {
         char album_path[256];
         album_manager_get_album_path(enabled_albums[i], album_path, sizeof(album_path));
@@ -727,137 +726,87 @@ static void rotate_random(char **enabled_albums, int album_count)
 
         struct dirent *entry;
         while ((entry = readdir(dir)) != NULL) {
-            if (entry->d_type == DT_REG) {
-                if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
-                    continue;
-                }
-                const char *ext = strrchr(entry->d_name, '.');
-                if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
-                            strcasecmp(ext, ".epdgz") == 0)) {
-                    total_image_count++;
-                }
+            if (entry->d_type != DT_REG) {
+                continue;
+            }
+            if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
+                continue;
+            }
+            const char *ext = strrchr(entry->d_name, '.');
+            if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
+                        strcasecmp(ext, ".epdgz") == 0)) {
+                snprintf(fullpath, sizeof(fullpath), "%s/%s", album_path, entry->d_name);
+                image_pick_offer(pick, fullpath, esp_random());
             }
         }
         closedir(dir);
     }
+}
 
-    if (total_image_count == 0) {
-        ESP_LOGW(TAG, "No images found in enabled albums");
-        return;
-    }
-
-    // Build image list with absolute paths from all enabled albums
-    char **image_list = malloc(total_image_count * sizeof(char *));
-    if (!image_list) {
-        ESP_LOGE(TAG, "Failed to allocate image list");
-        return;
-    }
-    int idx = 0;
-
-    for (int i = 0; i < album_count; i++) {
-        char album_path[256];
-        album_manager_get_album_path(enabled_albums[i], album_path, sizeof(album_path));
-
-        DIR *dir = opendir(album_path);
-        if (!dir) {
-            continue;
-        }
-
-        struct dirent *entry;
-        while ((entry = readdir(dir)) != NULL && idx < total_image_count) {
-            if (entry->d_type == DT_REG) {
-                if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
-                    continue;
-                }
-
-                const char *ext = strrchr(entry->d_name, '.');
-                if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
-                            strcasecmp(ext, ".epdgz") == 0)) {
-                    char *fullpath = malloc(512);
-                    if (!fullpath) {
-                        ESP_LOGE(TAG, "Failed to allocate path buffer");
-                        continue;
-                    }
-                    snprintf(fullpath, 512, "%s/%s", album_path, entry->d_name);
-                    image_list[idx] = fullpath;
-                    idx++;
-                }
-            }
-        }
-        closedir(dir);
-    }
-
-    // Update total_image_count to actual number of images found
-    total_image_count = idx;
-
-    if (total_image_count == 0) {
-        ESP_LOGW(TAG, "No displayable images found in enabled albums");
-        free(image_list);
-        return;
-    }
+static void rotate_random(char **enabled_albums, int album_count)
+{
+    ESP_LOGI(TAG, "Random rotation mode");
 
     // Load last displayed image if not already loaded
     if (last_displayed_image[0] == '\0') {
         load_last_displayed_image();
     }
 
-    // Select random image, avoiding the last displayed image if possible
-    int random_index = esp_random() % total_image_count;
-
-    // If we have more than one image and the random selection matches the last image,
-    // try to pick a different one (up to 10 attempts)
-    if (total_image_count > 1 && last_displayed_image[0] != '\0') {
-        int attempts = 0;
-        while (attempts < 10 && strcmp(image_list[random_index], last_displayed_image) == 0) {
-            random_index = esp_random() % total_image_count;
-            attempts++;
-        }
-
-        if (strcmp(image_list[random_index], last_displayed_image) == 0) {
-            ESP_LOGW(TAG, "Could not avoid repeating last image after 10 attempts");
-        } else {
-            ESP_LOGI(TAG, "Successfully avoided repeating last image");
-        }
+    // The image is picked during the album walk, so this needs the same memory
+    // for 10 images or 1000. (A list of every path, one small allocation each,
+    // used to fill internal RAM on a few hundred images and then fail every
+    // display, #165.) On the heap, since this runs on the 6 KB main task too.
+    struct {
+        image_pick_t pick;
+        char failed[IMAGE_PICK_PATH_MAX];
+    } *state = malloc(sizeof(*state));
+    if (!state) {
+        ESP_LOGE(TAG, "Failed to allocate random rotation state");
+        return;
     }
 
-    // Display random image
-    ESP_LOGI(TAG, "Auto-rotate: Displaying random image %d/%d: %s", random_index + 1,
-             total_image_count, image_list[random_index]);
-    esp_err_t shown = display_manager_show_image(image_list[random_index]);
+    // Avoid repeating the image on the panel unless it is the only one
+    image_pick_init(&state->pick, last_displayed_image, NULL);
+    offer_album_images(enabled_albums, album_count, &state->pick);
+    const char *chosen = image_pick_finish(&state->pick);
+    if (!chosen) {
+        ESP_LOGW(TAG, "No images found in enabled albums");
+        free(state);
+        return;
+    }
+
+    ESP_LOGI(TAG, "Auto-rotate: Displaying random image, picked from %lu: %s",
+             (unsigned long) state->pick.candidates, chosen);
+    esp_err_t shown = display_manager_show_image(chosen);
     if (shown == ESP_OK) {
         // Store the displayed image filename in NVS
-        save_last_displayed_image(image_list[random_index]);
+        save_last_displayed_image(chosen);
     } else if (shown == ESP_ERR_TIMEOUT) {
         // The panel is busy with something else; another file would only
         // wait on the same lock again.
         ESP_LOGE(TAG, "Display busy; giving up this rotation");
     } else {
-        ESP_LOGW(TAG, "Failed to display %s, trying a different image instead",
-                 image_list[random_index]);
+        ESP_LOGW(TAG, "Failed to display %s, trying a different image instead", chosen);
         // Recovery from a transient read glitch (e.g. a flaky SD-card access
         // on just this one file), not a retry loop: exactly one different
         // image from the same candidate pool, and give up for this rotation if
         // that fails too; the next scheduled rotation tries fresh either way.
-        int retry_index = (total_image_count > 1) ? random_index : -1;
-        while (retry_index == random_index && total_image_count > 1) {
-            retry_index = (int) (esp_random() % total_image_count);
-        }
-        if (retry_index < 0 || display_manager_show_image(image_list[retry_index]) != ESP_OK) {
+        strncpy(state->failed, chosen, sizeof(state->failed) - 1);
+        state->failed[sizeof(state->failed) - 1] = '\0';
+        image_pick_init(&state->pick, last_displayed_image, state->failed);
+        offer_album_images(enabled_albums, album_count, &state->pick);
+        const char *retry = image_pick_finish(&state->pick);
+        if (!retry || display_manager_show_image(retry) != ESP_OK) {
             ESP_LOGE(TAG,
                      "Auto-rotate: replacement image also failed to display; giving up "
                      "for this rotation");
         } else {
-            ESP_LOGI(TAG, "Auto-rotate: recovered by displaying %s instead",
-                     image_list[retry_index]);
-            save_last_displayed_image(image_list[retry_index]);
+            ESP_LOGI(TAG, "Auto-rotate: recovered by displaying %s instead", retry);
+            save_last_displayed_image(retry);
         }
     }
 
-    // Free image list
-    for (int i = 0; i < total_image_count; i++) {
-        free(image_list[i]);
-    }
-    free(image_list);
+    free(state);
 }
 
 void display_manager_rotate_from_storage(void)
