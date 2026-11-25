@@ -414,6 +414,12 @@ esp_err_t apply_config_from_json(cJSON *root, bool from_remote)
         }
     }
 
+    // Applied at the next refresh; the frame buffer itself is never mirrored
+    item = cJSON_GetObjectItem(root, "display_mirror");
+    if (item && cJSON_IsBool(item)) {
+        config_manager_set_display_mirror(cJSON_IsTrue(item));
+    }
+
     // Auto Rotate
     item = cJSON_GetObjectItem(root, "auto_rotate");
     if (item && cJSON_IsBool(item)) {

@@ -44,6 +44,9 @@ display_orientation_t config_manager_get_display_orientation(void);
 void config_manager_set_display_rotation_deg(int rotation_deg);
 int config_manager_get_display_rotation_deg(void);
 
+void config_manager_set_display_mirror(bool enabled);
+bool config_manager_get_display_mirror(void);
+
 void config_manager_set_wifi_ssid(const char *ssid);
 const char *config_manager_get_wifi_ssid(void);
 

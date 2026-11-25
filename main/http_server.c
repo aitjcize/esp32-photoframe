@@ -1572,6 +1572,7 @@ static esp_err_t config_handler(httpd_req_t *req)
                                                                                       : "portrait");
         cJSON_AddNumberToObject(root, "display_rotation_deg",
                                 config_manager_get_display_rotation_deg());
+        cJSON_AddBoolToObject(root, "display_mirror", config_manager_get_display_mirror());
 
         // Auto Rotate
         cJSON_AddBoolToObject(root, "auto_rotate", config_manager_get_auto_rotate());

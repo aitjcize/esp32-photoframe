@@ -34,6 +34,7 @@ export const useSettingsStore = defineStore("settings", () => {
     dnsServer: "",
     displayOrientation: "landscape",
     displayRotationDeg: 180,
+    displayMirror: false,
     wifiSsid: "",
     wifiPassword: "",
     // Auto Rotate
@@ -208,6 +209,7 @@ export const useSettingsStore = defineStore("settings", () => {
           : ["0 */12 *"];
 
       deviceSettings.value.displayRotationDeg = data.display_rotation_deg ?? 180;
+      deviceSettings.value.displayMirror = data.display_mirror === true;
       deviceSettings.value.imageUrl = data.image_url || "https://loremflickr.com/800/480";
       deviceSettings.value.caCertSet = data.ca_cert_set || false;
       deviceSettings.value.lastFetchError = data.last_fetch_error || "";
@@ -281,6 +283,7 @@ export const useSettingsStore = defineStore("settings", () => {
       auto_rotate: deviceSettings.value.autoRotate,
       rotate_cron: deviceSettings.value.rotateCron,
       display_rotation_deg: deviceSettings.value.displayRotationDeg,
+      display_mirror: deviceSettings.value.displayMirror,
       rotation_mode: deviceSettings.value.rotationMode,
       sd_rotation_mode: deviceSettings.value.sdRotationMode,
       image_url: deviceSettings.value.imageUrl,

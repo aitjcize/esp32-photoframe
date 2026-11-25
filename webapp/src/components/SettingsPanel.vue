@@ -701,8 +701,9 @@ async function performFactoryReset() {
                 </v-expand-transition>
               </v-col>
             </v-row>
-            <!-- Advanced (#43, #130): collapsed by default — NTP, static IP, DNS
-                 override and the device password are tinkerer territory. -->
+            <!-- Advanced (#43, #130, #161): collapsed by default — NTP, static IP,
+                 DNS override, the device password and mirroring the panel are
+                 tinkerer territory. -->
             <v-expansion-panels class="mt-2" variant="accordion">
               <v-expansion-panel title="Advanced" elevation="0">
                 <v-expansion-panel-text>
@@ -811,6 +812,14 @@ async function performFactoryReset() {
                     it guards against casual access on a shared network, not against someone who can
                     capture your traffic.
                   </v-alert>
+                  <v-switch
+                    v-model="settingsStore.deviceSettings.displayMirror"
+                    label="Mirror the picture left to right"
+                    color="primary"
+                    class="mt-6"
+                    hint="Turn on if text on the screen reads backwards, e.g. with a replacement panel that scans the other way from the one this board was built for. Applies from the next refresh."
+                    persistent-hint
+                  />
                 </v-expansion-panel-text>
               </v-expansion-panel>
             </v-expansion-panels>

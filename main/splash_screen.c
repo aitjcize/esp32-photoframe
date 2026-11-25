@@ -5,6 +5,7 @@
 #include <zlib.h>
 
 #include "board_hal.h"
+#include "display_manager.h"
 #include "epaper.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -222,7 +223,7 @@ esp_err_t splash_screen_display(void)
 
     // Display on e-paper
     ESP_LOGI(TAG, "Displaying splash screen");
-    epaper_display(epd_buffer);
+    display_manager_refresh_panel(epd_buffer);
 
     heap_caps_free(epd_buffer);
     ESP_LOGI(TAG, "Splash screen displayed successfully");
@@ -284,7 +285,7 @@ esp_err_t splash_screen_display_setup_complete(const char *hostname)
     }
 
     ESP_LOGI(TAG, "Displaying setup complete screen");
-    epaper_display(epd_buffer);
+    display_manager_refresh_panel(epd_buffer);
 
     heap_caps_free(epd_buffer);
     ESP_LOGI(TAG, "Setup complete screen displayed successfully");

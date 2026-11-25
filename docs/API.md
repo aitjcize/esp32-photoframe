@@ -188,6 +188,7 @@ Get current device configuration.
   "wifi_ssid": "MyNetwork",
   "display_orientation": "landscape",
   "display_rotation_deg": 180,
+  "display_mirror": false,
   "auto_rotate": true,
   "rotate_cron": ["0 */12 *"],
   "rotation_mode": "url",
@@ -223,6 +224,10 @@ Get current device configuration.
 - `ntp_server`: NTP server address
 - `display_orientation`: `"landscape"` or `"portrait"`
 - `display_rotation_deg`: Display rotation in degrees (0, 90, 180, 270)
+- `display_mirror`: Mirror the picture left to right on top of the board's own
+  panel setup, for a panel that scans the other way from the one the board was
+  built for (e.g. an ES103TC1 on a XIAO EE03). Applies from the next refresh;
+  the stored picture is not changed. Firmware without it omits the field.
 - `auto_rotate`: Enable automatic image rotation
 - `rotate_cron`: Array of 1 to 7 simplified 3-field cron expressions
   (`minute hour day-of-week`), evaluated in the device's `timezone`. The next

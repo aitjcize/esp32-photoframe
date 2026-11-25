@@ -19,6 +19,9 @@ static char device_name[DEVICE_NAME_MAX_LEN] = {0};
 static char tz_string[TIMEZONE_MAX_LEN] = {0};
 static display_orientation_t display_orientation = DISPLAY_ORIENTATION_LANDSCAPE;
 static int display_rotation_deg = BOARD_HAL_DISPLAY_ROTATION_DEG;
+// Mirror the picture left to right on top of the board's own panel setup, for
+// a panel that scans the other way from the one the board was built for (#161)
+static bool display_mirror = false;
 static char wifi_ssid[WIFI_SSID_MAX_LEN] = {0};
 static char wifi_password[WIFI_PASS_MAX_LEN] = {0};
 
@@ -255,6 +258,12 @@ esp_err_t config_manager_init(void)
                 ESP_LOGW(TAG, "Ignoring unsupported stored display rotation %ld degrees",
                          (long) stored_display_rotation_deg);
             }
+        }
+
+        uint8_t stored_mirror = 0;
+        if (nvs_get_u8(nvs_handle, NVS_DISPLAY_MIRROR_KEY, &stored_mirror) == ESP_OK) {
+            display_mirror = (stored_mirror != 0);
+            ESP_LOGI(TAG, "Loaded display mirror from NVS: %s", display_mirror ? "on" : "off");
         }
 
         size_t wifi_ssid_len = WIFI_SSID_MAX_LEN;
@@ -704,6 +713,25 @@ void config_manager_set_display_rotation_deg(int rotation_deg)
 int config_manager_get_display_rotation_deg(void)
 {
     return display_rotation_deg;
+}
+
+void config_manager_set_display_mirror(bool enabled)
+{
+    display_mirror = enabled;
+
+    nvs_handle_t nvs_handle;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {
+        nvs_set_u8(nvs_handle, NVS_DISPLAY_MIRROR_KEY, enabled ? 1 : 0);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+    }
+
+    ESP_LOGI(TAG, "Display mirror %s", enabled ? "on" : "off");
+}
+
+bool config_manager_get_display_mirror(void)
+{
+    return display_mirror;
 }
 
 void config_manager_set_wifi_ssid(const char *ssid)

@@ -190,6 +190,25 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/../main
 )
 
+# Mirroring the packed 4-bit frame buffer for panels that scan the other way
+# (#161)
+add_executable(
+  frame_mirror_test
+  test_frame_mirror.cpp
+  ../main/frame_mirror.c
+)
+
+target_link_libraries(
+  frame_mirror_test
+  GTest::gtest_main
+)
+
+target_include_directories(
+  frame_mirror_test
+  PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+)
+
 # Discover tests
 include(GoogleTest)
 gtest_discover_tests(cron_test)
@@ -198,6 +217,7 @@ gtest_discover_tests(http_auth_test)
 gtest_discover_tests(network_backoff_test)
 gtest_discover_tests(image_pick_test)
 gtest_discover_tests(crash_record_test)
+gtest_discover_tests(frame_mirror_test)
 gtest_discover_tests(wifi_retry_test)
 gtest_discover_tests(jpeg_header_test)
 gtest_discover_tests(rtc_clock_test)

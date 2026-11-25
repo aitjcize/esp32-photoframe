@@ -18,6 +18,15 @@ const char *display_manager_get_current_image(void);
 void display_manager_initialize_paint(void);
 
 /**
+ * @brief Refresh the panel from a native-layout 4-bit frame buffer
+ *
+ * Every panel refresh goes through here so the display_mirror setting applies
+ * to pictures, the calibration pattern and the splash screens alike. The
+ * buffer is left as it was passed in.
+ */
+void display_manager_refresh_panel(uint8_t *buf);
+
+/**
  * @brief Display an RGB buffer directly on the e-paper display
  *
  * This function takes an already-processed RGB buffer (with colors matching
