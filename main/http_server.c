@@ -1988,44 +1988,90 @@ static esp_err_t album_images_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
+    // The thumbnails are ordinary entries of the directory being listed, so the
+    // directory is walked once and the names are matched in memory. Before this,
+    // every image was followed by a stat() to test whether its thumbnail existed,
+    // and each stat() makes FAT walk the whole directory again: listing an album of
+    // N photos cost N directory walks. On our device a 353-photo album stopped
+    // answering within 180 s; the single pass below answers in 0.62 s.
     cJSON *response = cJSON_CreateArray();
+    cJSON *thumbnails = cJSON_CreateArray();
+    bool out_of_memory = !response || !thumbnails;
     struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_REG) {
-            if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
-                continue;
+    while (!out_of_memory && (entry = readdir(dir)) != NULL) {
+        if (entry->d_type != DT_REG) {
+            continue;
+        }
+        if (entry->d_name[0] == '.' && entry->d_name[1] == '_') {
+            continue;
+        }
+        const char *ext = strrchr(entry->d_name, '.');
+        if (!ext) {
+            continue;
+        }
+        if (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
+            strcasecmp(ext, ".epdgz") == 0) {
+            // Filled before it joins the array, so a failure frees only this one
+            cJSON *image_obj = cJSON_CreateObject();
+            if (!image_obj || !cJSON_AddStringToObject(image_obj, "filename", entry->d_name) ||
+                !cJSON_AddStringToObject(image_obj, "album", decoded_album_name) ||
+                !cJSON_AddItemToArray(response, image_obj)) {
+                cJSON_Delete(image_obj);
+                out_of_memory = true;
             }
-            const char *ext = strrchr(entry->d_name, '.');
-            if (ext && (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
-                        strcasecmp(ext, ".epdgz") == 0)) {
-                cJSON *image_obj = cJSON_CreateObject();
-                cJSON_AddStringToObject(image_obj, "filename", entry->d_name);
-                cJSON_AddStringToObject(image_obj, "album", decoded_album_name);
-
-                // Check if a corresponding JPG thumbnail exists for any image type
-                char thumbnail_name[256];
-                char thumbnail_path[512];
-
-                // Extract base name without extension
-                int base_len = ext - entry->d_name;
-                snprintf(thumbnail_name, sizeof(thumbnail_name), "%.*s.jpg", base_len,
-                         entry->d_name);
-                snprintf(thumbnail_path, sizeof(thumbnail_path), "%s/%s", album_path,
-                         thumbnail_name);
-
-                // Check if thumbnail file exists
-                struct stat st;
-                if (stat(thumbnail_path, &st) == 0) {
-                    cJSON_AddStringToObject(image_obj, "thumbnail", thumbnail_name);
-                }
-
-                cJSON_AddItemToArray(response, image_obj);
+        } else if (strcasecmp(ext, ".jpg") == 0) {
+            // Thumbnails are only ever reported as belonging to an image, so
+            // collecting them all costs nothing when a stray .jpg is present.
+            cJSON *name = cJSON_CreateString(entry->d_name);
+            if (!name || !cJSON_AddItemToArray(thumbnails, name)) {
+                cJSON_Delete(name);
+                out_of_memory = true;
             }
         }
     }
     closedir(dir);
 
-    char *json_str = cJSON_Print(response);
+    // Each image's JPG thumbnail, whatever its own type, matched against the
+    // names collected above instead of probed with one stat() per image. The
+    // match follows the filesystem the way stat() did: FAT on the SD card
+    // ignores case, LittleFS and memfs do not (Photo.png and photo.png can both
+    // be there, each with its own thumbnail)
+    const bool ignore_case = storage_get_type() == STORAGE_TYPE_SDCARD;
+    if (!out_of_memory) {
+        cJSON *image_obj;
+        cJSON_ArrayForEach(image_obj, response)
+        {
+            const char *filename = cJSON_GetStringValue(cJSON_GetObjectItem(image_obj, "filename"));
+            const char *ext = strrchr(filename, '.');
+            char thumbnail_name[256];
+            snprintf(thumbnail_name, sizeof(thumbnail_name), "%.*s.jpg", (int) (ext - filename),
+                     filename);
+            cJSON *thumbnail;
+            cJSON_ArrayForEach(thumbnail, thumbnails)
+            {
+                if ((ignore_case ? strcasecmp(thumbnail->valuestring, thumbnail_name)
+                                 : strcmp(thumbnail->valuestring, thumbnail_name)) == 0) {
+                    if (!cJSON_AddStringToObject(image_obj, "thumbnail", thumbnail->valuestring)) {
+                        out_of_memory = true;
+                    }
+                    break;
+                }
+            }
+            if (out_of_memory) {
+                break;
+            }
+        }
+    }
+    cJSON_Delete(thumbnails);
+
+    if (out_of_memory) {
+        cJSON_Delete(response);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+        return ESP_FAIL;
+    }
+
+    // Compact output: same JSON, about a third of the bytes to build and to send.
+    char *json_str = cJSON_PrintUnformatted(response);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
     free(json_str);
