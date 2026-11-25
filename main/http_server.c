@@ -1946,36 +1946,6 @@ static esp_err_t album_enabled_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// Listing helpers for album_images_handler: the thumbnails live in the very same
-// directory, so one readdir() pass collects both lists and they are matched in
-// memory afterwards.
-static bool listing_append(char ***list, size_t *count, size_t *cap, const char *name)
-{
-    if (*count == *cap) {
-        size_t next = *cap ? *cap * 2 : 32;
-        char **grown = realloc(*list, next * sizeof(char *));
-        if (!grown) {
-            return false;
-        }
-        *list = grown;
-        *cap = next;
-    }
-    (*list)[*count] = strdup(name);
-    if (!(*list)[*count]) {
-        return false;
-    }
-    (*count)++;
-    return true;
-}
-
-static void listing_free(char **list, size_t count)
-{
-    for (size_t i = 0; i < count; i++) {
-        free(list[i]);
-    }
-    free(list);
-}
-
 static esp_err_t album_images_handler(httpd_req_t *req)
 {
     if (!system_ready) {
@@ -2023,13 +1993,11 @@ static esp_err_t album_images_handler(httpd_req_t *req)
     // and each stat() makes FAT walk the whole directory again: listing an album of
     // N photos cost N directory walks. On our device a 353-photo album stopped
     // answering within 180 s; the single pass below answers in 0.62 s.
-    char **images = NULL;
-    char **thumbnails = NULL;
-    size_t image_count = 0, thumbnail_count = 0;
-    size_t images_cap = 0, thumbnails_cap = 0;
-    bool out_of_memory = false;
+    cJSON *response = cJSON_CreateArray();
+    cJSON *thumbnails = cJSON_CreateArray();
+    bool out_of_memory = !response || !thumbnails;
     struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
+    while (!out_of_memory && (entry = readdir(dir)) != NULL) {
         if (entry->d_type != DT_REG) {
             continue;
         }
@@ -2042,52 +2010,64 @@ static esp_err_t album_images_handler(httpd_req_t *req)
         }
         if (strcasecmp(ext, ".bmp") == 0 || strcasecmp(ext, ".png") == 0 ||
             strcasecmp(ext, ".epdgz") == 0) {
-            if (!listing_append(&images, &image_count, &images_cap, entry->d_name)) {
+            // Filled before it joins the array, so a failure frees only this one
+            cJSON *image_obj = cJSON_CreateObject();
+            if (!image_obj || !cJSON_AddStringToObject(image_obj, "filename", entry->d_name) ||
+                !cJSON_AddStringToObject(image_obj, "album", decoded_album_name) ||
+                !cJSON_AddItemToArray(response, image_obj)) {
+                cJSON_Delete(image_obj);
                 out_of_memory = true;
-                break;
             }
         } else if (strcasecmp(ext, ".jpg") == 0) {
             // Thumbnails are only ever reported as belonging to an image, so
             // collecting them all costs nothing when a stray .jpg is present.
-            if (!listing_append(&thumbnails, &thumbnail_count, &thumbnails_cap, entry->d_name)) {
+            cJSON *name = cJSON_CreateString(entry->d_name);
+            if (!name || !cJSON_AddItemToArray(thumbnails, name)) {
+                cJSON_Delete(name);
                 out_of_memory = true;
-                break;
             }
         }
     }
     closedir(dir);
 
-    if (out_of_memory) {
-        listing_free(images, image_count);
-        listing_free(thumbnails, thumbnail_count);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
-        return ESP_FAIL;
-    }
-
-    cJSON *response = cJSON_CreateArray();
-    for (size_t i = 0; i < image_count; i++) {
-        cJSON *image_obj = cJSON_CreateObject();
-        cJSON_AddStringToObject(image_obj, "filename", images[i]);
-        cJSON_AddStringToObject(image_obj, "album", decoded_album_name);
-
-        // Corresponding JPG thumbnail for any image type, matched against the
-        // names collected above instead of probed with one stat() per image.
-        const char *ext = strrchr(images[i], '.');
-        char thumbnail_name[256];
-        snprintf(thumbnail_name, sizeof(thumbnail_name), "%.*s.jpg", (int) (ext - images[i]),
-                 images[i]);
-        for (size_t j = 0; j < thumbnail_count; j++) {
-            if (strcasecmp(thumbnails[j], thumbnail_name) == 0) {
-                cJSON_AddStringToObject(image_obj, "thumbnail", thumbnails[j]);
+    // Each image's JPG thumbnail, whatever its own type, matched against the
+    // names collected above instead of probed with one stat() per image. The
+    // match follows the filesystem the way stat() did: FAT on the SD card
+    // ignores case, LittleFS and memfs do not (Photo.png and photo.png can both
+    // be there, each with its own thumbnail)
+    const bool ignore_case = storage_get_type() == STORAGE_TYPE_SDCARD;
+    if (!out_of_memory) {
+        cJSON *image_obj;
+        cJSON_ArrayForEach(image_obj, response)
+        {
+            const char *filename = cJSON_GetStringValue(cJSON_GetObjectItem(image_obj, "filename"));
+            const char *ext = strrchr(filename, '.');
+            char thumbnail_name[256];
+            snprintf(thumbnail_name, sizeof(thumbnail_name), "%.*s.jpg", (int) (ext - filename),
+                     filename);
+            cJSON *thumbnail;
+            cJSON_ArrayForEach(thumbnail, thumbnails)
+            {
+                if ((ignore_case ? strcasecmp(thumbnail->valuestring, thumbnail_name)
+                                 : strcmp(thumbnail->valuestring, thumbnail_name)) == 0) {
+                    if (!cJSON_AddStringToObject(image_obj, "thumbnail", thumbnail->valuestring)) {
+                        out_of_memory = true;
+                    }
+                    break;
+                }
+            }
+            if (out_of_memory) {
                 break;
             }
         }
-
-        cJSON_AddItemToArray(response, image_obj);
     }
+    cJSON_Delete(thumbnails);
 
-    listing_free(images, image_count);
-    listing_free(thumbnails, thumbnail_count);
+    if (out_of_memory) {
+        cJSON_Delete(response);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+        return ESP_FAIL;
+    }
 
     // Compact output: same JSON, about a third of the bytes to build and to send.
     char *json_str = cJSON_PrintUnformatted(response);
