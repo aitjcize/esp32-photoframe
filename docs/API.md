@@ -9,8 +9,7 @@ All endpoints are relative to: `http://<device-ip>/`
 ## Authentication
 
 Off by default. When a device password is set (`http_password` via
-`PATCH /api/config`, or **Settings → General → Advanced network settings** in
-the web UI), every route is gated — the API, `/` and the web UI's assets alike.
+`PATCH /api/config`, or **Settings → General → Advanced** in the web UI), every route is gated — the API, `/` and the web UI's assets alike.
 `GET /api/config` reports `http_auth_enabled: true` while one is set; the
 password itself is never returned.
 

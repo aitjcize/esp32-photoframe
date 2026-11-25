@@ -462,8 +462,8 @@ async function performImport() {
     let authNote = "";
     if (typeof importedAuth === "boolean" && importedAuth !== deviceAuth) {
       authNote = importedAuth
-        ? " Exports never include the device password: set it again under General → Advanced network settings to require one."
-        : " The device password was left in place: turn it off under General → Advanced network settings if you want the frame open.";
+        ? " Exports never include the device password: set it again under General → Advanced to require one."
+        : " The device password was left in place: turn it off under General → Advanced if you want the frame open.";
     }
 
     const notTaken = await settingsNotTaken(importData.value.config);
@@ -701,10 +701,10 @@ async function performFactoryReset() {
                 </v-expand-transition>
               </v-col>
             </v-row>
-            <!-- Advanced network settings (#43, #130): collapsed by default — NTP,
-                 static IP and DNS override are tinkerer territory. -->
+            <!-- Advanced (#43, #130): collapsed by default — NTP, static IP, DNS
+                 override and the device password are tinkerer territory. -->
             <v-expansion-panels class="mt-2" variant="accordion">
-              <v-expansion-panel title="Advanced network settings" elevation="0">
+              <v-expansion-panel title="Advanced" elevation="0">
                 <v-expansion-panel-text>
                   <v-row>
                     <v-col cols="12" md="6">
