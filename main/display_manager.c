@@ -21,7 +21,6 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_system.h"
-#include "frame_mirror.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "image_pick.h"
@@ -129,20 +128,6 @@ esp_err_t display_manager_init(void)
 
     ESP_LOGI(TAG, "Display manager initialized");
     return ESP_OK;
-}
-
-void display_manager_refresh_panel(uint8_t *buf)
-{
-    // Mirrored for the refresh only and restored after, so a snapshot or
-    // badge drawn into the buffer later still sees the picture as laid out
-    const bool mirror = config_manager_get_display_mirror();
-    if (mirror) {
-        frame_mirror_x(buf, BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT);
-    }
-    epaper_display(buf);
-    if (mirror) {
-        frame_mirror_x(buf, BOARD_HAL_DISPLAY_WIDTH, BOARD_HAL_DISPLAY_HEIGHT);
-    }
 }
 
 void display_manager_initialize_paint(void)
@@ -307,7 +292,7 @@ esp_err_t display_manager_show_image(const char *filename)
     draw_low_battery_badge();
 
     ESP_LOGI(TAG, "Calling epaper_display...");
-    display_manager_refresh_panel(epd_image_buffer);
+    epaper_display(epd_image_buffer);
     ESP_LOGI(TAG, "epaper_display returned successfully");
 
     ESP_LOGI(TAG, "E-paper display update complete");
@@ -357,7 +342,7 @@ esp_err_t display_manager_show_rgb_buffer(const uint8_t *rgb_buffer, int width, 
     draw_low_battery_badge();
 
     ESP_LOGI(TAG, "Calling epaper_display...");
-    display_manager_refresh_panel(epd_image_buffer);
+    epaper_display(epd_image_buffer);
     ESP_LOGI(TAG, "epaper_display returned successfully");
 
     ESP_LOGI(TAG, "E-paper display update complete");
@@ -543,7 +528,7 @@ esp_err_t display_manager_end_rgb_stream(bool show, const display_publish_t *pub
         draw_low_battery_badge();
 
         ESP_LOGI(TAG, "Starting e-paper display update (this takes ~30 seconds)");
-        display_manager_refresh_panel(epd_image_buffer);
+        epaper_display(epd_image_buffer);
         ESP_LOGI(TAG, "E-paper display update complete");
 
         if (record) {
@@ -570,7 +555,7 @@ esp_err_t display_manager_clear(void)
     }
 
     epaper_clear(epd_image_buffer, EPD_7IN3E_WHITE);
-    display_manager_refresh_panel(epd_image_buffer);
+    epaper_display(epd_image_buffer);
 
     // Remove the current image link so API returns 404
     unlink(CURRENT_IMAGE_LINK);
@@ -602,7 +587,7 @@ esp_err_t display_manager_show_calibration(void)
     }
 
     // Display the buffer
-    display_manager_refresh_panel(epd_image_buffer);
+    epaper_display(epd_image_buffer);
 
     xSemaphoreGive(display_mutex);
 

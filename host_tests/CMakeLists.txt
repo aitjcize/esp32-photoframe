@@ -190,23 +190,22 @@ target_include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/../main
 )
 
-# Mirroring the packed 4-bit frame buffer for panels that scan the other way
-# (#161)
+# Row copies the panel drivers use to mirror the picture (#161)
 add_executable(
-  frame_mirror_test
-  test_frame_mirror.cpp
-  ../main/frame_mirror.c
+  epaper_row_test
+  test_epaper_row.cpp
+  ../components/epaper/src/epaper_row.c
 )
 
 target_link_libraries(
-  frame_mirror_test
+  epaper_row_test
   GTest::gtest_main
 )
 
 target_include_directories(
-  frame_mirror_test
+  epaper_row_test
   PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/../main
+  ${CMAKE_CURRENT_SOURCE_DIR}/../components/epaper/include
 )
 
 # Discover tests
@@ -217,7 +216,7 @@ gtest_discover_tests(http_auth_test)
 gtest_discover_tests(network_backoff_test)
 gtest_discover_tests(image_pick_test)
 gtest_discover_tests(crash_record_test)
-gtest_discover_tests(frame_mirror_test)
+gtest_discover_tests(epaper_row_test)
 gtest_discover_tests(wifi_retry_test)
 gtest_discover_tests(jpeg_header_test)
 gtest_discover_tests(rtc_clock_test)

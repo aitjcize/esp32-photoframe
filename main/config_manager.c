@@ -265,6 +265,9 @@ esp_err_t config_manager_init(void)
             display_mirror = (stored_mirror != 0);
             ESP_LOGI(TAG, "Loaded display mirror from NVS: %s", display_mirror ? "on" : "off");
         }
+        // board_hal_init has already brought up the panel driver, and nothing
+        // has been drawn yet
+        epaper_set_mirror(display_mirror);
 
         size_t wifi_ssid_len = WIFI_SSID_MAX_LEN;
         if (nvs_get_str(nvs_handle, NVS_WIFI_SSID_KEY, wifi_ssid, &wifi_ssid_len) == ESP_OK) {
@@ -718,6 +721,7 @@ int config_manager_get_display_rotation_deg(void)
 void config_manager_set_display_mirror(bool enabled)
 {
     display_mirror = enabled;
+    epaper_set_mirror(enabled);
 
     nvs_handle_t nvs_handle;
     if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle) == ESP_OK) {

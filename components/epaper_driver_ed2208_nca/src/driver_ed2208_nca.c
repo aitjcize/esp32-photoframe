@@ -4,6 +4,7 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "epaper.h"
+#include "epaper_row.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 
@@ -15,6 +16,9 @@ static const char *TAG = "epaper_ed2208_nca";
 
 static epaper_config_t g_cfg;
 static spi_device_handle_t spi;
+// epaper_set_mirror; may change from the web UI while a frame is being sent,
+// so a refresh reads it once
+static bool s_mirror = false;
 
 #ifdef CONFIG_PM_ENABLE
 static esp_pm_lock_handle_t pm_lock = NULL;
@@ -241,6 +245,24 @@ static uint8_t color_get(uint8_t c)
     }
 }
 
+// Fill line_buf with bytes [off, off + n) of a row as the panel gets them:
+// taken from the far end of the row with the pixels reversed when mirrored,
+// then mapped through color_get. Mirrored, the left controller thus gets the
+// right half of the picture and the right controller the left half.
+static void fill_line(uint8_t *line_buf, const uint8_t *row, size_t row_bytes, size_t off, size_t n,
+                      bool mirror)
+{
+    if (mirror) {
+        epaper_row_reverse_pixels(line_buf, row + row_bytes - off - n, n);
+    } else {
+        memcpy(line_buf, row + off, n);
+    }
+    for (size_t i = 0; i < n; i++) {
+        uint8_t b = line_buf[i];
+        line_buf[i] = (color_get((b >> 4) & 0x0F) << 4) | color_get(b & 0x0F);
+    }
+}
+
 // --- Public API ---
 
 uint16_t epaper_get_width(void)
@@ -282,6 +304,11 @@ void epaper_clear(uint8_t *image, uint8_t color)
     ESP_LOGI(TAG, "Clear complete");
 }
 
+void epaper_set_mirror(bool mirror)
+{
+    s_mirror = mirror;
+}
+
 void epaper_display(uint8_t *image)
 {
 #ifdef CONFIG_PM_ENABLE
@@ -308,6 +335,7 @@ void epaper_display(uint8_t *image)
     wait_busy("ccset");
 
     // Split transfer: left half via CS, right half via CS1
+    const bool mirror = s_mirror;
     uint16_t block_w_bytes = EPD_WIDTH / 2 / 2;  // 300 bytes (packed)
     uint16_t row_stride_bytes = EPD_WIDTH / 2;   // 600 bytes
 
@@ -338,12 +366,8 @@ void epaper_display(uint8_t *image)
     gpio_set_level(g_cfg.pin_dc, 1);  // DATA
 
     for (uint16_t row = 0; row < EPD_HEIGHT; row++) {
-        for (uint16_t col = 0; col < block_w_bytes; col++) {
-            uint8_t b = image[row * row_stride_bytes + col];
-            uint8_t p1 = (b >> 4) & 0x0F;
-            uint8_t p2 = b & 0x0F;
-            line_buf[col] = (color_get(p1) << 4) | color_get(p2);
-        }
+        fill_line(line_buf, image + (size_t) row * row_stride_bytes, row_stride_bytes, 0,
+                  block_w_bytes, mirror);
         spi_transaction_t t_line = {.length = block_w_bytes * 8, .tx_buffer = line_buf};
         spi_device_transmit(spi, &t_line);
     }
@@ -358,12 +382,8 @@ void epaper_display(uint8_t *image)
     gpio_set_level(g_cfg.pin_dc, 1);  // DATA
 
     for (uint16_t row = 0; row < EPD_HEIGHT; row++) {
-        for (uint16_t col = 0; col < block_w_bytes; col++) {
-            uint8_t b = image[row * row_stride_bytes + col + block_w_bytes];
-            uint8_t p1 = (b >> 4) & 0x0F;
-            uint8_t p2 = b & 0x0F;
-            line_buf[col] = (color_get(p1) << 4) | color_get(p2);
-        }
+        fill_line(line_buf, image + (size_t) row * row_stride_bytes, row_stride_bytes,
+                  block_w_bytes, block_w_bytes, mirror);
         spi_transaction_t t_line = {.length = block_w_bytes * 8, .tx_buffer = line_buf};
         spi_device_transmit(spi, &t_line);
     }

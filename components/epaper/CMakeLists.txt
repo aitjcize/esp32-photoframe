@@ -1,6 +1,5 @@
 idf_component_register(
-    SRCS ""
+    SRCS "src/epaper_row.c"
     INCLUDE_DIRS "include"
-    REQUIRES driver
     REQUIRES driver
 )

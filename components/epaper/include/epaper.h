@@ -67,6 +67,18 @@ void epaper_display(uint8_t *image);
 void epaper_clear(uint8_t *image, uint8_t color);
 
 /**
+ * @brief Mirror the picture left to right on the panel.
+ *
+ * For a panel that scans its rows the other way from the one the board was
+ * built for (#161). The driver mirrors each row as it sends it, so the image
+ * buffer is never modified. Takes effect at the next epaper_display(); safe to
+ * call before epaper_init().
+ *
+ * @param mirror true to mirror
+ */
+void epaper_set_mirror(bool mirror);
+
+/**
  * @brief Set the panel temperature in degrees Celsius.
  *
  * Controllers that select their display waveform by temperature (e.g. IT8951)

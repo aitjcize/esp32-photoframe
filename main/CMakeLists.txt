@@ -9,7 +9,6 @@ set(SOURCES
     "display_flow.c"
     "display_manager.c"
     "dns_server.c"
-    "frame_mirror.c"
     "ha_integration.c"
     "http_server.c"
     "image_pick.c"

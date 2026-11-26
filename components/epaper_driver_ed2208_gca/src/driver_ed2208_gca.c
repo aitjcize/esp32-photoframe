@@ -4,6 +4,7 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "epaper.h"
+#include "epaper_row.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 
@@ -15,6 +16,9 @@ static const char *TAG = "epaper_ed2208_gca";
 
 static epaper_config_t g_cfg;
 static spi_device_handle_t spi;
+// epaper_set_mirror; may change from the web UI while a frame is being sent,
+// so a refresh reads it once
+static bool s_mirror = false;
 
 #ifdef CONFIG_PM_ENABLE
 static esp_pm_lock_handle_t pm_lock = NULL;
@@ -105,31 +109,52 @@ static void send_command(uint8_t cmd)
     cmd_data(cmd, NULL, 0);
 }
 
+// Send one chunk of image data in its own CS window
+static void send_chunk(const uint8_t *buf, size_t len)
+{
+    gpio_set_level(g_cfg.pin_dc, 1);  // DC high = data
+    spi_begin();
+    gpio_set_level(g_cfg.pin_cs, 0);  // CS low
+    spi_write(buf, len);
+    gpio_set_level(g_cfg.pin_cs, 1);  // CS high
+    spi_end();
+}
+
 // Send image buffer in DATA_CHUNK_SIZE-byte chunks, each in its own CS window,
-// copied to a stack-local buffer to avoid PSRAM DMA issues.
-static void send_buffer(uint8_t *data, int len)
+// copied to a stack-local buffer to avoid PSRAM DMA issues. Mirrored, each row
+// is sent in chunks taken from its far end with the pixels reversed.
+static void send_buffer(const uint8_t *data, int len, bool mirror)
 {
     uint8_t buf[DATA_CHUNK_SIZE];
-    uint8_t *ptr = data;
-    int remaining = len;
 
-    ESP_LOGI(TAG, "Sending %d bytes in %d-byte chunks", len, DATA_CHUNK_SIZE);
+    ESP_LOGI(TAG, "Sending %d bytes in %d-byte chunks%s", len, DATA_CHUNK_SIZE,
+             mirror ? ", mirrored" : "");
 
-    while (remaining > 0) {
-        int chunk = (remaining > DATA_CHUNK_SIZE) ? DATA_CHUNK_SIZE : remaining;
+    if (mirror) {
+        const size_t row_bytes = EPD_WIDTH / 2;
+        for (const uint8_t *row = data; row < data + len; row += row_bytes) {
+            for (size_t off = 0; off < row_bytes; off += DATA_CHUNK_SIZE) {
+                size_t chunk = row_bytes - off;
+                if (chunk > DATA_CHUNK_SIZE) {
+                    chunk = DATA_CHUNK_SIZE;
+                }
+                epaper_row_reverse_pixels(buf, row + row_bytes - off - chunk, chunk);
+                send_chunk(buf, chunk);
+            }
+        }
+    } else {
+        const uint8_t *ptr = data;
+        int remaining = len;
+        while (remaining > 0) {
+            int chunk = (remaining > DATA_CHUNK_SIZE) ? DATA_CHUNK_SIZE : remaining;
 
-        // Copy to stack buffer (internal RAM) for reliable DMA
-        memcpy(buf, ptr, chunk);
+            // Copy to stack buffer (internal RAM) for reliable DMA
+            memcpy(buf, ptr, chunk);
+            send_chunk(buf, chunk);
 
-        gpio_set_level(g_cfg.pin_dc, 1);  // DC high = data
-        spi_begin();
-        gpio_set_level(g_cfg.pin_cs, 0);  // CS low
-        spi_write(buf, chunk);
-        gpio_set_level(g_cfg.pin_cs, 1);  // CS high
-        spi_end();
-
-        ptr += chunk;
-        remaining -= chunk;
+            ptr += chunk;
+            remaining -= chunk;
+        }
     }
 
     ESP_LOGI(TAG, "Buffer send complete");
@@ -257,7 +282,7 @@ static void display_update_cycle(uint8_t *image)
     wait_busy("init");
 
     send_command(0x10);  // DATA_START_TRANSMISSION
-    send_buffer(image, EPD_BUF_SIZE);
+    send_buffer(image, EPD_BUF_SIZE, s_mirror);
     wait_busy("data");
 
     send_command(0x04);  // POWER_ON
@@ -315,6 +340,11 @@ void epaper_clear(uint8_t *image, uint8_t color)
     ESP_LOGI(TAG, "Clearing display with color 0x%02x", color);
     display_update_cycle(image);
     ESP_LOGI(TAG, "Clear complete");
+}
+
+void epaper_set_mirror(bool mirror)
+{
+    s_mirror = mirror;
 }
 
 void epaper_display(uint8_t *image)

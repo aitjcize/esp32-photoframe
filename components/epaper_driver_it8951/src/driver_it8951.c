@@ -24,6 +24,7 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "epaper.h"
+#include "epaper_row.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -113,6 +114,8 @@ static it8951_dev_info_t s_dev = {.panel_w = 1872, .panel_h = 1404};
 // The panel's row scan direction (see epaper_config_t). The Seeed ED103TC2
 // boards (E1003, EE03) scan right to left; the M5Paper scans left to right.
 static bool s_scan_right_to_left = false;
+// The user's mirror setting (epaper_set_mirror), on top of the scan direction.
+static bool s_mirror = false;
 
 #ifdef CONFIG_PM_ENABLE
 // Block automatic light sleep during a display update: light sleep isolates the
@@ -467,6 +470,11 @@ void epaper_init(const epaper_config_t *cfg)
     it8951_set_temp(s_temp_c);
 }
 
+void epaper_set_mirror(bool mirror)
+{
+    s_mirror = mirror;
+}
+
 void epaper_set_temperature(int8_t celsius)
 {
     s_temp_c = celsius;
@@ -510,9 +518,12 @@ void epaper_display(uint8_t *image)
     // unit the IT8951 rebuilds from the SPI byte stream -- in reverse order
     // with each word's two bytes intact, exactly as Seeed's driver does; the
     // little-endian load above reverses the pixels inside each word. The
-    // bounce buffer also keeps SPI DMA off the PSRAM frame buffer (which it
-    // can't transmit from directly).
-    const size_t row_words = row_bytes / 2;
+    // user's mirror reverses every pixel on top of that, so a right-to-left
+    // panel then only needs each word's pixels reversed back. The bounce
+    // buffer also keeps SPI DMA off the PSRAM frame buffer (which it can't
+    // transmit from directly). The mirror is read once so a change from the
+    // web UI mid-stream can't mirror half a frame.
+    const bool mirror = s_mirror;
     wait_ready();
     // Hold the SPI bus exclusively for the whole CS-low image stream. CS stays
     // low across every row transmit below (toggling it mid-load resets the
@@ -526,12 +537,12 @@ void epaper_display(uint8_t *image)
     spi_write16(IT8951_PRE_WR_DATA);
     for (uint16_t y = 0; y < h; y++) {
         const uint8_t *src = image + (size_t) y * row_bytes;
-        if (s_scan_right_to_left) {
-            for (size_t wi = 0; wi < row_words; wi++) {
-                const uint8_t *sw = src + (row_words - 1 - wi) * 2;
-                s_dma_buf[wi * 2] = sw[0];
-                s_dma_buf[wi * 2 + 1] = sw[1];
-            }
+        if (s_scan_right_to_left && mirror) {
+            epaper_row_reverse_pixels_in_words(s_dma_buf, src, row_bytes);
+        } else if (s_scan_right_to_left) {
+            epaper_row_reverse_words(s_dma_buf, src, row_bytes);
+        } else if (mirror) {
+            epaper_row_reverse_pixels(s_dma_buf, src, row_bytes);
         } else {
             memcpy(s_dma_buf, src, row_bytes);
         }
