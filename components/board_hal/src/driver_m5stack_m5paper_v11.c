@@ -175,10 +175,9 @@ esp_err_t board_hal_init(void)
         .panel_w = BOARD_HAL_EPD_PANEL_WIDTH,
         .panel_h = BOARD_HAL_EPD_PANEL_HEIGHT,
         .vcom_mv = BOARD_HAL_EPD_VCOM_MV,
-        // M5Stack's driver loads 4bpp data big-endian and writes rows straight
-        // through — this panel scans left-to-right, unlike the Seeed ED103TC2.
-        .big_endian = true,
-        .mirror_x = false,
+        // This panel scans left-to-right, unlike the Seeed ED103TC2 (M5Stack's
+        // driver loads 4bpp data big-endian and writes rows straight through).
+        .scan_right_to_left = false,
     };
     epaper_init(&ep_cfg);
 

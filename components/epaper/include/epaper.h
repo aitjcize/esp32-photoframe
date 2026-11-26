@@ -40,12 +40,11 @@ typedef struct {
     // VCOM magnitude in mV to program explicitly, e.g. 2300 for -2.30 V (0 =
     // keep whatever is stored in the controller's waveform flash).
     int vcom_mv;
-    // Load image data big-endian rather than little-endian. Which one is right
-    // is a property of the panel wiring, and getting it wrong swaps pixel pairs.
-    bool big_endian;
-    // Emit each row's 16-bit words in reverse order, for panels that scan
-    // right-to-left (the Seeed ED103TC2 does; the M5Paper ED047TC2 does not).
-    bool mirror_x;
+    // The panel's source lines run right to left, so a row has to reach it in
+    // reverse pixel order (the Seeed ED103TC2 does; the M5Paper ED047TC2 and
+    // the ES103TC1 do not). The driver picks the image-load byte order and row
+    // order to match; see driver_it8951.c.
+    bool scan_right_to_left;
 } epaper_config_t;
 
 /**

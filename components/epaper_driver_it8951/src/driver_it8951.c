@@ -9,10 +9,12 @@
 // Protocol reference: ITE IT8951 / Waveshare IT8951 HAT sample code.
 //
 // HARDWARE-VALIDATION NOTES (untested without the board):
-//   - 4bpp pixel/endian order: the server packs 2 px/byte (high nibble = first
-//     pixel). If the panel shows pixel pairs swapped, set
-//     epaper_config_t.big_endian in the board driver (or swap nibbles in the
-//     server's createEPDGZ). This is the #1 IT8951 bring-up gotcha.
+//   - Pixel order: the frame buffer packs 2 px/byte (high nibble = first
+//     pixel), and the IT8951 unpacks each 16-bit word of 4 pixels in an order
+//     set by the image-load endianness. Get the panel's scan direction wrong
+//     (epaper_config_t.scan_right_to_left) and the picture comes out mirrored,
+//     or with every group of 4 pixels reversed. This is the #1 IT8951 bring-up
+//     gotcha.
 //   - VCOM: we read (and log) the value stored in the IT8951 waveform flash
 //     rather than override it. If contrast is off, set it explicitly to the
 //     value printed on the panel FPC.
@@ -57,7 +59,7 @@ static const char *TAG = "it8951";
 #define IT8951_PRE_WR_DATA 0x0000
 #define IT8951_PRE_RD_DATA 0x1000
 
-// ---- Image load: 4bpp, no rotation. Endianness is per-board (s_big_endian). ----
+// ---- Image load: 4bpp, no rotation. Endianness follows s_scan_right_to_left. ----
 #define IT8951_BPP_4 2  // pixel-format field: 0=2bpp,1=3bpp,2=4bpp,3=8bpp
 #define IT8951_LD_ENDIAN_LITTLE 0
 #define IT8951_LD_ENDIAN_BIG 1
@@ -108,12 +110,9 @@ static int8_t s_temp_c = IT8951_DEFAULT_TEMP_C;  // panel temperature for wavefo
 // Default to the ED103TC2 geometry until GetSystemInfo reports the real values;
 // a board can seed its own panel size via epaper_config_t.panel_w/panel_h.
 static it8951_dev_info_t s_dev = {.panel_w = 1872, .panel_h = 1404};
-// Image-load byte order and row scan direction, both panel-specific (see
-// epaper_config_t). Defaults are little-endian and unmirrored, which is the
-// M5Paper; the Seeed ED103TC2 boards (E1003, EE03) set mirror_x. A new IT8951
-// board that renders mirrored has forgotten it.
-static bool s_big_endian = false;
-static bool s_mirror_x = false;
+// The panel's row scan direction (see epaper_config_t). The Seeed ED103TC2
+// boards (E1003, EE03) scan right to left; the M5Paper scans left to right.
+static bool s_scan_right_to_left = false;
 
 #ifdef CONFIG_PM_ENABLE
 // Block automatic light sleep during a display update: light sleep isolates the
@@ -367,8 +366,7 @@ void epaper_init(const epaper_config_t *cfg)
     s_pin_rst = cfg->pin_rst;
     s_pin_busy = cfg->pin_busy;      // HRDY
     s_pin_enable = cfg->pin_enable;  // EPD bias enable (optional)
-    s_big_endian = cfg->big_endian;
-    s_mirror_x = cfg->mirror_x;
+    s_scan_right_to_left = cfg->scan_right_to_left;
     if (cfg->panel_w > 0 && cfg->panel_h > 0) {
         s_dev.panel_w = (uint16_t) cfg->panel_w;
         s_dev.panel_h = (uint16_t) cfg->panel_h;
@@ -495,7 +493,11 @@ void epaper_display(uint8_t *image)
 
     // Load full-frame image area (4bpp).
     it8951_write_cmd(IT8951_TCON_LD_IMG_AREA);
-    const uint16_t ld_endian = s_big_endian ? IT8951_LD_ENDIAN_BIG : IT8951_LD_ENDIAN_LITTLE;
+    // Big-endian unpacks each word's 4 pixels in frame-buffer order;
+    // little-endian unpacks them reversed. Little-endian plus reversing the
+    // row's words below reverses every pixel, for right-to-left panels.
+    const uint16_t ld_endian =
+        s_scan_right_to_left ? IT8951_LD_ENDIAN_LITTLE : IT8951_LD_ENDIAN_BIG;
     it8951_write_data((ld_endian << 8) | (IT8951_BPP_4 << 4) | IT8951_LD_ROTATE);
     it8951_write_data(0);  // x
     it8951_write_data(0);  // y
@@ -504,13 +506,12 @@ void epaper_display(uint8_t *image)
 
     // Stream the image in ONE CS-low session (single 0x0000 write preamble, all
     // data back-to-back; toggling CS mid-load resets the IT8951 write pointer).
-    // Panels that scan each row right-to-left (the ED103TC2 does; s_mirror_x)
-    // need it mirrored -- but at 16-bit *word* granularity (the unit the IT8951
-    // reconstructs from the SPI byte stream): emit the row's words in reverse
-    // order while keeping each word's two bytes intact, exactly as Seeed's
-    // driver does. Reversing at byte granularity would swap the two bytes inside
-    // each word and scramble pixels locally. The bounce buffer also keeps SPI
-    // DMA off the PSRAM frame buffer (which it can't transmit from directly).
+    // Right-to-left panels (the ED103TC2) get each row's 16-bit words -- the
+    // unit the IT8951 rebuilds from the SPI byte stream -- in reverse order
+    // with each word's two bytes intact, exactly as Seeed's driver does; the
+    // little-endian load above reverses the pixels inside each word. The
+    // bounce buffer also keeps SPI DMA off the PSRAM frame buffer (which it
+    // can't transmit from directly).
     const size_t row_words = row_bytes / 2;
     wait_ready();
     // Hold the SPI bus exclusively for the whole CS-low image stream. CS stays
@@ -525,7 +526,7 @@ void epaper_display(uint8_t *image)
     spi_write16(IT8951_PRE_WR_DATA);
     for (uint16_t y = 0; y < h; y++) {
         const uint8_t *src = image + (size_t) y * row_bytes;
-        if (s_mirror_x) {
+        if (s_scan_right_to_left) {
             for (size_t wi = 0; wi < row_words; wi++) {
                 const uint8_t *sw = src + (row_words - 1 - wi) * 2;
                 s_dma_buf[wi * 2] = sw[0];
